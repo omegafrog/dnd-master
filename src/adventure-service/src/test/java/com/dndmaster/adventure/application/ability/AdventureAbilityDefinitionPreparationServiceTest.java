@@ -336,8 +336,28 @@ class AdventureAbilityDefinitionPreparationServiceTest {
         var service = new AdventureAbilityDefinitionPreparationService(definitions, packages, knowledgeSets,
                 sessions, mock(RuntimeCharacterSheetReadPort.class), evidenceSearch,
                 mock(RuntimeEvidenceLocationLookupPort.class), bindings, gm, JSON);
-
-        service.prepare(new AdventureId(packageId), sessionKey, new OwnerPlayerId(ownerId), List.of("ability:blink"));
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(
+                AdventureAbilityDefinitionPreparationService.class);
+        var searchAppender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        searchAppender.start();
+        logger.addAppender(searchAppender);
+        String priorDiagnostics = System.getProperty(DevelopmentDiagnostics.FLAG);
+        System.setProperty(DevelopmentDiagnostics.FLAG, "true");
+        try {
+            service.prepare(new AdventureId(packageId), sessionKey, new OwnerPlayerId(ownerId), List.of("ability:blink"));
+            String logs = searchAppender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            assertThat(logs).contains("outcome=source_type_search_failure", "sourceType=RULEBOOK",
+                    "queryResult=unavailable;aggregateEvidenceCount=0", "failureKind=IllegalStateException",
+                    "recovery=search_other_selected_source_type", "outcome=source_type_search_complete",
+                    "sourceType=STORYBOOK;queryResultCount=1;aggregateEvidenceCount=1",
+                    "outcome=evidence_query_complete", "queryResultCount=1;aggregateEvidenceCount=1",
+                    "failureKind=none", "recovery=try_next_distinct_query");
+        } finally {
+            logger.detachAppender(searchAppender);
+            if (priorDiagnostics == null) System.clearProperty(DevelopmentDiagnostics.FLAG);
+            else System.setProperty(DevelopmentDiagnostics.FLAG, priorDiagnostics);
+        }
 
         verify(evidenceSearch, org.mockito.Mockito.atLeastOnce()).search(
                 org.mockito.ArgumentMatchers.argThat(request -> request.evidenceType() == RuntimeEvidenceType.STORYBOOK));
@@ -347,8 +367,6 @@ class AdventureAbilityDefinitionPreparationServiceTest {
                 new java.io.IOException("temporary provider failure")))
                 .thenThrow(new TransientInitialSituationGmFailureException(
                         new java.io.IOException("temporary provider failure")));
-        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(
-                AdventureAbilityDefinitionPreparationService.class);
         var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
         appender.start();
         logger.addAppender(appender);
@@ -379,9 +397,25 @@ class AdventureAbilityDefinitionPreparationServiceTest {
         verify(definitions, times(1)).prepare(packageId, "ability:blink", validDefinition(storyDocumentId));
 
         org.mockito.Mockito.doReturn(List.of()).when(evidenceSearch).search(any());
-        assertThatThrownBy(() -> service.prepare(new AdventureId(packageId), sessionKey,
-                new OwnerPlayerId(ownerId), List.of("ability:blink")))
-                .isInstanceOf(AbilityDefinitionSourceInputRequiredException.class);
+        var emptyAppender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        emptyAppender.start();
+        logger.addAppender(emptyAppender);
+        String previousDiagnostics = System.getProperty(DevelopmentDiagnostics.FLAG);
+        System.setProperty(DevelopmentDiagnostics.FLAG, "true");
+        try {
+            assertThatThrownBy(() -> service.prepare(new AdventureId(packageId), sessionKey,
+                    new OwnerPlayerId(ownerId), List.of("ability:blink")))
+                    .isInstanceOf(AbilityDefinitionSourceInputRequiredException.class);
+            String logs = emptyAppender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            assertThat(logs).contains("outcome=search_query_empty", "queryResultCount=0;aggregateEvidenceCount=0",
+                    "failureKind=none", "recovery=try_next_distinct_query", "outcome=source_input_required",
+                    "failureKind=AbilityEvidenceRecoveryExhaustedException", "recovery=resubmit_source_definition");
+        } finally {
+            logger.detachAppender(emptyAppender);
+            if (previousDiagnostics == null) System.clearProperty(DevelopmentDiagnostics.FLAG);
+            else System.setProperty(DevelopmentDiagnostics.FLAG, previousDiagnostics);
+        }
 
         var partialSearches = new java.util.concurrent.atomic.AtomicInteger();
         org.mockito.Mockito.doAnswer(invocation -> {

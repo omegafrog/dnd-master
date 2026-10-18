@@ -234,7 +234,8 @@ public final class AdventureAbilityDefinitionPreparationService {
         return switch (outcome) {
             case "started" -> "prepare_definition";
             case "complete" -> "none";
-            case "search_retry" -> "try_next_distinct_query";
+            case "search_retry", "search_query_empty" -> "try_next_distinct_query";
+            case "source_type_search_complete" -> "continue_search_and_retain_evidence";
             case "source_type_search_failure" -> "search_other_selected_source_type";
             case "evidence_query_complete" -> "try_next_distinct_query";
             case "generation_retry" -> "retry_transient_provider_once";
@@ -297,14 +298,15 @@ public final class AdventureAbilityDefinitionPreparationService {
                 completedQueries++;
                 lastSuccessfulResult = result;
                 collectedEvidence.addAll(result.evidence());
-                diagnostic(collectedEvidence.isEmpty() ? "search_retry" : "evidence_query_complete", adventureId,
-                        sessionId, abilityId, collectedEvidence.size(), "evidence_candidates",
-                        (System.nanoTime() - started) / 1_000_000,
-                        "query_results=" + result.evidence().size());
+                diagnostic(result.evidence().isEmpty() ? "search_query_empty" : "evidence_query_complete",
+                        adventureId, sessionId, abilityId, collectedEvidence.size(), "evidence_candidates",
+                        (System.nanoTime() - started) / 1_000_000, "none",
+                        "queryResultCount=" + result.evidence().size() + ";aggregateEvidenceCount=" + collectedEvidence.size());
             } catch (RuntimeException failure) {
                 lastFailure = failure;
                 diagnostic("search_retry", adventureId, sessionId, abilityId, collectedEvidence.size(), "evidence_candidates",
-                        (System.nanoTime() - started) / 1_000_000, failure.getClass().getSimpleName());
+                        (System.nanoTime() - started) / 1_000_000, failure.getClass().getSimpleName(),
+                        "queryResult=unavailable;aggregateEvidenceCount=" + collectedEvidence.size());
             }
         }
         if (!collectedEvidence.isEmpty() && lastSuccessfulResult != null)
@@ -335,12 +337,14 @@ public final class AdventureAbilityDefinitionPreparationService {
                 result.addAll(found);
                 diagnostic("source_type_search_complete", adventureId, sessionId, abilityId, result.size(),
                         "independent_evidence_search", (System.nanoTime() - searchStarted) / 1_000_000,
-                        type.name() + ":results=" + found.size());
+                        "none", "sourceType=" + type.name() + ";queryResultCount=" + found.size()
+                                + ";aggregateEvidenceCount=" + result.size());
             } catch (RuntimeException failure) {
                 lastFailure = failure;
                 diagnostic("source_type_search_failure", adventureId, sessionId, abilityId, result.size(),
                         "other_selected_source_types", (System.nanoTime() - searchStarted) / 1_000_000,
-                        type.name() + ":" + failure.getClass().getSimpleName());
+                        failure.getClass().getSimpleName(), "sourceType=" + type.name()
+                                + ";queryResult=unavailable;aggregateEvidenceCount=" + result.size());
             }
         }
         if (result.isEmpty() && lastFailure != null) throw lastFailure;
