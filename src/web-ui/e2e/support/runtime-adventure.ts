@@ -9,19 +9,22 @@ const backend = process.env.BACKEND_E2E_URL
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
 const storybooks = JSON.parse(process.env.BACKEND_E2E_STORYBOOKS_JSON ?? '[]') as Array<{ path: string, role: string }>
-export const explorationGroupStorybooks = [
-  { path: '/home/jiwoo/workspace/dnd-master/docs/assets/344-compact-combat-main.pdf', role: 'MAIN_SCENARIO' },
-  { path: '/home/jiwoo/workspace/dnd-master/docs/assets/344-compact-combat-map.pdf', role: 'MAP' },
-  { path: '/home/jiwoo/workspace/dnd-master/docs/assets/344-compact-combat-handout.pdf', role: 'HANDOUT' },
-] as const
 const root = new URL('../../../..', import.meta.url).pathname
+export const explorationGroupStorybooks = [
+  { path: new URL('../fixtures/exploration-groups-main.pdf', import.meta.url).pathname, role: 'MAIN_SCENARIO' },
+  { path: new URL('../fixtures/exploration-groups-map.pdf', import.meta.url).pathname, role: 'MAP' },
+] as const
 const composeFile = `${root}src/infra/compose.yaml`
 
 type Auth = { ownerPlayerId: string, headers: Record<string, string> }
 type PreparedPackage = { packageId: string, blueprintRevision: number }
 
 export function hasRuntimeEnvironment() {
-  return Boolean(backend && email && password && storybooks.length)
+  return hasRuntimeCredentials() && storybooks.length > 0
+}
+
+export function hasRuntimeCredentials() {
+  return Boolean(backend && email && password)
 }
 
 export function assertPotentBrewStorybooks(sources = storybooks) {
@@ -38,8 +41,8 @@ export function isStorybookReady(status: string) {
   return ['EXTRACTED', 'INDEXED', 'INDEXED_WITH_WARNINGS', 'PARTIAL_CONFIRMED'].includes(status)
 }
 
-export function sessionCreationPayload(packageId: string, blueprintRevision: number, partySize: number, preparationId: string) {
-  return { scenarioPackageId: packageId, blueprintId: packageId, blueprintRevision, partySize, preparationId }
+export function sessionCreationPayload(packageId: string, blueprintRevision: number, partySize: number) {
+  return { scenarioPackageId: packageId, blueprintId: packageId, blueprintRevision, partySize }
 }
 
 export async function bootstrapStartedAdventure(request: APIRequestContext, partyMemberCount = 1, sources = storybooks) {
@@ -126,12 +129,7 @@ async function login(request: APIRequestContext): Promise<Auth> {
 }
 
 async function createPreparedPackage(request: APIRequestContext, auth: Auth, sources: ReadonlyArray<{ path: string, role: string }>): Promise<PreparedPackage> {
-  const catalog = await request.get(`${backend}/api/v1/rulebook-catalog`)
-  expect(catalog.ok(), await catalog.text()).toBeTruthy()
-  const rulebook = (await catalog.json() as Array<{ edition: string, rulebookId: string | null, status: string }>)
-    .find(entry => entry.edition === 'DND_5E_2014' && entry.status === 'READY' && entry.rulebookId)
-  expect(rulebook).toBeTruthy()
-  const documents: Array<{ knowledgeDocumentId: string, role: string }> = [{ knowledgeDocumentId: rulebook!.rulebookId!, role: 'RULEBOOK' }]
+  const documents: Array<{ knowledgeDocumentId: string, role: string }> = []
   for (const source of sources) {
     const contents = await readFile(source.path)
     const multipart = new FormData()
@@ -152,6 +150,7 @@ async function createPreparedPackage(request: APIRequestContext, auth: Auth, sou
   const job = await compile.json() as { compilationId: string }
   const packageId = await waitForCompilation(request, auth, job.compilationId)
   const preparation = await waitForPreparation(request, auth, packageId)
+  expect(preparation.spellDefinitions, 'the group-flow scenario must not declare package-wide spell/action definitions').toEqual([])
   if (preparation.characterCreationBlueprint.status !== 'PUBLISHED') {
     const publish = await request.post(`${backend}/api/v1/scenario-packages/${packageId}/character-blueprint/publish`, { headers: auth.headers })
     expect(publish.ok(), await publish.text()).toBeTruthy()
@@ -161,31 +160,8 @@ async function createPreparedPackage(request: APIRequestContext, auth: Auth, sou
 }
 
 async function createSession(request: APIRequestContext, auth: Auth, prepared: PreparedPackage, partyMemberCount: number) {
-  const reviewResponse = await request.post(`${backend}/api/v1/scenario-packages/${prepared.packageId}/play-preparations`, {
-    headers: { ...auth.headers, 'Idempotency-Key': crypto.randomUUID() },
-  })
-  expect(reviewResponse.ok(), await reviewResponse.text()).toBeTruthy()
-  let review = await reviewResponse.json() as {
-    preparationId: string,
-    spellDefinitionRevision: number,
-    spellDefinitions: Array<{ id: string, active: boolean, required: boolean, executable: boolean,
-      reviewStatus: string, rangeProfile?: { supported: boolean }, targetingProfile?: { supported: boolean } }>,
-  }
-  const requiredPending = review.spellDefinitions.filter(definition => definition.active && definition.required
-    && definition.reviewStatus !== 'APPROVED')
-  for (const definition of requiredPending) {
-    expect(definition.executable && definition.rangeProfile?.supported && definition.targetingProfile?.supported,
-      `required action ${definition.id} must be supported before session creation`).toBe(true)
-    const approval = await request.post(`${backend}/api/v1/play-preparations/${review.preparationId}`
-      + `/spell-action-definitions/${encodeURIComponent(definition.id)}/approve`, {
-      headers: auth.headers,
-      data: { expectedRevision: review.spellDefinitionRevision },
-    })
-    expect(approval.ok(), await approval.text()).toBeTruthy()
-    review = await approval.json() as typeof review
-  }
   const response = await request.post(`${backend}/api/v1/adventure-sessions`, { headers: auth.headers,
-    data: sessionCreationPayload(prepared.packageId, prepared.blueprintRevision, partyMemberCount, review.preparationId) })
+    data: sessionCreationPayload(prepared.packageId, prepared.blueprintRevision, partyMemberCount) })
   expect(response.ok(), await response.text()).toBeTruthy()
   return response.json() as Promise<{ sessionId: string, version: number }>
 }
@@ -230,7 +206,8 @@ async function waitForPreparation(request: APIRequestContext, auth: Auth, packag
   for (;;) {
     const response = await request.get(`${backend}/api/v1/scenario-packages/${packageId}/play-preparation`, { headers: auth.headers })
     expect(response.ok(), await response.text()).toBeTruthy()
-    const value = await response.json() as { status: string, failureReason?: string, characterCreationBlueprint: { available: boolean, status: string, revision?: number } }
+    const value = await response.json() as { status: string, failureReason?: string, spellDefinitions: unknown[],
+      characterCreationBlueprint: { available: boolean, status: string, revision?: number } }
     if (value.status === 'READY' && value.characterCreationBlueprint.available) return value
     if (['FAILED', 'REJECTED', 'NEEDS_INPUT'].includes(value.status)
       || ['FAILED', 'REJECTED', 'NEEDS_INPUT'].includes(value.characterCreationBlueprint.status)) {

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { assertPotentBrewStorybooks, bootstrapStartedAdventure, explorationGroupStorybooks, hasRuntimeEnvironment, isStorybookReady,
+import { bootstrapStartedAdventure, explorationGroupStorybooks, hasRuntimeCredentials, isStorybookReady,
   sessionCreationPayload } from './support/runtime-adventure'
 
 const email = process.env.BACKEND_E2E_EMAIL
@@ -10,25 +10,21 @@ test('storybook extraction warnings are terminal when the indexed content remain
   expect(isStorybookReady('PROCESSING')).toBe(false)
 })
 
-test('adventure session creation binds the reviewed action preparation', () => {
-  expect(sessionCreationPayload('package-1', 3, 2, 'preparation-1')).toEqual({
-    scenarioPackageId: 'package-1', blueprintId: 'package-1', blueprintRevision: 3,
-    partySize: 2, preparationId: 'preparation-1',
+test('group-flow session creation omits package-wide ability review', () => {
+  expect(sessionCreationPayload('package-1', 3, 2)).toEqual({
+    scenarioPackageId: 'package-1', blueprintId: 'package-1', blueprintRevision: 3, partySize: 2,
   })
 })
 
-test('exploration group bootstrap uses the compact combat source fixture', () => {
+test('exploration group bootstrap uses a non-combat map fixture', () => {
   expect(explorationGroupStorybooks.map(source => [source.role, source.path.split('/').at(-1)])).toEqual([
-    ['MAIN_SCENARIO', '344-compact-combat-main.pdf'],
-    ['MAP', '344-compact-combat-map.pdf'],
-    ['HANDOUT', '344-compact-combat-handout.pdf'],
+    ['MAIN_SCENARIO', 'exploration-groups-main.pdf'],
+    ['MAP', 'exploration-groups-map.pdf'],
   ])
-  assertPotentBrewStorybooks(explorationGroupStorybooks)
 })
 
 test('지도에서 나눈 그룹과 대열을 저장하고 다시 불러온다', async ({ page, request }) => {
-  test.skip(!hasRuntimeEnvironment(), '실제 백엔드 로그인과 MAIN_SCENARIO, MAP, HANDOUT 자료가 필요합니다')
-  assertPotentBrewStorybooks()
+  test.skip(!hasRuntimeCredentials(), '실제 백엔드 로그인 정보가 필요합니다')
   test.setTimeout(0)
 
   const adventure = await bootstrapStartedAdventure(request, 2, explorationGroupStorybooks)
