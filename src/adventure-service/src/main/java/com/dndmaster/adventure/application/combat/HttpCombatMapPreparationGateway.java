@@ -107,6 +107,25 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
         return sendPrepare(adventureId, ownerPlayerId, ruleSetId, null, stagePosition, context);
     }
 
+    @Override
+    public void deactivateForMaplessSituation(AdventureId adventureId, UUID ownerPlayerId) {
+        URI uri = baseUri.resolve("internal/v1/adventures/" + adventureId.value()
+                + "/combat-map/deactivate?ownerId=" + ownerPlayerId);
+        try {
+            HttpRequest request = HttpRequest.newBuilder(uri).timeout(timeout)
+                    .header("X-Internal-Token", internalToken).POST(HttpRequest.BodyPublishers.noBody()).build();
+            HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("combat map deactivation failed with status " + response.statusCode());
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException("combat map deactivation transport failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("combat map deactivation interrupted", exception);
+        }
+    }
+
     private UUID sendPrepare(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
             MapDefinition mapDefinition, Integer stagePosition, CombatMapPreparationPort.ActivationContext context) {
         String identity = commandIdentity(adventureId, mapDefinition, stagePosition, context);
@@ -119,7 +138,8 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
         ScenarioSpatialFeaturePreparationResult spatial = prepareSpatialFeatures(mapDefinition);
         Request payload = new Request(adventureId.value(), ownerPlayerId, ruleSetId.value(), mapDefinition == null ? null : mapDefinition.id(),
                 mapDefinition == null ? null : mapDefinition.assetId(), mapDefinition == null ? null : mapDefinition.assetLocator(), stagePosition,
-                context.placementProposalX(), context.placementProposalY(), context.playerTokenId(), context.situationId(),
+                playerSpawnX(context), playerSpawnY(context),
+                context.playerTokenId(), context.situationId(),
                 context.situationRevision(), context.turnIndex(), context.currentScene(), context.location(), context.entryEvidence(),
                 mapDefinition == null ? List.of() : mapDefinition.walls(), mapDefinition == null ? List.of() : mapDefinition.doors(), mapDefinition == null ? List.of() : mapDefinition.obstacles(),
                 mapDefinition == null || mapDefinition.source() == null ? null : mapDefinition.source().knowledgeDocumentId().value(),
@@ -219,6 +239,14 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
 
     private static String phase(MapDefinition mapDefinition, Integer stagePosition) {
         return mapDefinition == null ? "ACTIVATE" : stagePosition == null ? "DRAFT" : "INITIAL";
+    }
+
+    private static Integer playerSpawnX(CombatMapPreparationPort.ActivationContext context) {
+        return context.placementProposalX();
+    }
+
+    private static Integer playerSpawnY(CombatMapPreparationPort.ActivationContext context) {
+        return context.placementProposalY();
     }
 
     private record Request(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId,

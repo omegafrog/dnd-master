@@ -2,7 +2,12 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { AdventureSessionPanel } from './AdventureSessionPanel'
-import type { AdventureSessionApi, AdventureSessionView } from './AdventureSessionApi'
+import { AdventureSessionRequestError, type AdventureSessionApi, type AdventureSessionView } from './AdventureSessionApi'
+import type { AdventurePlayApi } from '../saved-adventures/AdventurePlayApi'
+
+vi.mock('../combat-map/CombatMapView', () => ({
+  CombatMapView: ({ onPreparationComplete }: { onPreparationComplete: () => void }) => <button type="button" onClick={onPreparationComplete}>수동 시작 위치 저장</button>,
+}))
 
 describe('AdventureSessionPanel lifecycle', () => {
   it('allows a direct character to start before the party reaches its maximum size', async () => {
@@ -97,5 +102,25 @@ describe('AdventureSessionPanel lifecycle', () => {
     expect(start).toHaveBeenCalledTimes(1)
     resolveStart({ sessionId: 's', characterLimit: 1, version: 4, status: 'STARTED', adventureId: 'a', runtimeConfiguration: { scenarioId: 'scenario', ruleSetId: 'rules', rulebookIds: [], engineId: 'ollama', toolIds: [], initialScene: 'intro' }, party: [{ characterSheetId: 'sheet-1', controlMode: 'DIRECT', nameMutableAfterStart: false, raceMutableAfterStart: false, characterClassMutableAfterStart: false, backgroundMutableAfterStart: false, startingAbilitiesMutableAfterStart: false, levelMutableAfterStart: false }] })
     await waitFor(() => expect(screen.queryByRole('button', { name: '시나리오 런타임 준비 중…' })).toBeNull())
+  })
+
+  it('offers manual placement and retries the same session start after unresolved inference', async () => {
+    const initial = { sessionId: 's', characterLimit: 1, version: 3, status: 'DRAFT', adventureId: null, runtimeConfiguration: { engineId: 'ollama' }, party: [{ characterSheetId: 'sheet-1', controlMode: 'DIRECT' }] } as AdventureSessionView
+    const awaitingPlacement = { ...initial, version: 4, status: 'STARTING', adventureId: 'adventure-1' } as AdventureSessionView
+    const started = { ...awaitingPlacement, version: 5, status: 'STARTED' } as AdventureSessionView
+    const start = vi.fn<AdventureSessionApi['start']>()
+      .mockRejectedValueOnce(new AdventureSessionRequestError('placement required', 409, 'MAP_PLACEMENT_REQUIRED'))
+      .mockResolvedValueOnce(started)
+    const api = {
+      read: vi.fn().mockResolvedValueOnce(initial).mockResolvedValueOnce(awaitingPlacement).mockResolvedValueOnce(awaitingPlacement),
+      listOwnedCharacters: vi.fn().mockResolvedValue([]), copyOwnedCharacter: vi.fn(), addMember: vi.fn(), removeMember: vi.fn(), start,
+      complete: vi.fn(), delete: vi.fn(),
+    }
+    render(<AdventureSessionPanel api={api} playApi={{} as AdventurePlayApi} ownerPlayerId="p" sessionId="s" />)
+    await userEvent.click(await screen.findByRole('button', { name: '시나리오 런타임 시작' }))
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: '수동 시작 위치 저장' }))
+    await waitFor(() => expect(start).toHaveBeenCalledTimes(2))
+    expect(start).toHaveBeenLastCalledWith('s', 4, 'adventure-1')
   })
 })

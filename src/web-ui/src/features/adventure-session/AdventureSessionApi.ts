@@ -71,6 +71,10 @@ export type GmProviderView = {
   turnInProgress: boolean
 }
 
+export class AdventureSessionRequestError extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string) { super(message); this.name = 'AdventureSessionRequestError' }
+}
+
 export class AdventureSessionApi {
   private readonly startKeys = new Map<string, string>()
   constructor(private readonly token: string) {}
@@ -78,7 +82,13 @@ export class AdventureSessionApi {
   private headers(extra: HeadersInit = {}): HeadersInit { return { Authorization: `Bearer ${this.token}`, ...extra } }
   private async request<T>(url: string, init: RequestInit = {}): Promise<T> {
     const response = await diagnosticFetch(url, { ...init, headers: this.headers(init.headers) })
-    if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`)
+    if (!response.ok) {
+      const body = await response.text()
+      let code: string | undefined
+      let message = body || `HTTP ${response.status}`
+      try { const problem = JSON.parse(body) as { error?: string; message?: string }; code = problem.error; message = problem.message ?? message } catch { /* response is plain text */ }
+      throw new AdventureSessionRequestError(message, response.status, code)
+    }
     return response.json() as Promise<T>
   }
   read(sessionId: string) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}`) }
@@ -117,6 +127,10 @@ export class AdventureSessionApi {
     const requestId = this.startKeys.get(sessionId) ?? crypto.randomUUID()
     this.startKeys.set(sessionId, requestId)
     return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match-Version': String(version), 'Idempotency-Key': requestId }, body: JSON.stringify({ adventureId, prepareMapOnly }) })
+  }
+  retryStart(sessionId: string, version: number, adventureId: string) {
+    this.startKeys.delete(sessionId)
+    return this.start(sessionId, version, adventureId)
   }
   prepareMap(sessionId: string, version: number, adventureId: string) { return this.start(sessionId, version, adventureId, true) }
   saveAppliedRuleSet(adventureId: string, ruleSetId: string, edition: string, rulebookIds: string[]) {

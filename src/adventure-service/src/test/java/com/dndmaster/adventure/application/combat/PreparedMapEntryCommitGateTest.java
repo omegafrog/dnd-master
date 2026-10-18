@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -12,16 +13,145 @@ import com.dndmaster.adventure.application.runtime.RuntimePlan;
 import com.dndmaster.adventure.application.runtime.RuntimeTurn;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
+import com.dndmaster.adventure.domain.adventure.ConversationEntry;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import com.dndmaster.adventure.domain.runtime.CurrentSituation;
+import com.dndmaster.adventure.domain.runtime.PendingRuntimeState;
+import com.dndmaster.adventure.domain.scenario.MapDefinition;
+import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.scenario.SituationDefinition;
+import com.dndmaster.adventure.domain.scenario.StageArtifactRepository;
+import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 class PreparedMapEntryCommitGateTest {
+    @Test
+    void deactivates_the_previous_map_when_the_destination_situation_is_mapless() {
+        Adventure adventure = adventureAt("road");
+        UUID packageId = UUID.randomUUID();
+        when(adventure.lockedScenarioPackageId()).thenReturn(packageId);
+        var story = mock(com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState.class);
+        when(adventure.storyRuntimeState()).thenReturn(story);
+        when(story.activeSituationId()).thenReturn("road-entry");
+        when(story.stageId()).thenReturn("stage-1");
+        when(story.backboneRevision()).thenReturn(1L);
+        when(story.detailedStageRevision()).thenReturn(1L);
+        var situation = mock(SituationDefinition.class);
+        when(situation.situationId()).thenReturn("road-entry");
+        when(situation.mapNeeded()).thenReturn(false);
+        var stage = mock(com.dndmaster.adventure.domain.scenario.DetailedStage.class);
+        when(stage.situations()).thenReturn(List.of(situation));
+        StageArtifactRepository artifacts = mock(StageArtifactRepository.class);
+        when(artifacts.findDetailedStage(any(), eq(packageId), eq("stage-1"), eq(1L), eq(1L)))
+                .thenReturn(java.util.Optional.of(stage));
+        ScenarioPackageRepository packages = mock(ScenarioPackageRepository.class);
+        CombatMapPreparationPort mapPreparation = mock(CombatMapPreparationPort.class);
+
+        new PreparedMapEntryCommitGate(mock(CombatMapViewPort.class), mapPreparation, packages, artifacts)
+                .beforeCommit(adventure, turnFrom("cellar", false, false));
+
+        AdventureId adventureId = adventure.id();
+        UUID ownerId = adventure.ownerPlayerId().value();
+        verify(mapPreparation).deactivateForMaplessSituation(adventureId, ownerId);
+        verify(mapPreparation, never()).activatePrepared(any(), any(), any(), any(int.class), any());
+    }
+
+    @Test
+    void prepares_the_active_situations_map_and_entry_narration_before_committing_its_scene() {
+        Adventure adventure = adventureAt("cellar");
+        UUID packageId = UUID.randomUUID();
+        UUID mapId = UUID.randomUUID();
+        when(adventure.lockedScenarioPackageId()).thenReturn(packageId);
+        var story = mock(com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState.class);
+        when(adventure.storyRuntimeState()).thenReturn(story);
+        when(story.activeSituationId()).thenReturn("cellar-entry");
+        when(story.stageId()).thenReturn("stage-1");
+        when(story.backboneRevision()).thenReturn(1L);
+        when(story.detailedStageRevision()).thenReturn(1L);
+        var situation = mock(SituationDefinition.class);
+        when(situation.situationId()).thenReturn("cellar-entry");
+        when(situation.mapNeeded()).thenReturn(true);
+        when(situation.mapDefinitionId()).thenReturn(mapId);
+        var stage = mock(com.dndmaster.adventure.domain.scenario.DetailedStage.class);
+        when(stage.situations()).thenReturn(List.of(situation));
+        StageArtifactRepository artifacts = mock(StageArtifactRepository.class);
+        when(artifacts.findDetailedStage(any(), eq(packageId), eq("stage-1"), eq(1L), eq(1L)))
+                .thenReturn(java.util.Optional.of(stage));
+        MapDefinition map = mock(MapDefinition.class);
+        when(map.id()).thenReturn(mapId);
+        when(map.autoActivatable()).thenReturn(true);
+        ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);
+        when(scenarioPackage.mapDefinitions()).thenReturn(List.of(map));
+        ScenarioPackageRepository packages = mock(ScenarioPackageRepository.class);
+        when(packages.findById(packageId)).thenReturn(java.util.Optional.of(scenarioPackage));
+        RuntimeTurn turn = turnFrom("cellar", false, false);
+        PendingRuntimeState pending = mock(PendingRuntimeState.class);
+        when(pending.selectedSituationId()).thenReturn("cellar-entry");
+        when(turn.pendingState()).thenReturn(pending);
+        CombatMapViewPort mapView = mock(CombatMapViewPort.class);
+        CombatMapPreparationPort mapPreparation = mock(CombatMapPreparationPort.class);
+
+        new PreparedMapEntryCommitGate(mapView, mapPreparation, packages, artifacts).beforeCommit(adventure, turn);
+
+        AdventureId adventureId = adventure.id();
+        UUID ownerId = adventure.ownerPlayerId().value();
+        RuleSetId ruleSetId = adventure.ruleSetId();
+        verify(mapPreparation).prepareDraft(eq(adventureId), eq(ownerId), eq(ruleSetId), eq(map), any());
+        ArgumentCaptor<CombatMapPreparationPort.ActivationContext> context =
+                ArgumentCaptor.forClass(CombatMapPreparationPort.ActivationContext.class);
+        verify(mapPreparation, times(1)).activatePrepared(eq(adventureId), eq(ownerId), eq(ruleSetId), eq(1), context.capture());
+        assertEquals(true, context.getValue().entryEvidence().contains("저장고 안에 도착했다."));
+    }
+
+    @Test
+    void prepares_a_map_needed_opening_once_without_a_scene_change_or_entry_flag() {
+        Adventure adventure = adventureAt("cellar");
+        UUID packageId = UUID.randomUUID();
+        UUID mapId = UUID.randomUUID();
+        when(adventure.lockedScenarioPackageId()).thenReturn(packageId);
+        var story = mock(com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState.class);
+        when(adventure.storyRuntimeState()).thenReturn(story);
+        when(story.activeSituationId()).thenReturn("cellar-entry");
+        when(story.stageId()).thenReturn("stage-1");
+        when(story.backboneRevision()).thenReturn(1L);
+        when(story.detailedStageRevision()).thenReturn(1L);
+        var situation = mock(SituationDefinition.class);
+        when(situation.situationId()).thenReturn("cellar-entry");
+        when(situation.mapNeeded()).thenReturn(true);
+        when(situation.mapDefinitionId()).thenReturn(mapId);
+        var stage = mock(com.dndmaster.adventure.domain.scenario.DetailedStage.class);
+        when(stage.situations()).thenReturn(List.of(situation));
+        StageArtifactRepository artifacts = mock(StageArtifactRepository.class);
+        when(artifacts.findDetailedStage(any(), eq(packageId), eq("stage-1"), eq(1L), eq(1L)))
+                .thenReturn(java.util.Optional.of(stage));
+        MapDefinition map = mock(MapDefinition.class);
+        when(map.id()).thenReturn(mapId);
+        when(map.autoActivatable()).thenReturn(true);
+        ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);
+        when(scenarioPackage.mapDefinitions()).thenReturn(List.of(map));
+        ScenarioPackageRepository packages = mock(ScenarioPackageRepository.class);
+        when(packages.findById(packageId)).thenReturn(java.util.Optional.of(scenarioPackage));
+        CombatMapPreparationPort mapPreparation = mock(CombatMapPreparationPort.class);
+        PreparedMapEntryCommitGate gate = new PreparedMapEntryCommitGate(mock(CombatMapViewPort.class),
+                mapPreparation, packages, artifacts);
+
+        RuntimeTurn opening = turnFrom("cellar", false, false);
+        when(opening.conversation()).thenReturn(List.of());
+        gate.beforeCommit(adventure, opening);
+
+        RuntimeTurn laterTurn = turnFrom("cellar", false, false);
+        when(laterTurn.conversation()).thenReturn(List.of(new ConversationEntry(0, "AI_GAME_MASTER", "이미 열린 장면")));
+        gate.beforeCommit(adventure, laterTurn);
+
+        verify(mapPreparation, times(1)).prepareDraft(any(), any(), any(), eq(map), any());
+        verify(mapPreparation, times(1)).activatePrepared(any(), any(), any(), eq(1), any());
+    }
+
     @Test
     void activates_a_prepared_map_when_the_scene_changes_even_if_gm_omits_the_entry_flag() {
         Adventure adventure = adventureAt("beer-cellar");
@@ -69,6 +199,7 @@ class PreparedMapEntryCommitGateTest {
         RuntimePlan plan = mock(RuntimePlan.class);
         when(turn.context()).thenReturn(new AdventureContext(previousScene, null, "해치를 연다", ""));
         when(turn.plan()).thenReturn(plan);
+        when(turn.conversation()).thenReturn(List.of(new ConversationEntry(0, "PLAYER", "이전 행동")));
         when(turn.action()).thenReturn("해치를 열고 내려간다");
         when(turn.narration()).thenReturn("저장고 안에 도착했다.");
         when(plan.mapEntryRequested()).thenReturn(mapEntry);

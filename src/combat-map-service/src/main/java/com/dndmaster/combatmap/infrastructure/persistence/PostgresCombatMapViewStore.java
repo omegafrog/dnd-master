@@ -169,6 +169,18 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
     }
 
     @Override
+    public void deactivateForAdventure(AdventureId adventureId, MapOwnerId owner) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
+                "UPDATE adventure_active_tactical_map SET active=false WHERE adventure_id=? AND owner_player_id=? AND active=true")) {
+            statement.setObject(1, adventureId.value());
+            statement.setObject(2, owner.value());
+            statement.executeUpdate();
+        } catch (SQLException exception) {
+            throw new CombatMapPersistenceException("map deactivation failed", exception);
+        }
+    }
+
+    @Override
     public Optional<VersionedOwnedCombatMap> findPreparedByAdventureId(AdventureId adventureId, MapOwnerId owner) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement("SELECT map.* FROM " + TABLE + " map WHERE map.adventure_id=? AND map.owner_player_id=? AND NOT EXISTS (SELECT 1 FROM adventure_active_tactical_map active_map WHERE active_map.combat_map_id=map.map_id AND active_map.active=true) ORDER BY map.updated_at DESC, map.map_id DESC LIMIT 1")) {

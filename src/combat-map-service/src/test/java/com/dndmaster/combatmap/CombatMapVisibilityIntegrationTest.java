@@ -113,6 +113,17 @@ class CombatMapVisibilityIntegrationTest{
   CombatMap activated=service.activateForAdventure(draft.id(),owner,MapActivationContext.from(1,Optional.empty(),Optional.empty(),UUID.randomUUID(),1,0,"지하 저장고","지하 저장고","PLAYER_ACTION=계단을 내려갑니다."));
   assertEquals(new GridPosition(7,11),activated.tokens().stream().filter(t->t.type()==TokenType.PLAYER).findFirst().orElseThrow().position());
  }
+ @Test void explicitUserPlacementCanRecoverWhenEntryNarrationDoesNotResolve(){
+  AdventureId adventure=adventure();
+  PreparedMapData draftData=new PreparedMapData(new GridSpec(10,10,50,5),List.of(),Set.of(),List.of(
+          new MapLayer("PLAYER_START_CONFIRMED","4,5",LayerVisibility.PLAYER_VISIBLE),
+          new MapLayer("GM_PLAYER_START_PROPOSAL","{\"position\":\"1,2\",\"confidence\":0.9,\"evidence\":[],\"source\":\"MAP_IMAGE\"}",LayerVisibility.AI_ONLY)));
+  CombatMapViewService service=service(draftData);
+  CombatMap draft=service.prepareGenerated(owner,adventure,rules(),"opening");
+  CombatMap activated=service.activateForAdventure(draft.id(),owner,MapActivationContext.from(1,Optional.empty(),Optional.empty(),
+          UUID.randomUUID(),1,0,"맥주 저장고","맥주 저장고","FIRST_NARRATION=계단 아래로 내려갑니다."));
+  assertEquals(new GridPosition(4,5),activated.tokens().stream().filter(token->token.type()==TokenType.PLAYER).findFirst().orElseThrow().position());
+ }
  @Test void legacyDraftPlayerTokenCannotOverridePlacementDecision(){
   AdventureId adventure=adventure();
   PreparedMapData aiDraft=new PreparedMapData(new GridSpec(10,10,50,5),List.of(new CombatToken(new TokenId(UUID.randomUUID()),TokenType.PLAYER,new GridPosition(1,1),TokenController.PLAYER,new PlayerId(owner.value()))),Set.of(),List.of());

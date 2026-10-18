@@ -31,6 +31,27 @@ import org.junit.jupiter.api.Test;
 
 class HttpCombatMapPreparationGatewayTest {
     @Test
+    void deactivates_an_old_map_for_a_mapless_situation() throws Exception {
+        UUID adventureId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        AtomicReference<String> request = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/adventures/" + adventureId + "/combat-map/deactivate", exchange -> {
+            request.set(exchange.getRequestMethod() + " " + exchange.getRequestURI().getQuery());
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            var gateway = new HttpCombatMapPreparationGateway(HttpClient.newHttpClient(),
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(2), new ObjectMapper(), "secret");
+            gateway.deactivateForMaplessSituation(new AdventureId(adventureId), ownerId);
+            assertEquals("POST ownerId=" + ownerId, request.get());
+        } finally { server.stop(0); }
+    }
+
+    @Test
     void exploration_token_gateway_sends_server_derived_token_preferences_and_reads_map_positions() throws Exception {
         UUID mapId = UUID.randomUUID(), ownerId = UUID.randomUUID(), commandId = UUID.randomUUID(), tokenId = UUID.randomUUID();
         AtomicReference<JsonNode> payload = new AtomicReference<>();
@@ -276,6 +297,48 @@ class HttpCombatMapPreparationGatewayTest {
     }
 
     @Test
+    void retries_the_same_entry_with_the_same_idempotency_key() throws Exception {
+        AtomicReference<String> firstKey = new AtomicReference<>();
+        AtomicBoolean sameKey = new AtomicBoolean(true);
+        UUID adventureId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID mapId = UUID.randomUUID();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/combat-maps/preparation-replay", exchange -> {
+            exchange.sendResponseHeaders(404, -1);
+            exchange.close();
+        });
+        server.createContext("/internal/v1/combat-maps/prepare", exchange -> {
+            String key = exchange.getRequestHeaders().getFirst("Idempotency-Key");
+            if (firstKey.get() == null) firstKey.set(key);
+            else sameKey.set(firstKey.get().equals(key));
+            byte[] response = ("{\"mapId\":\"" + mapId + "\",\"status\":\"READY\",\"warningCount\":0}")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            var gateway = new HttpCombatMapPreparationGateway(HttpClient.newHttpClient(),
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(2), new ObjectMapper(), "secret");
+            var adventure = new AdventureId(adventureId);
+            var rules = new RuleSetId(UUID.randomUUID());
+            var definition = mapDefinition();
+            var context = new CombatMapPreparationPort.ActivationContext(null, UUID.randomUUID(), 1, 0,
+                    "opening", "opening", null, null, "FIRST_NARRATION=entered the hall");
+
+            assertEquals(mapId, gateway.prepareDraft(adventure, ownerId, rules, definition, context));
+            assertEquals(mapId, gateway.prepareDraft(adventure, ownerId, rules, definition, context));
+            assertTrue(sameKey.get());
+            assertTrue(firstKey.get() != null && !firstKey.get().isBlank());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void sends_authoritative_spatial_requirements_to_combat_map_preparation() throws Exception {
         AtomicReference<String> requestBody = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
@@ -296,7 +359,8 @@ class HttpCombatMapPreparationGatewayTest {
                     .9, MapSafetyStatus.SAFE,
                     List.of(new MapDefinition.SpatialFeatureRequirement(featureId, "TRAP", true,
                             List.of("storybook:page-4"), List.of("2,2"), "resolution-unit-1",
-                            "rulebook:perception", 15, "PASSIVE", List.of("ENTER_CELL"))));
+                            "rulebook:perception", 15, "PASSIVE", List.of("ENTER_CELL"))),
+                    new MapDefinition.MapPosition(1, 2));
             new HttpCombatMapPreparationGateway(HttpClient.newHttpClient(),
                     java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
                     Duration.ofSeconds(2), new ObjectMapper(), "secret",
@@ -311,6 +375,8 @@ class HttpCombatMapPreparationGatewayTest {
             assertEquals(documentId.toString(), payload.get("spatialPlacements").get(0).get("evidence").get("sourceDocumentId").asText());
             assertEquals("2,2", payload.get("spatialPlacements").get(0).get("evidence").get("allowedCells").get(0).asText());
             assertEquals("9", payload.get("spatialPreparationReference").asText());
+            assertNull(payload.get("playerSpawnX").isNull() ? null : payload.get("playerSpawnX"));
+            assertNull(payload.get("playerSpawnY").isNull() ? null : payload.get("playerSpawnY"));
             assertEquals("resolution-unit-1", payload.get("spatialPlacements").get(0).get("evidence").get("resolutionUnitId").asText());
             assertEquals("9", payload.get("spatialPlacements").get(0).get("evidence").get("scenarioPackageVersion").asText());
         } finally {

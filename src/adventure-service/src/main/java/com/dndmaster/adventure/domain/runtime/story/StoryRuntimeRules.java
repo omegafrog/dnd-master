@@ -10,23 +10,44 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 /** Deterministic admission and application of an AI story-runtime proposal. */
 public final class StoryRuntimeRules {
     private StoryRuntimeRules() {}
 
-    /** Selects the next available situation whose declared prerequisites are complete. */
+    /** Leaves situation choice to the GM after presenting the available candidates. */
     public static StoryRuntimeState selectNextSituation(StoryRuntimeState state, DetailedStage stage) {
         Objects.requireNonNull(state, "story runtime state must not be null");
         Objects.requireNonNull(stage, "detailed stage must not be null");
         validateReference(state, stage);
         if (state.lifecycle() != StageLifecycle.ACTIVE || state.activeSituationId() != null) return state;
-        SituationDefinition next = nextEligibleSituation(state, stage);
-        if (next == null) return state;
-        return evolveActiveSituation(state, next.situationId());
+        return state;
     }
 
-    /** Finishes the active situation and admits the next one in the same pending turn. */
+    /** Activates the GM-selected candidate after deterministic prerequisite validation. */
+    public static StoryRuntimeState activateSelectedSituation(StoryRuntimeState state, DetailedStage stage,
+            String situationId) {
+        Objects.requireNonNull(state, "story runtime state must not be null");
+        Objects.requireNonNull(stage, "detailed stage must not be null");
+        if (situationId == null || situationId.isBlank()) throw new IllegalArgumentException("selected situation id is required");
+        return apply(state, stage, new StoryRuntimeProposal(UUID.randomUUID(), state.version(), stage.scenarioPackageId(),
+                stage.backboneRevision(), stage.stageId(), stage.revision(), SituationAction.activate(situationId),
+                List.of(), List.of(), List.of(), null, List.of()));
+    }
+
+    public static List<String> eligibleSituationIds(StoryRuntimeState state, DetailedStage stage) {
+        Objects.requireNonNull(state, "story runtime state must not be null");
+        Objects.requireNonNull(stage, "detailed stage must not be null");
+        validateReference(state, stage);
+        return stage.situations().stream()
+                .filter(situation -> state.situationStatuses().get(situation.situationId()) == SituationStatus.AVAILABLE)
+                .filter(situation -> situation.prerequisiteSituationIds().stream()
+                        .allMatch(id -> state.situationStatuses().get(id) == SituationStatus.USED))
+                .map(SituationDefinition::situationId).toList();
+    }
+
+    /** Finishes the active situation; the GM chooses the next candidate on a later turn. */
     public static StoryRuntimeState finishAndSelectNextSituation(StoryRuntimeState state, DetailedStage stage) {
         Objects.requireNonNull(state, "story runtime state must not be null");
         Objects.requireNonNull(stage, "detailed stage must not be null");
@@ -36,27 +57,7 @@ public final class StoryRuntimeRules {
         }
         Map<String, SituationStatus> situations = new LinkedHashMap<>(state.situationStatuses());
         situations.put(state.activeSituationId(), SituationStatus.USED);
-        SituationDefinition next = nextEligibleSituation(situations, stage);
-        return state.evolve(situations, state.revelationStatuses(), state.pressureStates(),
-                next == null ? null : next.situationId(), state.openingPresented(), null);
-    }
-
-    private static SituationDefinition nextEligibleSituation(StoryRuntimeState state, DetailedStage stage) {
-        return nextEligibleSituation(state.situationStatuses(), stage);
-    }
-
-    private static SituationDefinition nextEligibleSituation(Map<String, SituationStatus> statuses, DetailedStage stage) {
-        return stage.situations().stream()
-                .filter(situation -> statuses.get(situation.situationId()) == SituationStatus.AVAILABLE)
-                .filter(situation -> situation.prerequisiteSituationIds().stream()
-                        .allMatch(id -> statuses.get(id) == SituationStatus.USED))
-                .sorted(java.util.Comparator.comparing(SituationDefinition::required).reversed())
-                .findFirst().orElse(null);
-    }
-
-    private static StoryRuntimeState evolveActiveSituation(StoryRuntimeState state, String situationId) {
-        Map<String, SituationStatus> situations = new LinkedHashMap<>(state.situationStatuses());
-        return state.evolve(situations, state.revelationStatuses(), state.pressureStates(), situationId,
+        return state.evolve(situations, state.revelationStatuses(), state.pressureStates(), null,
                 state.openingPresented(), null);
     }
 
@@ -100,6 +101,9 @@ public final class StoryRuntimeRules {
                 case ACTIVATE -> {
                     if (active != null) throw new IllegalStateException("a situation is already active");
                     if (status != SituationStatus.AVAILABLE) throw new IllegalStateException("situation is not available");
+                    if (situation.prerequisiteSituationIds().stream().anyMatch(id -> situations.get(id) != SituationStatus.USED)) {
+                        throw new IllegalStateException("situation prerequisites are not complete");
+                    }
                     active = situation.situationId();
                 }
                 case FINISH -> {

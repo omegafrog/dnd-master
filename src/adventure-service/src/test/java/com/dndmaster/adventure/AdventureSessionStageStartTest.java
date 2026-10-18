@@ -122,9 +122,7 @@ class AdventureSessionStageStartTest {
                 org.mockito.ArgumentMatchers.eq(true), org.mockito.ArgumentMatchers.argThat(participants ->
                         participants.size() == 2 && participants.stream().anyMatch(p -> p.displayName().equals("거대 쥐"))));
         verify(lifecycle).scheduleFirstAiTurn(encounter, requestId);
-        verify(maps).activatePrepared(org.mockito.ArgumentMatchers.eq(adventureId),
-                org.mockito.ArgumentMatchers.eq(owner.value()), org.mockito.ArgumentMatchers.eq(configuration.ruleSetId()),
-                org.mockito.ArgumentMatchers.eq(1), org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verifyNoInteractions(maps);
     }
 
     @Test
@@ -174,7 +172,7 @@ class AdventureSessionStageStartTest {
     }
 
     @Test
-    void activates_the_prepared_map_when_the_opening_turn_commits_a_map_bearing_scene() {
+    void leaves_opening_map_entry_activation_to_the_runtime_commit_gate() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);
         UUID packageId = UUID.randomUUID();
@@ -238,13 +236,7 @@ class AdventureSessionStageStartTest {
 
         service.start(session.id(), owner, 0, requestId, adventureId);
 
-        org.mockito.ArgumentCaptor<CombatMapPreparationPort.ActivationContext> activation =
-                org.mockito.ArgumentCaptor.forClass(CombatMapPreparationPort.ActivationContext.class);
-        verify(maps).activatePrepared(org.mockito.ArgumentMatchers.eq(adventureId), org.mockito.ArgumentMatchers.eq(owner.value()),
-                org.mockito.ArgumentMatchers.eq(runtimeConfiguration.ruleSetId()), org.mockito.ArgumentMatchers.eq(1),
-                activation.capture());
-        assertEquals(true, activation.getValue().entryEvidence().contains("양조장 문을 열고 나무 계단을 따라"));
-        assertEquals(true, activation.getValue().entryEvidence().contains("STORYBOOK_EVIDENCE=양조장 문 뒤에"));
+        org.mockito.Mockito.verifyNoInteractions(maps);
     }
 
     @Test

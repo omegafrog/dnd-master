@@ -269,7 +269,7 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
                 ? SituationUpdateProposal.transition(response.location(), response.problem(), response.threat(), response.goal())
                 : SituationUpdateProposal.continueSituation(response.problem(), response.threat(), response.goal());
         SituationProposal.Basis basis = SituationProposal.Basis.valueOf(response.basis().trim().toUpperCase(java.util.Locale.ROOT));
-        return new SituationProposal(update, basis, response.reference(), response.required());
+        return new SituationProposal(update, basis, response.reference(), response.required(), response.selectedSituationId());
     }
 
     private static CombatStartMode combatStartMode(String mode) {
@@ -341,7 +341,7 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
         CombatEnemyActionResponse { citationKeys = citationKeys == null ? List.of() : List.copyOf(citationKeys); }
     }
     record SituationResponse(String kind, String location, String problem, String threat, String goal,
-                             String basis, String reference, boolean required) { }
+                             String basis, String reference, String selectedSituationId, boolean required) { }
     record RuntimeFactResponse(String subject, String content) { }
     record CompletionResponse(boolean complete, List<String> resolvedObjectiveIds,
             List<String> satisfiedResolutionCriteriaIds, String concludingScene) {

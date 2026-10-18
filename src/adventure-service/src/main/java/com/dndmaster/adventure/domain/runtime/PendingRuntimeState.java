@@ -7,21 +7,28 @@ import java.util.Objects;
 
 /** 안전한 턴 반영 전에 보관하는 모험 변경 내용. */
 public record PendingRuntimeState(GameStateDelta gameStateDelta, DisclosureState disclosureState,
-        CurrentSituation situation, List<RuntimeAddedFact> runtimeAddedFacts, StoryRuntimeState storyRuntimeState) {
+        CurrentSituation situation, List<RuntimeAddedFact> runtimeAddedFacts, StoryRuntimeState storyRuntimeState,
+        String selectedSituationId) {
     public PendingRuntimeState {
         gameStateDelta = Objects.requireNonNull(gameStateDelta, "game state delta must not be null");
         disclosureState = Objects.requireNonNull(disclosureState, "disclosure state must not be null");
         situation = Objects.requireNonNull(situation, "situation must not be null");
         runtimeAddedFacts = List.copyOf(Objects.requireNonNull(runtimeAddedFacts, "runtime facts must not be null"));
+        selectedSituationId = selectedSituationId == null || selectedSituationId.isBlank() ? null : selectedSituationId.trim();
+    }
+
+    public PendingRuntimeState(GameStateDelta gameStateDelta, DisclosureState disclosureState,
+            CurrentSituation situation, List<RuntimeAddedFact> runtimeAddedFacts, StoryRuntimeState storyRuntimeState) {
+        this(gameStateDelta, disclosureState, situation, runtimeAddedFacts, storyRuntimeState, null);
     }
 
     public PendingRuntimeState(GameStateDelta gameStateDelta, DisclosureState disclosureState,
             CurrentSituation situation, List<RuntimeAddedFact> runtimeAddedFacts) {
-        this(gameStateDelta, disclosureState, situation, runtimeAddedFacts, null);
+        this(gameStateDelta, disclosureState, situation, runtimeAddedFacts, null, null);
     }
 
     public static PendingRuntimeState unchanged(Adventure adventure) {
         return new PendingRuntimeState(GameStateDelta.empty(), adventure.disclosureState(), adventure.currentSituation(),
-                List.of(), adventure.storyRuntimeState());
+                List.of(), adventure.storyRuntimeState(), null);
     }
 }

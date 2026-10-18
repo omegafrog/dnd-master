@@ -1013,20 +1013,24 @@ public class RuntimeTurnApplicationService {
             turnStoryState = com.dndmaster.adventure.domain.runtime.story.StoryRuntimeRules
                     .selectNextSituation(turnStoryState, activeStage);
         }
-        com.dndmaster.adventure.domain.scenario.DetailedStage preparedStage = activeStage;
         String activeSituationId = turnStoryState == null ? null : turnStoryState.activeSituationId();
-        String selectedSituationContext = activeStage == null || activeSituationId == null ? ""
-                : activeStage.situations().stream().filter(situation -> situation.situationId()
-                        .equals(activeSituationId)).findFirst()
-                        .map(situation -> "\n준비된 시츄에이션 " + situation.situationId() + ": 의도="
-                                + situation.intents() + ", 필수=" + situation.required() + ", 선행="
-                                + situation.prerequisiteSituationIds() + ", 핵심 문제=" + preparedStage.coreProblem()
-                                + ", 위협=" + preparedStage.threat().core() + ", 압박="
-                                + preparedStage.pressure().progressionMaterial() + ", 진행 조건="
-                                + preparedStage.funnel().meaning() + ", 관련 폭로=" + situation.revelationIds()
-                                + ", 관련 압박=" + situation.pressureIds() + ", 관련 진행 조건="
-                                + situation.funnelIds() + ", 관련 결과=" + situation.importantConsequenceIds())
-                        .orElseThrow(() -> new IllegalStateException("active prepared situation is missing"));
+        String selectedSituationContext = activeStage == null ? "" : situationSelectionContext(
+                turnStoryState, activeStage, activeSituationId);
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled() && activeStage != null) {
+            var storyStateForSelection = turnStoryState;
+            long eligibleCount = activeStage.situations().stream().filter(situation ->
+                    storyStateForSelection.situationStatuses().get(situation.situationId())
+                            == com.dndmaster.adventure.domain.runtime.story.SituationStatus.AVAILABLE)
+                    .filter(situation -> situation.prerequisiteSituationIds().stream().allMatch(id ->
+                            storyStateForSelection.situationStatuses().get(id)
+                                    == com.dndmaster.adventure.domain.runtime.story.SituationStatus.USED
+                                    || id.equals(activeSituationId))).count();
+            LOGGER.info("dev_runtime_situation_candidates turnId={} stageId={} activeSituationId={} expectedCandidateCount={} actualEligibleCount={} candidateIds={} selectionMode={}",
+                    command.turnId(), activeStage.stageId(), activeSituationId, activeStage.situations().size(), eligibleCount,
+                    activeStage.situations().stream().map(situation -> situation.situationId() + ":"
+                            + storyStateForSelection.situationStatuses().get(situation.situationId())).toList(),
+                    activeSituationId == null ? "gm_selects_one" : "opening_or_active_fixed");
+        }
         List<String> knownEvidenceIds = knownImmutableEvidenceIds(adventure);
         RuntimeActionContext actionContext = stage(command.turnId(), "player_action_context_lookup", () -> {
             EvidencePack evidence = prefetchEvidence(command, adventure, binding, scenarioPackage,
@@ -1084,10 +1088,40 @@ public class RuntimeTurnApplicationService {
                 throw failure;
             }
         });
-        if (turnStoryState != null && activeStage != null && proposal.situationProposal() != null
-                && proposal.situationProposal().update().kind() == SituationUpdateProposal.Kind.TRANSITION) {
+        String selectedSituationId = proposal.situationProposal() == null ? null
+                : proposal.situationProposal().selectedSituationId();
+        boolean storySituationTransition = turnStoryState != null && activeStage != null
+                && proposal.situationProposal() != null
+                && proposal.situationProposal().update().kind() == SituationUpdateProposal.Kind.TRANSITION;
+        if (storySituationTransition) {
             turnStoryState = com.dndmaster.adventure.domain.runtime.story.StoryRuntimeRules
                     .finishAndSelectNextSituation(turnStoryState, activeStage);
+            List<String> eligibleSituationIds = com.dndmaster.adventure.domain.runtime.story.StoryRuntimeRules
+                    .eligibleSituationIds(turnStoryState, activeStage);
+            if (selectedSituationId != null) {
+                try {
+                    turnStoryState = com.dndmaster.adventure.domain.runtime.story.StoryRuntimeRules
+                            .activateSelectedSituation(turnStoryState, activeStage, selectedSituationId);
+                } catch (RuntimeException failure) {
+                    if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                        LOGGER.error("dev_runtime_situation_selection outcome=rejected turnId={} expectedEligibleSituationIds={} actualSelectedSituationId={} failureClass={} recoveryAction=reject_turn",
+                                command.turnId(), eligibleSituationIds, selectedSituationId, failure.getClass().getSimpleName());
+                    }
+                    throw failure;
+                }
+                if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                    LOGGER.info("dev_runtime_situation_selection outcome=selected turnId={} expectedEligibleSituationIds={} actualSelectedSituationId={} stateVersion={}",
+                            command.turnId(), eligibleSituationIds, selectedSituationId, turnStoryState.version());
+                }
+            } else if (!eligibleSituationIds.isEmpty()) {
+                if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                    LOGGER.error("dev_runtime_situation_selection outcome=missing turnId={} expectedEligibleSituationIds={} actualSelectedSituationId=null recoveryAction=reject_turn",
+                            command.turnId(), eligibleSituationIds);
+                }
+                throw new IllegalArgumentException("GM must select an eligible situation when transitioning the story stage");
+            }
+        } else if (selectedSituationId != null) {
+            throw new IllegalArgumentException("selected situation is only valid when transitioning the active situation");
         }
         com.dndmaster.adventure.domain.runtime.CurrentSituation nextSituation = proposal.situationUpdate() == null
                 ? adventure.currentSituation()
@@ -1160,7 +1194,8 @@ public class RuntimeTurnApplicationService {
             nextSituation = nextSituation.enterCombatScenario(groundedCombatEnemies.get(0).scenarioId());
         }
         PendingRuntimeState pending = new PendingRuntimeState(proposal.gameStateDelta(), proposal.disclosureState(),
-                nextSituation, proposal.runtimeAddedFacts(), turnStoryState);
+                nextSituation, proposal.runtimeAddedFacts(), turnStoryState,
+                storySituationTransition ? selectedSituationId : null);
         if (plan.checkProposal().required()
                 && plan.checkProposal().rollMethod() == RuntimeCheckProposal.RollMethod.PLAYER) {
             if (!command.externalCommands().isEmpty() || !planningResult.runtimeCommands().isEmpty()) {
@@ -1240,6 +1275,34 @@ public class RuntimeTurnApplicationService {
         PlayerVisibleTurn visible = new PlayerVisibleTurn(ready.narration(), plan.scene(), List.of(), visibleInput.stateDelta(), narrativeContext);
         return new RuntimeTurnResult(committed, adventure.currentContext(), adventure.conversation(), adventure.version(), visible,
                 commitResult.movementResult(), enemySheetPreparationRequest);
+    }
+
+    private static String situationSelectionContext(
+            com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState state,
+            com.dndmaster.adventure.domain.scenario.DetailedStage stage, String activeSituationId) {
+        List<com.dndmaster.adventure.domain.scenario.SituationDefinition> available = stage.situations().stream()
+                .filter(situation -> !situation.situationId().equals(activeSituationId))
+                .filter(situation -> state.situationStatuses().get(situation.situationId())
+                        == com.dndmaster.adventure.domain.runtime.story.SituationStatus.AVAILABLE)
+                .filter(situation -> situation.prerequisiteSituationIds().stream().allMatch(id ->
+                        state.situationStatuses().get(id) == com.dndmaster.adventure.domain.runtime.story.SituationStatus.USED
+                                || id.equals(activeSituationId)))
+                .toList();
+        String candidates = stage.situations().isEmpty() ? "없음" : stage.situations().stream().map(situation ->
+                situation.situationId() + "(상태=" + state.situationStatuses().get(situation.situationId())
+                        + ", 선택 가능=" + available.contains(situation) + ", 의도=" + situation.intents() + ", 필수=" + situation.required()
+                        + ", 선행=" + situation.prerequisiteSituationIds() + ", 관련 폭로=" + situation.revelationIds()
+                        + ", 관련 압박=" + situation.pressureIds() + ", 관련 진행 조건=" + situation.funnelIds()
+                        + ", 관련 결과=" + situation.importantConsequenceIds() + ")")
+                .collect(java.util.stream.Collectors.joining("; "));
+        String active = activeSituationId == null ? "없음" : stage.situations().stream()
+                .filter(situation -> situation.situationId().equals(activeSituationId)).findFirst()
+                .map(situation -> situation.situationId() + "(의도=" + situation.intents() + ")")
+                .orElseThrow(() -> new IllegalStateException("active prepared situation is missing"));
+        return "\n현재 시츄에이션=" + active + "; 선택 가능한 시츄에이션 후보=" + candidates
+                + "; 핵심 문제=" + stage.coreProblem() + "; 위협=" + stage.threat().core()
+                + "; 압박=" + stage.pressure().progressionMaterial() + "; 진행 조건=" + stage.funnel().meaning()
+                + ". 활성 시츄에이션이 없으면 후보 중 현재 상황에 맞는 하나를 선택하세요.";
     }
 
     private static void logSituationDiagnostic(UUID turnId, String outcome,

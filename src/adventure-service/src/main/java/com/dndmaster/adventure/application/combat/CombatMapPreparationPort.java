@@ -30,6 +30,9 @@ public interface CombatMapPreparationPort {
     /** Final start guard for the owner-edited map draft. Missing maps are not blocked. */
     default boolean mapLayoutConfirmed(AdventureId adventureId, UUID ownerPlayerId) { return true; }
 
+    /** Removes an old map from the player view when the active situation does not require one. */
+    default void deactivateForMaplessSituation(AdventureId adventureId, UUID ownerPlayerId) {}
+
     /** Structured runtime context crossing into Combat Map; prose stays in Adventure Runtime. */
     record ActivationContext(UUID playerTokenId, UUID situationId, long situationRevision, int turnIndex,
             String currentScene, String location, Integer placementProposalX, Integer placementProposalY,

@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
-import type { AdventureSessionApi, AdventureSessionView, AiCompanionCandidate, CharacterSheetSummary, GmProviderView } from './AdventureSessionApi'
+import { AdventureSessionRequestError, type AdventureSessionApi, type AdventureSessionView, type AiCompanionCandidate, type CharacterSheetSummary, type GmProviderView } from './AdventureSessionApi'
+import type { AdventurePlayApi } from '../saved-adventures/AdventurePlayApi'
+import { CombatMapView } from '../combat-map/CombatMapView'
 
-type SessionApi = Pick<AdventureSessionApi, 'read' | 'listOwnedCharacters' | 'copyOwnedCharacter' | 'addMember' | 'removeMember' | 'start' | 'delete'> & Partial<Pick<AdventureSessionApi, 'generateAiCandidate' | 'adoptAiCandidate' | 'replaceMember' | 'readGmProvider' | 'switchGmProvider'>>
+type SessionApi = Pick<AdventureSessionApi, 'read' | 'listOwnedCharacters' | 'copyOwnedCharacter' | 'addMember' | 'removeMember' | 'start' | 'delete'> & Partial<Pick<AdventureSessionApi, 'retryStart' | 'generateAiCandidate' | 'adoptAiCandidate' | 'replaceMember' | 'readGmProvider' | 'switchGmProvider'>>
 
 const sessionStatusLabel: Record<AdventureSessionView['status'], string> = {
   DRAFT: '준비 중', STARTING: '시작하는 중', STARTED: '진행 중', COMPLETED: '완료', DELETED: '삭제됨',
 }
 
-export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: SessionApi; ownerPlayerId: string; sessionId: string }) {
+export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }: { api: SessionApi; ownerPlayerId: string; sessionId: string; playApi?: AdventurePlayApi }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
   const [characters, setCharacters] = useState<CharacterSheetSummary[]>([])
   const [message, setMessage] = useState('')
@@ -16,6 +18,7 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: 
   const [providerForm, setProviderForm] = useState({ provider: 'ollama', model: 'qwen3:8b', reasoning: 'medium' })
   const [candidate, setCandidate] = useState<AiCompanionCandidate | null>(null)
   const [runtimeStarting, setRuntimeStarting] = useState(false)
+  const [mapPlacementRequired, setMapPlacementRequired] = useState(false)
   const frozen = session?.status !== 'DRAFT'
   const load = () => void Promise.all([api.read(sessionId), api.listOwnedCharacters(ownerPlayerId), api.readGmProvider ? api.readGmProvider(sessionId) : Promise.resolve(null)]).then(([nextSession, ownedCharacters, nextProvider]) => { setSession(nextSession); setCharacters(ownedCharacters); if (nextProvider) { setProvider(nextProvider); setProviderForm({ provider: nextProvider.provider, model: nextProvider.model, reasoning: nextProvider.reasoning }) } }).catch(error => setMessage(error instanceof Error ? error.message : '세션을 불러오지 못했습니다.'))
   useEffect(load, [api, ownerPlayerId, sessionId])
@@ -60,16 +63,35 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: 
       .then(next => { setSession(next); setCandidate(null) })
       .catch(error => setMessage(error instanceof Error ? error.message : 'AI 동료를 채택하지 못했습니다.'))
   }
-  const startRuntime = () => {
+  const startRuntime = async (retrySession = session) => {
+    if (!retrySession) return
     if (runtimeStarting || !hasDirectCharacter || !session.runtimeConfiguration) return
     setRuntimeStarting(true)
     setMessage('시나리오 런타임과 맵을 준비하는 중입니다. 잠시만 기다려 주세요.')
-    void api.start(sessionId, session.version, globalThis.crypto.randomUUID()).then(next => {
+    try {
+      const next = await (mapPlacementRequired && api.retryStart
+        ? api.retryStart(sessionId, retrySession.version, retrySession.adventureId ?? globalThis.crypto.randomUUID())
+        : api.start(sessionId, retrySession.version, retrySession.adventureId ?? globalThis.crypto.randomUUID()))
       setSession(next)
       if (next.status !== 'STARTED') throw new Error('시나리오 런타임 준비가 완료되지 않았습니다.')
+      setMapPlacementRequired(false)
       window.location.hash = `#/sessions/${sessionId}?mode=play`
-    }).catch(error => setMessage(error instanceof Error ? error.message : '시나리오 런타임을 시작하지 못했습니다.'))
-      .finally(() => setRuntimeStarting(false))
+    } catch (error) {
+      if (error instanceof AdventureSessionRequestError && error.code === 'MAP_PLACEMENT_REQUIRED') {
+        try {
+          const latest = await api.read(sessionId)
+          setSession(latest)
+          setMapPlacementRequired(true)
+          setMessage('자동 판정으로 시작 위치를 정하지 못했습니다. 지도에서 시작 위치를 선택한 뒤 다시 시도하세요.')
+        } catch { setMessage('시작 위치를 확인할 수 없습니다. 세션을 다시 불러와 주세요.') }
+      } else setMessage(error instanceof Error ? error.message : '시나리오 런타임을 시작하지 못했습니다.')
+    } finally { setRuntimeStarting(false) }
+  }
+
+  const retryAfterPlacement = async () => {
+    const latest = await api.read(sessionId)
+    setSession(latest)
+    await startRuntime(latest)
   }
   return <section className="session-page" aria-labelledby="session-party-heading">
     <div className="page-heading party-heading">
@@ -109,7 +131,9 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: 
       </aside>}
     </div>
 
-    {session.status === 'DRAFT' && <div className="session-start-actions"><button type="button" onClick={startRuntime} disabled={runtimeStarting || !hasDirectCharacter || !session.runtimeConfiguration} aria-busy={runtimeStarting}>{runtimeStarting ? '시나리오 런타임 준비 중…' : '시나리오 런타임 시작'}</button>{runtimeStarting && <p>시나리오 상황에 필요한 지도를 준비하고 있습니다.</p>}{!runtimeStarting && !hasDirectCharacter && <p>직접 조작할 캐릭터를 한 명 이상 추가해야 시작할 수 있습니다.</p>}{!runtimeStarting && hasDirectCharacter && !session.runtimeConfiguration && <p>런타임 설정이 없어 시나리오를 시작할 수 없습니다.</p>}</div>}
+    {session.status === 'DRAFT' && <div className="session-start-actions"><button type="button" onClick={() => void startRuntime()} disabled={runtimeStarting || !hasDirectCharacter || !session.runtimeConfiguration} aria-busy={runtimeStarting}>{runtimeStarting ? '시나리오 런타임 준비 중…' : '시나리오 런타임 시작'}</button>{runtimeStarting && <p>시나리오 상황에 필요한 지도를 준비하고 있습니다.</p>}{!runtimeStarting && !hasDirectCharacter && <p>직접 조작할 캐릭터를 한 명 이상 추가해야 시작할 수 있습니다.</p>}{!runtimeStarting && hasDirectCharacter && !session.runtimeConfiguration && <p>런타임 설정이 없어 시나리오를 시작할 수 없습니다.</p>}</div>}
+
+    {mapPlacementRequired && playApi && session.adventureId && <section aria-label="시작 위치 수동 선택"><p role="alert">시작 위치를 자동으로 정하지 못했습니다. 지도에서 플레이어 시작 칸을 선택하고 저장한 뒤 다시 시도하세요.</p><CombatMapView adventureId={session.adventureId} api={playApi} preparationMode onPreparationComplete={retryAfterPlacement} /></section>}
 
     {provider && api.switchGmProvider && <details className="party-provider-settings"><summary>GM 연결 설정 <span>{provider.provider} · {provider.model}</span></summary><div><label>연결 방식<select aria-label="GM provider" value={providerForm.provider} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, provider: value })) }}><option value="codex-cli">Codex OAuth</option><option value="openai">OpenAI 호환</option></select></label><label>모델<input aria-label="GM model" value={providerForm.model} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, model: value })) }} /></label><label>Reasoning<select aria-label="GM reasoning" value={providerForm.reasoning} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, reasoning: value })) }}><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label><button type="button" onClick={() => void switchProvider()}>연결 변경</button></div></details>}
     {frozen && <p className="session-frozen-note">시작 후 파티와 제어 방식은 변경할 수 없습니다. 종료된 세션의 시트는 비활성화됩니다.</p>}

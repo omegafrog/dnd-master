@@ -51,15 +51,21 @@ class StoryRuntimeStateTest {
     }
 
     @Test
-    void selects_required_situation_only_after_its_prerequisite_is_used() {
+    void leaves_available_situation_selection_to_the_gm_after_prerequisites_are_met() {
         DetailedStage stage = stageWithRequiredFollowup();
         StoryRuntimeState selected = StoryRuntimeRules.finishAndSelectNextSituation(
                 StoryRuntimeState.start(stage), stage);
 
-        assertEquals("required-followup", selected.activeSituationId());
+        assertEquals(null, selected.activeSituationId());
         assertEquals(com.dndmaster.adventure.domain.runtime.story.SituationStatus.USED,
                 selected.situationStatuses().get("opening"));
-        assertEquals("required-followup", StoryRuntimeRules.selectNextSituation(selected, stage).activeSituationId());
+        assertEquals(null, StoryRuntimeRules.selectNextSituation(selected, stage).activeSituationId());
+        assertEquals(List.of("optional", "required-followup"),
+                StoryRuntimeRules.eligibleSituationIds(selected, stage));
+        StoryRuntimeState activated = StoryRuntimeRules.activateSelectedSituation(selected, stage, "required-followup");
+        assertEquals("required-followup", activated.activeSituationId());
+        assertThrows(IllegalStateException.class,
+                () -> StoryRuntimeRules.activateSelectedSituation(selected, stage, "opening"));
     }
 
     @Test

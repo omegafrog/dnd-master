@@ -342,6 +342,13 @@ public class CombatMapController {
         return mapViewService.preparedMapIdForAdventure(new AdventureId(adventureId), new MapOwnerId(ownerId)).isPresent();
     }
 
+    @PostMapping("/internal/v1/adventures/{adventureId}/combat-map/deactivate")
+    public void deactivateAdventureMap(@PathVariable UUID adventureId, @RequestParam UUID ownerId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
+        mapViewService.deactivateForMaplessSituation(new AdventureId(adventureId), new MapOwnerId(ownerId));
+    }
+
     @GetMapping("/internal/v1/combat-maps/{mapId}/alignment")
     public MapGridAlignmentResponse alignment(@PathVariable UUID mapId, @RequestParam UUID ownerId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token) {

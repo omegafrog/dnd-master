@@ -253,6 +253,9 @@ public final class CombatMapViewService {
     }
     public CombatMap displayForGm(MapId id, MapOwnerId owner) { return owned(id, owner).map(); }
     public Optional<PlayerCombatMapView> displayForAdventure(AdventureId adventureId, MapOwnerId owner) { return store.findByAdventureId(adventureId, owner).map(state -> { observePublicImage(state.map().id(), owner, state); return projection(state.map(), state.version()); }); }
+    public void deactivateForMaplessSituation(AdventureId adventureId, MapOwnerId owner) {
+        store.deactivateForAdventure(adventureId, owner);
+    }
     public Optional<PlayerCombatMapView> displayForPreparation(AdventureId adventureId, MapOwnerId owner) {
         return store.findPreparedByAdventureId(adventureId, owner).or(() -> store.findByAdventureId(adventureId, owner))
                 .map(state -> new PlayerCombatMapView(state.map().id(), state.map().grid(), state.map().tokens().stream()
@@ -320,9 +323,9 @@ public final class CombatMapViewService {
         if (state.map().spatialPreparationBlocked()) {
             throw new IllegalStateException("combat map activation is blocked by spatial feature preparation");
         }
-        LOGGER.info("map_spawn_placement_started mapId={} adventureId={} scene={} location={} entryEvidence={}",
-                state.map().id().value(), state.map().adventureId().value(), context.currentScene(), context.location(),
-                context.entryEvidence());
+        if (diagnosticsEnabled()) LOGGER.info("dev_map_spawn_placement outcome=started mapId={} adventureId={} sceneChars={} locationChars={} entryEvidenceChars={}",
+                state.map().id().value(), state.map().adventureId().value(), context.currentScene().length(), context.location().length(),
+                context.entryEvidence().length());
         CombatMap prepared = refreshEntryEvidence(state.map(), context);
         List<CombatToken> nonPlayers = prepared.tokens().stream().filter(t -> t.type() != TokenType.PLAYER).toList();
         Set<GridPosition> occupied = nonPlayers.stream().map(CombatToken::position).collect(Collectors.toSet());
@@ -331,7 +334,7 @@ public final class CombatMapViewService {
             GridPosition position = new GridPosition(x, y);
             if (prepared.isPlayable(position)) playable.add(position);
         }
-        LOGGER.info("map_spawn_placement_map_facts mapId={} grid={}x{} playableCells={} obstacles={} doors={} closedDoors={} occupied={} boundaries={} mapImage={}",
+        if (diagnosticsEnabled()) LOGGER.info("dev_map_spawn_placement outcome=map_facts mapId={} grid={}x{} playableCells={} obstacles={} doors={} closedDoors={} occupied={} boundaries={} mapImage={}",
                 state.map().id().value(), prepared.grid().width(), prepared.grid().height(), playable.size(), prepared.obstacles().size(),
                 prepared.doors().size(), prepared.doors().stream().filter(door -> !door.open()).count(), occupied.size(),
                 prepared.boundaries().size(), imageEvidence(prepared).isPresent());
@@ -343,37 +346,31 @@ public final class CombatMapViewService {
         Optional<GridPosition> tactical = prepared.runtimeState().combatEntered()
                 ? prepared.tokens().stream().filter(t -> t.type() == TokenType.PLAYER).map(CombatToken::position).findFirst()
                 : Optional.empty();
-        // A cell selected while preparing the map is not an entry decision. Once
-        // the runtime turn contains explicit entry evidence, the semantic
-        // placement proposal must be allowed to decide the first position.
-        // Otherwise the preparation click (often just a temporary cell used to
-        // complete the editor) would silently win over the action and narration.
-        Optional<GridPosition> userConfirmed = context.entryEvidence().isBlank()
-                ? confirmedPlayerStart(prepared)
-                : Optional.empty();
+        // An explicit user choice is the recovery path after an unresolved
+        // narrative proposal; authored map coordinates remain non-authoritative.
+        Optional<GridPosition> userConfirmed = confirmedPlayerStart(prepared);
         List<PlayerStartCandidate> agentCandidates = scenarioPlayerStartCandidates(prepared);
-        LOGGER.info("map_spawn_placement_candidates mapId={} explicit={} agentCandidates={} userConfirmed={} tactical={}",
-                state.map().id().value(), context.placementProposal().map(Object::toString).orElse(""),
-                agentCandidates,
-                userConfirmed.map(Object::toString).orElse(""), tactical.map(Object::toString).orElse(""));
+        if (diagnosticsEnabled()) LOGGER.info("dev_map_spawn_placement outcome=candidates mapId={} explicitPresent={} agentCandidateCount={} userConfirmedPresent={} tacticalPresent={}",
+                state.map().id().value(), context.placementProposal().isPresent(), agentCandidates.size(),
+                userConfirmed.isPresent(), tactical.isPresent());
         SpawnResolution resolution;
         try {
             resolution = new SpawnResolutionPolicy().resolve(prepared.grid(), prepared.obstacles(), prepared.doors(), occupied, playable,
                     context, userConfirmed, tactical, agentCandidates);
         } catch (MapPlacementRequiredException exception) {
             markPlacementRequired(prepared, owner, state.version(), context);
-            LOGGER.info("map_spawn_placement_required mapId={} reason={} entryEvidence={}",
-                    state.map().id().value(), exception.getMessage(), context.entryEvidence());
+            if (diagnosticsEnabled()) LOGGER.info("dev_map_spawn_placement outcome=placement_required mapId={} failureClass={} entryEvidenceChars={} recoveryAction=retry_or_manual_placement",
+                    state.map().id().value(), exception.getClass().getSimpleName(), context.entryEvidence().length());
             throw exception;
         }
         Optional<PlayerStartCandidate> selectedAgentCandidate = agentCandidates.stream()
                 .filter(candidate -> candidate.position().equals(resolution.position()))
                 .findFirst();
-        LOGGER.info("map_spawn_placement_valid mapId={} position={} source={} candidateConfidence={} candidateEvidence={} entryEvidence={} apiCandidatesHiddenAfterActivation={}",
+        if (diagnosticsEnabled()) LOGGER.info("dev_map_spawn_placement outcome=validated mapId={} position={} source={} candidateConfidence={} candidateEvidenceCount={} entryEvidenceChars={} apiCandidatesHiddenAfterActivation={}",
                 state.map().id().value(), resolution.position(), resolution.source(),
                 selectedAgentCandidate.map(PlayerStartCandidate::confidence).orElse(null),
-                selectedAgentCandidate.map(PlayerStartCandidate::evidence).orElse(List.of()),
-                context.entryEvidence(), true);
+                selectedAgentCandidate.map(candidate -> candidate.evidence().size()).orElse(0),
+                context.entryEvidence().length(), true);
         List<CombatToken> tokens = new ArrayList<>(nonPlayers);
         tokens.add(new CombatToken(prepared.tokens().stream().filter(t -> t.type() == TokenType.PLAYER).findFirst().map(CombatToken::id)
                 .orElse(context.playerTokenId().map(TokenId::new).orElse(new TokenId(UUID.randomUUID()))),
@@ -417,14 +414,13 @@ public final class CombatMapViewService {
             // A placement response is optional. Provider failure or malformed
             // placement evidence becomes UNRESOLVED and follows the same
             // manual-placement path as an empty proposal.
-            LOGGER.warn("map_spawn_placement_agent_unresolved mapId={} reason={}", map.id(), exception.getMessage());
+            if (diagnosticsEnabled()) LOGGER.warn("dev_map_spawn_placement outcome=agent_unresolved mapId={} failureClass={} entryEvidenceChars={} recoveryAction=manual_placement_or_retry",
+                    map.id().value(), exception.getClass().getSimpleName(), context.entryEvidence().length());
             generated = new PreparedMapData(map.grid(), List.of(), Set.of(), List.of());
         }
-        LOGGER.info("map_spawn_placement_agent_result mapId={} layers={}", map.id(),
-                generated.layers().stream()
-                        .filter(layer -> Set.of("GM_PLAYER_START_PROPOSAL", "GM_ENTRY_PLACEMENT_RESULT", "GM_MAP_RATIONALE").contains(layer.type()))
-                        .map(layer -> layer.type() + "=" + compactLogValue(layer.value()))
-                        .toList());
+        if (diagnosticsEnabled()) LOGGER.info("dev_map_spawn_placement outcome=agent_result mapId={} proposalLayerCount={} resultLayerCount={}",
+                map.id().value(), generated.layers().stream().filter(layer -> "GM_PLAYER_START_PROPOSAL".equals(layer.type())).count(),
+                generated.layers().stream().filter(layer -> "GM_ENTRY_PLACEMENT_RESULT".equals(layer.type())).count());
         List<MapLayer> layers = new ArrayList<>(map.layers().stream()
                 .filter(layer -> !Set.of("GM_PLAYER_START_PROPOSAL", "GM_ENTRY_PLACEMENT_RESULT").contains(layer.type()))
                 .toList());
@@ -902,10 +898,9 @@ public final class CombatMapViewService {
                 .map(line -> line.substring(prefix.length()).trim())
                 .findFirst().orElse("");
     }
-    private static String compactLogValue(String value) {
-        if (value == null) return "";
-        String compact = value.replaceAll("\\s+", " ").trim();
-        return compact.length() <= 500 ? compact : compact.substring(0, 500) + "…";
+    private static boolean diagnosticsEnabled() {
+        return Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
     }
     private static List<PlayerStartCandidate> playerStartCandidates(CombatMap map) {
         List<PlayerStartCandidate> result = new ArrayList<>();

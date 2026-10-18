@@ -348,41 +348,6 @@ public class AdventureSessionApplicationService {
                     "session_start_ability_definitions", context,
                     () -> abilityDefinitionPreparationService.prepareAtAdventureStart(abilityPrepAdventure));
         }
-        Adventure activeAdventure = adventure;
-        var openingSituation = preparedStage.openingSituation();
-        var initialMapDefinition = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
-                LOGGER, "session_start_situation_map_selection", context + " situationId=" + openingSituation.situationId()
-                        + " mapNeeded=" + openingSituation.mapNeeded() + " mapDefinitionId=" + openingSituation.mapDefinitionId()
-                        + " availableMapCount=" + scenarioPackage.mapDefinitions().size(),
-                () -> {
-                    var selected = openingSituation.mapNeeded()
-                            ? scenarioPackage.mapDefinitions().stream()
-                                .filter(map -> map.id().equals(openingSituation.mapDefinitionId()))
-                                .filter(com.dndmaster.adventure.domain.scenario.MapDefinition::autoActivatable)
-                                .findFirst()
-                            : java.util.Optional.<com.dndmaster.adventure.domain.scenario.MapDefinition>empty();
-                    if (openingSituation.mapNeeded() && selected.isEmpty()) {
-                        throw new IllegalStateException("map-needed opening situation has no usable map definition"
-                                + "; expected=" + openingSituation.mapDefinitionId() + "; available="
-                                + scenarioPackage.mapDefinitions().size() + "; actual=0");
-                    }
-                    return selected;
-                });
-        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
-            LOGGER.info("dev_situation_map_selection situationId={} expectedMapNeeded={} expectedMapDefinitionId={} actualMapDefinitionId={} outcome={}",
-                    openingSituation.situationId(), openingSituation.mapNeeded(), openingSituation.mapDefinitionId(),
-                    initialMapDefinition.map(com.dndmaster.adventure.domain.scenario.MapDefinition::id).orElse(null),
-                    initialMapDefinition.isPresent() ? "map_prepared" : "mapless");
-        }
-        initialMapDefinition.ifPresent(mapDefinition -> {
-            var mapActivationContext = activationContext(activeAdventure, session);
-            // Starting the adventure only prepares the editable draft. The
-            // player's location is resolved from the committed map-bearing
-            // situation, never from the opening scene.
-            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
-                    LOGGER, "session_start_prepare_map_draft", "sessionId=" + id.value() + " adventureId=" + effectiveAdventureId.value(),
-                    () -> combatMapPreparationPort.prepareDraft(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, mapActivationContext));
-        });
         com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
                 LOGGER, "session_start_runtime_binding", context,
                 () -> runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
@@ -393,16 +358,6 @@ public class AdventureSessionApplicationService {
                 : com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
                         LOGGER, "session_start_opening_gm_turn", context + " adventureId=" + effectiveAdventureId.value(),
                         () -> runtimeTurnService.openSessionTurn(effectiveAdventureId, owner, effectiveRequestId));
-        if (initialMapDefinition.isPresent()) {
-            Adventure fallbackAdventure = adventure;
-            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
-                    LOGGER, "session_start_activate_map", context + " adventureId=" + effectiveAdventureId.value()
-                            + " openingTurnPresent=" + (openingResult != null), () -> {
-                        Adventure committedAdventure = adventureRepository.findById(effectiveAdventureId).orElse(fallbackAdventure);
-                        combatMapPreparationPort.activatePrepared(effectiveAdventureId, owner.value(), configuration.ruleSetId(),
-                                1, activationContext(committedAdventure, session, openingResult));
-                    });
-        }
         if (openingResult != null && openingResult.turn().plan().combatStartRequested()) {
             if (combatLifecycleService == null) {
                 throw new IllegalStateException("combat lifecycle is not configured for session opening");
@@ -438,49 +393,6 @@ public class AdventureSessionApplicationService {
         }
         return session;
     }
-
-    private static CombatMapPreparationPort.ActivationContext activationContext(Adventure adventure, AdventureSession session) {
-        return activationContext(adventure, session, null);
-    }
-
-    private static CombatMapPreparationPort.ActivationContext activationContext(Adventure adventure, AdventureSession session,
-            RuntimeTurnResult result) {
-        var situation = adventure.currentSituation();
-        UUID playerTokenId = session.party().stream().findFirst()
-                .map(AdventurePartyMember::characterSheetId)
-                .map(sheet -> UUID.nameUUIDFromBytes(("player-" + sheet.value())
-                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)))
-                .orElse(null);
-        return new CombatMapPreparationPort.ActivationContext(playerTokenId, situation.situationId(),
-                situation.revision(), adventure.turnIndex(), adventure.currentContext().currentScene(),
-                situation.location(), null, null,
-                entryEvidence(situation.firstNarration(), result));
-    }
-
-    /**
-     * 맵 위치 판정에는 현재 상황의 첫 서술뿐 아니라, 첫 턴을 만들 때 실제로
-     * 사용한 스토리북 근거도 함께 전달한다. 시작 턴에서는 상황에 첫 서술이
-     * 아직 복사되기 전일 수 있으므로 그 턴의 게임 마스터 서술을 임시 첫
-     * 서술로 보존한다.
-     */
-    private static String entryEvidence(String firstNarration, RuntimeTurnResult result) {
-        StringBuilder evidence = new StringBuilder("FIRST_NARRATION=").append(blank(firstNarration));
-        if (result == null) return evidence.toString();
-        RuntimeTurn turn = result.turn();
-        if (blank(firstNarration).isBlank()) evidence.replace("FIRST_NARRATION=".length(), evidence.length(), blank(turn.narration()));
-        evidence.append("\nPLAYER_ACTION=").append(turn.action())
-                .append("\nGM_JUDGMENT=").append(blank(turn.plan().judgment()))
-                .append("\nGM_NARRATION=").append(blank(turn.narration()));
-        turn.plan().citedEvidence().stream()
-                .filter(item -> item.evidenceType() == RuntimeEvidenceType.STORYBOOK)
-                .map(RuntimeEvidence::excerpt)
-                .filter(value -> value != null && !value.isBlank())
-                .distinct()
-                .forEach(value -> evidence.append("\nSTORYBOOK_EVIDENCE=").append(value));
-        return evidence.toString();
-    }
-
-    private static String blank(String value) { return value == null ? "" : value; }
 
     public AdventureSession complete(SessionId id, OwnerPlayerId owner, long expectedVersion) {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion);

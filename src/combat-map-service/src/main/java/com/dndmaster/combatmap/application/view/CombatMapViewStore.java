@@ -10,6 +10,11 @@ public interface CombatMapViewStore {
     Optional<VersionedOwnedCombatMap> find(MapId id);
     Optional<VersionedOwnedCombatMap> findByAdventureId(AdventureId adventureId, MapOwnerId owner);
 
+    /** Removes the adventure's map from player views while it is in a mapless situation. */
+    default void deactivateForAdventure(AdventureId adventureId, MapOwnerId owner) {
+        throw new UnsupportedOperationException("map deactivation is not supported by this store");
+    }
+
     /** 활성화 전 사용자가 편집 중인 맵 초안. */
     default Optional<VersionedOwnedCombatMap> findPreparedByAdventureId(AdventureId adventureId, MapOwnerId owner) {
         return Optional.empty();
