@@ -95,6 +95,21 @@ class HttpInitialSituationGmPortTest {
         }
     }
 
+    @Test
+    void does_not_classify_unmarked_server_error_as_transient() throws Exception {
+        try (var server = new InitialSituationServer(new java.util.concurrent.atomic.AtomicReference<>(),
+                new java.util.concurrent.atomic.AtomicReference<>(), 503,
+                "{\"code\":\"UPSTREAM_FAILURE\",\"correlationId\":\"initial-situation:unmarked\"}")) {
+            var port = new HttpInitialSituationGmPort(HttpClient.newHttpClient(), server.baseUri(),
+                    Duration.ofSeconds(2), new ObjectMapper(), "internal-token");
+            var request = new InitialSituationGmPort.Request(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                    "openai", "story-model", "high", "initial-situation:unmarked", "prompt",
+                    new ObjectMapper().readTree("{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}"));
+
+            assertThatThrownBy(() -> port.generate(request)).isInstanceOf(ScenarioCompilationAgentFailureException.class);
+        }
+    }
+
     private static final class InitialSituationServer implements AutoCloseable {
         private final HttpServer server;
         private final java.util.concurrent.atomic.AtomicReference<String> body;

@@ -220,18 +220,31 @@ public final class AdventureAbilityDefinitionPreparationService {
         UUID packageId = selectedSources.packageId();
         var adventure = new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId.value());
         List<RuntimeEvidence> result = new ArrayList<>();
+        RuntimeException lastFailure = null;
         for (RuntimeEvidenceType type : List.of(RuntimeEvidenceType.RULEBOOK, RuntimeEvidenceType.STORYBOOK)) {
             List<ScenarioBundleDocumentSelection> documents = selectedSources.documents().stream()
                     .filter(doc -> type.name().equalsIgnoreCase(doc.documentType())).toList();
             if (documents.isEmpty()) continue;
             Map<UUID, Long> versions = documents.stream().collect(java.util.stream.Collectors.toMap(
                     doc -> doc.knowledgeDocumentId().value(), ScenarioBundleDocumentSelection::extractionVersion));
-            var found = evidenceSearch.search(new RuntimeEvidenceSearchRequest(adventure, owner, sessionId, packageId,
-                    documents.stream().map(doc -> doc.knowledgeDocumentId().value()).toList(), null,
-                    query, type, 8, versions,
-                    "ability:" + abilityId, "RULE_LOOKUP"));
-            result.addAll(found);
+            long searchStarted = System.nanoTime();
+            try {
+                var found = evidenceSearch.search(new RuntimeEvidenceSearchRequest(adventure, owner, sessionId, packageId,
+                        documents.stream().map(doc -> doc.knowledgeDocumentId().value()).toList(), null,
+                        query, type, 8, versions,
+                        "ability:" + abilityId, "RULE_LOOKUP"));
+                result.addAll(found);
+                diagnostic("source_type_search_complete", adventureId, sessionId, abilityId, result.size(),
+                        "independent_evidence_search", (System.nanoTime() - searchStarted) / 1_000_000,
+                        type.name() + ":results=" + found.size());
+            } catch (RuntimeException failure) {
+                lastFailure = failure;
+                diagnostic("source_type_search_failure", adventureId, sessionId, abilityId, result.size(),
+                        "other_selected_source_types", (System.nanoTime() - searchStarted) / 1_000_000,
+                        type.name() + ":" + failure.getClass().getSimpleName());
+            }
         }
+        if (result.isEmpty() && lastFailure != null) throw lastFailure;
         return new SearchResult(List.copyOf(result), selectedSources.authorizedSourceVersions(), selectedSources.sourceScope());
     }
 

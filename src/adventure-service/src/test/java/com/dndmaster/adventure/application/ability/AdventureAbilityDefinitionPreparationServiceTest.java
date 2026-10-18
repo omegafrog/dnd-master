@@ -227,6 +227,59 @@ class AdventureAbilityDefinitionPreparationServiceTest {
         verify(definitions).prepare(packageId, "ability:blink", validDefinition(documentId));
     }
 
+    @Test
+    void keeps_story_source_evidence_when_independent_rule_source_search_fails() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID packageId = UUID.randomUUID();
+        UUID ruleDocumentId = UUID.randomUUID();
+        UUID storyDocumentId = UUID.randomUUID();
+        SessionId sessionKey = new SessionId(sessionId);
+        var definitions = mock(AdventureAbilityDefinitionRepository.class);
+        var packages = mock(ScenarioPackageRepository.class);
+        var knowledgeSets = mock(SessionKnowledgeSetRepository.class);
+        var sessions = mock(AdventureSessionRepository.class);
+        var evidenceSearch = mock(RuntimeEvidenceSearchPort.class);
+        var bindings = mock(GmProviderBindingRepository.class);
+        var gm = mock(InitialSituationGmPort.class);
+        when(definitions.find(packageId, "ability:blink")).thenReturn(Optional.empty());
+        when(sessions.findById(sessionKey)).thenReturn(Optional.of(AdventureSession.rehydrate(sessionKey,
+                new OwnerPlayerId(ownerId), packageId, 1, 1, List.of(), 0)));
+        var ruleDocument = selectedDocument(ruleDocumentId, "RULEBOOK");
+        var storyDocument = selectedDocument(storyDocumentId, "STORYBOOK");
+        ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);
+        when(scenarioPackage.packageId()).thenReturn(packageId);
+        when(scenarioPackage.documents()).thenReturn(List.of(ruleDocument, storyDocument));
+        when(packages.findById(packageId)).thenReturn(Optional.of(scenarioPackage));
+        when(knowledgeSets.findBySessionId(sessionKey)).thenReturn(Optional.of(new SessionKnowledgeSet(sessionKey,
+                List.of(new KnowledgeDocumentId(ruleDocumentId), new KnowledgeDocumentId(storyDocumentId)))));
+        when(evidenceSearch.search(any())).thenAnswer(invocation -> {
+            com.dndmaster.adventure.application.runtime.RuntimeEvidenceSearchRequest request = invocation.getArgument(0);
+            if (request.evidenceType() == RuntimeEvidenceType.RULEBOOK)
+                throw new IllegalStateException("rule source search unavailable");
+            return List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, new KnowledgeDocumentId(storyDocumentId),
+                    3, "page 12", "The ability moves the user.", "story-cite"));
+        });
+        when(bindings.current(sessionId)).thenReturn(Optional.of(new ProviderBinding(sessionId,
+                new GmProviderSelection(UUID.randomUUID(), "codex", "test-model", "medium"), 1)));
+        when(gm.generate(any())).thenReturn(validDefinition(storyDocumentId));
+        var service = new AdventureAbilityDefinitionPreparationService(definitions, packages, knowledgeSets,
+                sessions, mock(RuntimeCharacterSheetReadPort.class), evidenceSearch,
+                mock(RuntimeEvidenceLocationLookupPort.class), bindings, gm, JSON);
+
+        service.prepare(new AdventureId(packageId), sessionKey, new OwnerPlayerId(ownerId), List.of("ability:blink"));
+
+        verify(evidenceSearch, org.mockito.Mockito.atLeastOnce()).search(
+                org.mockito.ArgumentMatchers.argThat(request -> request.evidenceType() == RuntimeEvidenceType.STORYBOOK));
+        verify(definitions).prepare(packageId, "ability:blink", validDefinition(storyDocumentId));
+    }
+
+    private static ScenarioBundleDocumentSelection selectedDocument(UUID documentId, String type) {
+        return new ScenarioBundleDocumentSelection(new KnowledgeDocumentId(documentId),
+                "RULEBOOK".equals(type) ? ScenarioBundleDocumentRole.RULEBOOK : ScenarioBundleDocumentRole.MAIN_SCENARIO,
+                mock(KnowledgeDocumentStatus.class), type + ".pdf", type, 3);
+    }
+
     private static JsonNode validDefinition(UUID documentId) throws Exception {
         return JSON.readTree("""
                 {"abilityId":"ability:blink","name":"Blink","actionTiming":"action","resourceCost":null,

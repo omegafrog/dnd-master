@@ -53,7 +53,8 @@ public final class HttpInitialSituationGmPort implements InitialSituationGmPort 
         }
         if (response.statusCode() / 100 != 2) {
             var failure = HttpScenarioCompilationAgentPort.decodeFailure(response.statusCode(), response.body(), request.operationKey());
-            if (failure.retryable()) throw new TransientInitialSituationGmFailureException(failure);
+            if (failure.retryable() && explicitlyRetryable(response.body()))
+                throw new TransientInitialSituationGmFailureException(failure);
             throw failure;
         }
         try {
@@ -62,6 +63,16 @@ public final class HttpInitialSituationGmPort implements InitialSituationGmPort 
             return result;
         } catch (IOException failure) {
             throw new IllegalStateException("initial situation GM returned invalid JSON", failure);
+        }
+    }
+
+    private boolean explicitlyRetryable(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) return false;
+        try {
+            JsonNode error = mapper.readTree(responseBody);
+            return error != null && error.path("retryable").isBoolean() && error.path("retryable").booleanValue();
+        } catch (IOException malformedError) {
+            return false;
         }
     }
 
