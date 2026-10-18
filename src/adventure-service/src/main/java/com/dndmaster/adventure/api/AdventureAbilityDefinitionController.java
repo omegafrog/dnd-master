@@ -60,6 +60,18 @@ public final class AdventureAbilityDefinitionController {
     LookupResponse lookup(@RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody LookupRequest request) {
         guard.internal(token);
+        long startedAt = System.nanoTime();
+        logLookup("started", request, "active_definition_for_learned_ability", "lookup_started", "none", startedAt);
+        try {
+            return lookupScoped(request, startedAt);
+        } catch (RuntimeException | Error failure) {
+            logLookup("failed", request, "active_definition_for_learned_ability",
+                    failure.getClass().getSimpleName(), failure.getClass().getSimpleName(), startedAt);
+            throw failure;
+        }
+    }
+
+    private LookupResponse lookupScoped(LookupRequest request, long startedAt) {
         if (request == null || request.adventureId() == null || request.sessionId() == null || request.ownerId() == null
                 || request.characterSheetId() == null || request.abilityId() == null || request.abilityId().isBlank())
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_ABILITY_LOOKUP_SCOPE");
@@ -68,11 +80,35 @@ public final class AdventureAbilityDefinitionController {
             throw new ApiRequestGuard.ApiContractException(404, "ADVENTURE_NOT_FOUND");
         JsonNode sheet = readSheet(request.characterSheetId());
         validateSheetScope(sheet, request.sessionId(), request.ownerId());
-        if (!learnedIds(sheet).contains(request.abilityId())) return new LookupResponse("NOT_LEARNED", null);
+        if (!learnedIds(sheet).contains(request.abilityId())) {
+            logLookup("completed", request, "learned_ability", "NOT_LEARNED", "none", startedAt);
+            return new LookupResponse("NOT_LEARNED", null);
+        }
         var stored = definitions.find(adventure.id().value(), request.abilityId());
-        if (stored.isEmpty()) return new LookupResponse("NEEDS_PREPARATION", null);
-        if (!"ACTIVE".equals(stored.get().status())) return new LookupResponse("NEEDS_PREPARATION", null);
+        if (stored.isEmpty()) {
+            logLookup("completed", request, "active_definition", "NEEDS_PREPARATION", "none", startedAt);
+            return new LookupResponse("NEEDS_PREPARATION", null);
+        }
+        if (!"ACTIVE".equals(stored.get().status())) {
+            logLookup("completed", request, "active_definition", "NEEDS_PREPARATION", "none", startedAt);
+            return new LookupResponse("NEEDS_PREPARATION", null);
+        }
+        logLookup("completed", request, "active_definition", "FOUND", "none", startedAt);
         return new LookupResponse("FOUND", stored.get().definition());
+    }
+
+    private static void logLookup(String outcome, LookupRequest request, String expected, String actual,
+            String failureKind, long startedAt) {
+        if (!com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) return;
+        String adventureId = request == null ? "none" : String.valueOf(request.adventureId());
+        String sessionId = request == null ? "none" : String.valueOf(request.sessionId());
+        String ownerId = request == null ? "none" : String.valueOf(request.ownerId());
+        String sheetId = request == null ? "none" : String.valueOf(request.characterSheetId());
+        String abilityId = request == null ? "none" : String.valueOf(request.abilityId());
+        LOGGER.info("dev_ability_lookup outcome={} adventureId={} sessionId={} ownerId={} characterSheetId={} abilityId={} expected={} actual={} failureKind={} elapsedMs={} recovery={}",
+                outcome, adventureId, sessionId, ownerId, sheetId, abilityId, expected, actual, failureKind,
+                java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt),
+                "failed".equals(outcome) ? "return_scoped_error" : "none");
     }
 
     private com.dndmaster.adventure.domain.adventure.Adventure requireScope(Request request) {

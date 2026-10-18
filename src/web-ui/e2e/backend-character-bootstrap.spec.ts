@@ -528,8 +528,18 @@ test('fresh database bootstraps an adventure, creates a character, and prepares 
     },
   })
   expect(lookupResponse.ok(), await lookupResponse.text()).toBeTruthy()
-  const lookup = await lookupResponse.json() as { status: string; definition: { abilityId: string; sourceLocations: unknown[] } }
+  const lookup = await lookupResponse.json() as {
+    status: string
+    definition: {
+      abilityId: string
+      sourceLocations: Array<{ documentId: string; extractionVersion: number; locator: string }>
+    }
+  }
   expect(lookup.status).toBe('FOUND')
   expect(lookup.definition.abilityId).toBe(abilityId)
   expect(lookup.definition.sourceLocations).toHaveLength(1)
+  const source = lookup.definition.sourceLocations[0]
+  expect(uploaded.documents.map(document => document.knowledgeDocumentId)).toContain(source.documentId)
+  expect(source.locator).not.toBe('')
+  expect(source.extractionVersion).toBeGreaterThan(0)
 })
