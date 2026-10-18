@@ -1,8 +1,14 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
+import { execFile } from 'node:child_process'
 import { basename, dirname, resolve, sep } from 'node:path'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
+const repositoryRoot = new URL('../../..', import.meta.url).pathname
+const composeFile = `${repositoryRoot}src/infra/compose.yaml`
 
 const storybookRoles = new Set([
   'MAIN_SCENARIO',
@@ -465,31 +471,52 @@ test('fresh database bootstraps an adventure, creates a character, and prepares 
     fullParty = await additionalPartyResponse.json()
   }
 
-  const adventureId = crypto.randomUUID()
-  const providerResponse = await request.get(`${backend}/api/v1/adventure-sessions/${session.sessionId}/gm-provider`, { headers: authHeaders })
-  expect(providerResponse.ok(), await providerResponse.text()).toBeTruthy()
-  const provider = await providerResponse.json() as { version: number }
-  const selectProvider = await request.put(`${backend}/api/v1/adventure-sessions/${session.sessionId}/gm-provider`, {
-    headers: { ...authHeaders, 'If-Match-Version': String(provider.version), 'Content-Type': 'application/json' },
-    data: { provider: 'codex-cli', model: 'gpt-6-luna', reasoning: 'low' },
-  })
-  expect(selectProvider.ok(), await selectProvider.text()).toBeTruthy()
+  await page.goto(`/#/sessions/${session.sessionId}`)
+  await expect(page.getByRole('button', { name: '시나리오 런타임 시작' })).toBeEnabled()
+  await page.getByRole('button', { name: '시나리오 런타임 시작' }).click()
+  await expect(page).toHaveURL(new RegExp(`#\\/sessions\\/${session.sessionId}\\?mode=play`), { timeout: 180_000 })
 
-  const startResponse = await request.post(`${backend}/api/v1/adventure-sessions/${session.sessionId}/start`, {
-    headers: {
-      ...authHeaders,
-      'If-Match-Version': String(fullParty.version),
-      'Idempotency-Key': crypto.randomUUID(),
-      'Content-Type': 'application/json',
-    },
-    data: { adventureId, prepareMapOnly: true },
-  })
-  expect(startResponse.ok(), await startResponse.text()).toBeTruthy()
-  const started = await startResponse.json() as { status: string }
-  expect(['STARTING', 'STARTED']).toContain(started.status)
+  const startedResponse = await request.get(`${backend}/api/v1/adventure-sessions/${session.sessionId}`, { headers: authHeaders })
+  expect(startedResponse.ok(), await startedResponse.text()).toBeTruthy()
+  const started = await startedResponse.json() as { status: string; adventureId: string }
+  expect(started.status).toBe('STARTED')
+  const adventureId = started.adventureId
+  const opening = await readPersistedOpeningSituation(adventureId)
+  expect(opening.mapNeeded).toBe(true)
+  expect(opening.mapDefinitionId).toBeTruthy()
+  const storedMapDefinitions = JSON.parse(await readStoredMapDefinitions(packageId)) as Array<{ id: string }>
+  expect(storedMapDefinitions.map(map => map.id)).toContain(opening.mapDefinitionId)
+
+  const internalHeaders = { 'X-Internal-Token': process.env.INTERNAL_SERVICE_TOKEN ?? 'local-development-internal-token' }
+  const mapResponse = await request.get(
+    `${backend}/internal/v1/adventures/${adventureId}/combat-map/player-view?ownerId=${ownerPlayerId}`, { headers: internalHeaders },
+  )
+  expect(mapResponse.ok(), await mapResponse.text()).toBeTruthy()
+  const playerMap = await mapResponse.json() as {
+    mapId: string
+    tokens: Array<{ id: string; type: string }>
+    spatialFeatures: Array<{ id: string; visibility: string }>
+  }
+  expect(playerMap.mapId).toBeTruthy()
+  const gmMapResponse = await request.get(
+    `${backend}/internal/v1/combat-maps/${playerMap.mapId}/gm-view?ownerId=${ownerPlayerId}`, { headers: internalHeaders },
+  )
+  expect(gmMapResponse.ok(), await gmMapResponse.text()).toBeTruthy()
+  const gmMap = await gmMapResponse.json() as {
+    tokens: Array<{ id: string; discovery: string }>
+    spatialFeatures: Array<{ id: string; visibility: string }>
+  }
+  const hiddenIds = [
+    ...gmMap.tokens.filter(token => token.discovery === 'HIDDEN').map(token => token.id),
+    ...gmMap.spatialFeatures.filter(feature => feature.visibility === 'HIDDEN').map(feature => feature.id),
+  ]
+  expect(hiddenIds.length, 'prepared map should contain hidden initial placement').toBeGreaterThan(0)
+  const playerVisibleIds = new Set([
+    ...playerMap.tokens.map(token => token.id), ...playerMap.spatialFeatures.map(feature => feature.id),
+  ])
+  expect(hiddenIds.some(id => playerVisibleIds.has(id))).toBe(false)
 
   const abilityId = 'spell-node-2810-fireball'
-  const internalHeaders = { 'X-Internal-Token': process.env.INTERNAL_SERVICE_TOKEN ?? 'local-development-internal-token' }
   const runtimeSheetResponse = await request.get(
     `${backend}/internal/v1/character-sheets/${created.characterSheetId}/runtime`, { headers: internalHeaders },
   )
@@ -544,3 +571,25 @@ test('fresh database bootstraps an adventure, creates a character, and prepares 
   expect(source.locator).not.toBe('')
   expect(source.extractionVersion).toBeGreaterThan(0)
 })
+
+async function readPersistedOpeningSituation(adventureId: string) {
+  const sql = `SELECT value::text FROM adventure_detailed_stage, jsonb_array_elements(artifact_json->'situations') AS situation(value) WHERE adventure_id = '${adventureId}'::uuid AND value->>'opening' = 'true' ORDER BY stage_id LIMIT 1`
+  const { stdout } = await execFileAsync('docker', [
+    'compose', ...(process.env.COMPOSE_PROJECT_NAME ? ['-p', process.env.COMPOSE_PROJECT_NAME] : []),
+    '-f', composeFile, 'exec', '-T', 'postgres', 'psql', '--username', 'postgres', '--dbname', 'postgres',
+    '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql,
+  ])
+  expect(stdout.trim(), 'opening Situation should be persisted in the stage artifact').not.toBe('')
+  return JSON.parse(stdout.trim()) as { mapNeeded: boolean; mapDefinitionId: string | null }
+}
+
+async function readStoredMapDefinitions(packageId: string) {
+  const sql = `SELECT map_definitions_json FROM scenario_package WHERE package_id = '${packageId}'::uuid`
+  const { stdout } = await execFileAsync('docker', [
+    'compose', ...(process.env.COMPOSE_PROJECT_NAME ? ['-p', process.env.COMPOSE_PROJECT_NAME] : []),
+    '-f', composeFile, 'exec', '-T', 'postgres', 'psql', '--username', 'postgres', '--dbname', 'postgres',
+    '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql,
+  ])
+  expect(stdout.trim(), 'scenario package map definitions should be persisted').not.toBe('')
+  return stdout.trim()
+}

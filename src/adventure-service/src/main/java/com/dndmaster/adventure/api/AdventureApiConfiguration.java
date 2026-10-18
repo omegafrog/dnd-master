@@ -260,9 +260,13 @@ public class AdventureApiConfiguration {
             ObjectMapper objectMapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout,
-            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
-        return new com.dndmaster.adventure.infrastructure.integration.HttpInitialSituationGmPort(
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            @Value("${adventure.integration.scenario-preparation.seed-opening-map:false}") boolean seedOpeningMap) {
+        var httpPort = new com.dndmaster.adventure.infrastructure.integration.HttpInitialSituationGmPort(
                 HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper, internalToken);
+        return seedOpeningMap
+                ? new com.dndmaster.adventure.application.scenario.preparation.SeededOpeningSituationMapGmPort(httpPort)
+                : httpPort;
     }
 
     @Bean
