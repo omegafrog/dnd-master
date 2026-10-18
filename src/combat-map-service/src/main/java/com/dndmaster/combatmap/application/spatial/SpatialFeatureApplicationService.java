@@ -15,6 +15,7 @@ import com.dndmaster.combatmap.domain.AdventureId;
 
 /** Combat Map capability that validates and atomically materializes Scenario Preparation output. */
 public final class SpatialFeatureApplicationService {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(SpatialFeatureApplicationService.class);
     private static final String WARNING_LAYER = "SPATIAL_PREPARATION_WARNING";
     private static final String FAILURE_LAYER = "SPATIAL_PREPARATION_FAILURE";
 
@@ -59,6 +60,59 @@ public final class SpatialFeatureApplicationService {
                 command.commandId(), command.fingerprint());
         return new Result(updated.id(), command.expectedVersion() + 1,
                 batch.blocked() ? Status.BLOCKED : Status.READY, batch.warnings().size());
+    }
+
+    public Result retryBlocked(MapId mapId, AdventureId adventureId, MapOwnerId owner,
+            SpatialFeaturePlacementBatch batch, long createdTurn, SpatialPreparationCommand command) {
+        long startedAt = System.nanoTime();
+        if (diagnosticsEnabled()) LOGGER.info("dev_map_spatial_retry outcome=started mapId={} adventureId={} ownerId={} commandId={} expectedVersion={} featureCount={} blockedInput={}",
+                mapId.value(), adventureId.value(), owner.value(), command.commandId(), command.expectedVersion(),
+                batch.placements().size(), batch.blocked());
+        try {
+            VersionedOwnedCombatMap replay = store.findByCommandId(command.commandId()).orElse(null);
+            if (replay != null) {
+                if (!replay.map().id().equals(mapId) || !replay.map().adventureId().equals(adventureId)
+                        || !replay.owner().equals(owner) || !command.fingerprint().equals(replay.map().operationFingerprint())) {
+                    throw new SpatialPreparationCommandConflictException();
+                }
+                if (diagnosticsEnabled()) LOGGER.info("dev_map_spatial_retry outcome=replayed mapId={} commandId={} version={} featureCount={} elapsedMs={}",
+                        mapId.value(), command.commandId(), replay.version(), replay.map().spatialFeatures().size(), elapsedMs(startedAt));
+                return resultFrom(replay.map());
+            }
+            VersionedOwnedCombatMap current = store.find(mapId)
+                    .orElseThrow(() -> new IllegalArgumentException("combat map not found"));
+            if (!current.owner().equals(owner) || !current.map().adventureId().equals(adventureId)) {
+                throw new IllegalArgumentException("combat map owner or adventure mismatch");
+            }
+            if (current.version() != command.expectedVersion() || !current.map().spatialPreparationBlocked()) {
+                throw new SpatialPreparationVersionConflictException();
+            }
+            if (batch.blocked()) throw new IllegalArgumentException("successful spatial preparation retry is required");
+            if (createdTurn < 0) throw new IllegalArgumentException("created turn must not be negative");
+            List<com.dndmaster.combatmap.domain.SpatialFeature> features = batch.placements().stream()
+                    .map(placement -> toFeature(current.map(), placement, createdTurn)).toList();
+            validateEvidenceVersion(batch, features);
+            CombatMap updated = withDiagnostics(current.map(), batch.warnings(), batch.failures());
+            updated.materializeSpatialFeatures(java.util.stream.Stream.concat(
+                    current.map().spatialFeatures().stream(), features.stream()).toList());
+            updated.completeSpatialPreparation();
+            store.update(owner, updated, command.expectedVersion(), command.expectedVersion() + 1,
+                    command.commandId(), command.fingerprint());
+            Result result = new Result(updated.id(), command.expectedVersion() + 1, Status.READY, batch.warnings().size());
+            if (diagnosticsEnabled()) LOGGER.info("dev_map_spatial_retry outcome=completed mapId={} commandId={} expectedVersion={} actualVersion={} expectedFeatureCount={} actualFeatureCount={} status={} elapsedMs={}",
+                    mapId.value(), command.commandId(), command.expectedVersion(), result.version(), batch.placements().size(),
+                    store.find(mapId).map(value -> value.map().spatialFeatures().size()).orElse(-1), result.status(), elapsedMs(startedAt));
+            return result;
+        } catch (RuntimeException | Error failure) {
+            if (diagnosticsEnabled()) {
+                VersionedOwnedCombatMap actual = store.find(mapId).orElse(null);
+                LOGGER.info("dev_map_spatial_retry outcome=failed mapId={} adventureId={} commandId={} expectedVersion={} actualVersion={} expectedBlocked=true actualBlocked={} featureCount={} failureClass={} elapsedMs={} recoveryAction=retain_blocked_draft_and_retry_with_current_version",
+                        mapId.value(), adventureId.value(), command.commandId(), command.expectedVersion(),
+                        actual == null ? "missing" : actual.version(), actual != null && actual.map().spatialPreparationBlocked(),
+                        batch.placements().size(), failure.getClass().getSimpleName(), elapsedMs(startedAt));
+            }
+            throw failure;
+        }
     }
 
     /** Materializes a generated map and its validated preparation in the store's insert transaction. */
@@ -173,6 +227,15 @@ public final class SpatialFeatureApplicationService {
         long warnings = map.layers().stream().filter(layer -> layer.type().equals(WARNING_LAYER)).count();
         return new Result(map.id(), map.version(), map.spatialPreparationBlocked() ? Status.BLOCKED : Status.READY,
                 Math.toIntExact(warnings));
+    }
+
+    private static boolean diagnosticsEnabled() {
+        return Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+    }
+
+    private static long elapsedMs(long startedAt) {
+        return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
     }
 
     public enum Status { READY, BLOCKED }

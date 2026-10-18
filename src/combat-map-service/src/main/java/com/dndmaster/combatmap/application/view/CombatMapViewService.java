@@ -69,7 +69,7 @@ public final class CombatMapViewService {
     public SpatialFeatureApplicationService.Result prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules,
             MapGenerationRequest request, boolean includeAiPlayerStart,
             SpatialFeaturePlacementBatch batch, long createdTurn, SpatialPreparationCommand command) {
-        PreparedMapData generated = aiPort.generate(request);
+        PreparedMapData generated = aiPort.generate(request.withSoloPlayerId(owner.value()));
         Set<GridPosition> mergedObstacles = new HashSet<>(generated.obstacles());
         mergedObstacles.addAll(request.authoredObstacles());
         List<Door> mergedDoors = new ArrayList<>(generated.doors());
@@ -271,6 +271,11 @@ public final class CombatMapViewService {
             SpatialFeaturePlacementBatch batch, long createdTurn, SpatialPreparationCommand command) {
         Objects.requireNonNull(batch, "validated spatial placement batch must not be null");
         return spatialFeatureApplication.prepare(id, owner, batch, createdTurn, command);
+    }
+
+    public SpatialFeatureApplicationService.Result retryBlockedSpatialPreparation(MapId id, AdventureId adventureId,
+            MapOwnerId owner, SpatialFeaturePlacementBatch batch, long createdTurn, SpatialPreparationCommand command) {
+        return spatialFeatureApplication.retryBlocked(id, adventureId, owner, batch, createdTurn, command);
     }
 
     public Optional<SpatialFeatureApplicationService.Result> replaySpatialPreparation(AdventureId adventureId,

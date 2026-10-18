@@ -177,6 +177,19 @@ class CombatMapVisibilityIntegrationTest{
   assertEquals(commandId,restored.operationKey());
   assertEquals(restored.id(),store.findByCommandId(commandId).orElseThrow().map().id());
  }
+ @Test void initialSpatialMapPreparationRoutesGenerationThroughTheAdventureOwner(){
+  List<UUID> routedOwners=new ArrayList<>();
+  PreparedMapData prepared=data();
+  AiMapGenerationPort port=new AiMapGenerationPort(){
+   public PreparedMapData generate(String description){return prepared;}
+   public PreparedMapData generate(MapGenerationRequest request){routedOwners.add(request.soloPlayerId());return prepared;}
+  };
+  CombatMapViewService service=new CombatMapViewService(store,source->prepared,port);
+  service.prepareGenerated(owner,adventure(),rules(),new MapGenerationRequest("opening","",10,10,50,5,List.of(),List.of()),true,
+          new SpatialFeaturePlacementBatch("story-plan:opening",false,List.of(),List.of(),List.of()),2,
+          new SpatialPreparationCommand(UUID.randomUUID(),"owner-routing",0));
+  assertEquals(List.of(owner.value()),routedOwners);
+ }
  @Test void initialAtomicInsertRollsBackMapFeatureAndCommandHistoryOnChildWriteFailure(){
   AdventureId adventure=adventure();
   PreparedMapData invalid=new PreparedMapData(new GridSpec(5,5,50,5),List.of(

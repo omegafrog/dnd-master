@@ -34,6 +34,9 @@ import com.dndmaster.adventure.application.runtime.GmProviderSelection;
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.core.read.ListAppender;
+import com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics;
 
 class ScenarioPackageStageArtifactAdapterTest {
     @Test
@@ -157,7 +160,13 @@ class ScenarioPackageStageArtifactAdapterTest {
         ScenarioSourceReference source = new ScenarioSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1");
         ScenarioModel model = new ScenarioModel(1, List.of(), List.of(), List.of(element("goal", "objective", "Find the bell")),
                 List.of(), List.of(), List.of(), List.of(), "The village bell is missing");
+        UUID unusableMapId = UUID.randomUUID();
         UUID providedMapId = UUID.randomUUID();
+        var unusableMap = new com.dndmaster.adventure.domain.scenario.MapDefinition(unusableMapId, "unsafe-map", "unsafe-asset",
+                new com.dndmaster.adventure.domain.scenario.MapDefinition.MapGrid(0, 0, 50, 0, "5 ft"),
+                List.of(), List.of(), List.of(),
+                new com.dndmaster.adventure.domain.scenario.MapSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1"),
+                0.0, com.dndmaster.adventure.domain.scenario.MapSafetyStatus.UNSAFE);
         var providedMap = new com.dndmaster.adventure.domain.scenario.MapDefinition(providedMapId, "map", "asset",
                 new com.dndmaster.adventure.domain.scenario.MapDefinition.MapGrid(0, 0, 50, 0, "5 ft"),
                 List.of(), List.of(), List.of(),
@@ -165,7 +174,7 @@ class ScenarioPackageStageArtifactAdapterTest {
                 0.9, com.dndmaster.adventure.domain.scenario.MapSafetyStatus.SAFE);
         ScenarioPackage scenarioPackage = ScenarioPackage.publishWithScenarioModel(ScenarioBundleId.generate(), 1,
                 "fingerprint", List.of(), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
-                CharacterLimit.defaultLimit(), null, List.of(providedMap), List.of(), model);
+                CharacterLimit.defaultLimit(), null, List.of(unusableMap, providedMap), List.of(), model);
         ScenarioPackageRepository packages = new ScenarioPackageRepository() {
             @Override public Optional<ScenarioPackage> findByInputFingerprint(String ignored) { return Optional.empty(); }
             @Override public Optional<ScenarioPackage> findById(UUID id) { return Optional.of(scenarioPackage); }
@@ -185,14 +194,14 @@ class ScenarioPackageStageArtifactAdapterTest {
             calls.add(request);
             if (request.operationKey().contains(":stage:")) {
                 var refs = List.of(0);
-                boolean requiredOpening = !request.operationKey().endsWith(":stage:tower") || request.prompt().contains("REQUIRED_STORY_SITUATIONS=[{");
+                boolean requiredOpening = !request.operationKey().contains(":stage:tower") || request.prompt().contains("REQUIRED_STORY_SITUATIONS=[{");
                 var detailed = mapper.valueToTree(Map.of(
                         "coreProblem", "The village bell is missing",
                         "revelations", List.of(Map.of("revelationId", "truth", "required", true, "sourceRefIndexes", refs)),
                         "threat", Map.of("core", "The bell's keeper is worried", "sourceRefIndexes", refs),
                         "pressure", Map.of("pressureId", "pressure", "progressionMaterial", "Night is falling", "sourceRefIndexes", refs),
                         "funnel", Map.of("funnelId", "funnel", "meaning", "Find the bell", "requiredRevelationIndexes",
-                                request.operationKey().endsWith(":index-repair") || request.operationKey().endsWith(":stage:tower")
+                                request.operationKey().contains(":index-repair:") || request.operationKey().endsWith(":stage:tower")
                                         ? List.of(0) : List.of(1), "requiredPredicateIds", List.of("predicate-open"), "sourceRefIndexes", refs),
                         "situations", requiredOpening ? List.of(
                                 generatedSituation("opening", true, List.of("model-invented-prerequisite"), "SOURCE_EXTRACTED", List.of()),
@@ -203,7 +212,11 @@ class ScenarioPackageStageArtifactAdapterTest {
                                 generatedSituation("candidate", false, List.of("opening"), "GM_SUPPLEMENTED", List.of()),
                                 generatedSituation("link", false, List.of("candidate"), "GM_SUPPLEMENTED", List.of())),
                         "importantConsequenceIds", List.of("consequence"), "sourceRefIndexes", refs));
-                if (request.operationKey().endsWith(":stage:tower")) {
+                if (request.operationKey().endsWith(":index-repair:1")) {
+                    ((com.fasterxml.jackson.databind.node.ObjectNode) detailed.path("situations").get(0))
+                            .putArray("revelationIndexes").add(1);
+                }
+                if (request.operationKey().contains(":stage:tower") && !request.operationKey().contains(":index-repair:")) {
                     ((com.fasterxml.jackson.databind.node.ObjectNode) detailed).putNull("openingSituationIndex");
                 } else {
                     ((com.fasterxml.jackson.databind.node.ObjectNode) detailed).put("openingSituationIndex", 0);
@@ -252,16 +265,40 @@ class ScenarioPackageStageArtifactAdapterTest {
                 .path("properties").path("situations").path("items").path("properties").path("mapDefinitionId").path("enum"),
                 mapper.getTypeFactory().constructCollectionType(List.class, String.class)));
 
-        var detailed = adapter.generate(new StageDetailedGenerationPort.Request(adventureId, sessionId,
-                scenarioPackage.packageId(), "arrival", 1, List.of(source),
-                List.of(new RequiredSituation("opening", "The village bell is missing", List.of(), List.of(source)),
-                        new RequiredSituation("tower", "Find the bell", List.of("opening"), List.of(source))),
-                true, List.of("tower")));
+        Logger logger = (Logger) org.slf4j.LoggerFactory.getLogger(ScenarioPackageStageArtifactAdapter.class);
+        var diagnostics = new ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        diagnostics.start();
+        logger.addAppender(diagnostics);
+        String previousDiagnostics = System.getProperty(DevelopmentDiagnostics.FLAG);
+        com.dndmaster.adventure.domain.scenario.DetailedStage detailed;
+        try {
+            System.setProperty(DevelopmentDiagnostics.FLAG, "true");
+            detailed = adapter.generate(new StageDetailedGenerationPort.Request(adventureId, sessionId,
+                    scenarioPackage.packageId(), "arrival", 1, List.of(source),
+                    List.of(new RequiredSituation("opening", "The village bell is missing", List.of(), List.of(source)),
+                            new RequiredSituation("tower", "Find the bell", List.of("opening"), List.of(source))),
+                    true, List.of("tower")));
+        } finally {
+            logger.detachAppender(diagnostics);
+            if (previousDiagnostics == null) System.clearProperty(DevelopmentDiagnostics.FLAG);
+            else System.setProperty(DevelopmentDiagnostics.FLAG, previousDiagnostics);
+        }
+        String diagnosticLog = diagnostics.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                .collect(java.util.stream.Collectors.joining("\n"));
+        assertTrue(diagnosticLog.contains("dev_initial_situation_index_repair outcome=started stageId=arrival field=funnel.requiredRevelationIndexes allowedTargetCount=1"));
+        assertTrue(diagnosticLog.contains("actualIndexes=index=1"));
+        assertTrue(diagnosticLog.contains("dev_initial_situation_index_repair outcome=completed stageId=arrival field=funnel.requiredRevelationIndexes"));
+        assertTrue(diagnosticLog.contains("dev_initial_situation_index_repair outcome=started stageId=arrival field=situation.revelationIndexes allowedTargetCount=1"));
+        assertTrue(diagnosticLog.contains("dev_initial_situation_index_repair outcome=completed stageId=arrival field=situation.revelationIndexes"));
+        assertTrue(diagnosticLog.contains("expectedIndexes=[0]"));
         assertEquals(4, detailed.situations().size());
-        var repairCall = calls.stream().filter(call -> call.operationKey().endsWith(":index-repair")).findFirst().orElseThrow();
+        var repairCall = calls.stream().filter(call -> call.operationKey().endsWith(":index-repair:1")).findFirst().orElseThrow();
         assertEquals(List.of(0), mapper.convertValue(repairCall.outputSchema().path("properties").path("funnel")
                 .path("properties").path("requiredRevelationIndexes").path("items").path("enum"),
                 mapper.getTypeFactory().constructCollectionType(List.class, Integer.class)));
+        var situationRepairCall = calls.stream().filter(call -> call.operationKey().endsWith(":index-repair:2")).findFirst().orElseThrow();
+        assertTrue(situationRepairCall.prompt().contains("situation.revelationIndexes"));
+        assertTrue(situationRepairCall.prompt().contains("only these zero-based indexes: [0]"));
         assertEquals(List.of("truth"), detailed.situations().getFirst().revelationIds());
         assertEquals(List.of(), detailed.situations().getFirst().prerequisiteSituationIds());
         assertEquals(List.of(source), detailed.situations().getFirst().sourceRefs());
@@ -283,6 +320,8 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertTrue(detailed.situations().get(0).opening());
         assertFalse(detailed.situations().get(1).opening());
         assertTrue(calls.getLast().prompt().contains("supplied map UUID or null"));
+        assertTrue(calls.getLast().prompt().contains("Use only these map IDs: [\"" + providedMapId + "\"]"));
+        assertFalse(calls.getLast().prompt().contains(unusableMapId.toString()));
         assertTrue(calls.getLast().prompt().contains("never invent separate target IDs"));
         assertEquals("array", calls.getLast().outputSchema().path("properties").path("situations").path("type").asText());
         var situationAlternatives = calls.getLast().outputSchema().path("properties").path("situations").path("items").path("anyOf");
@@ -329,6 +368,7 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertEquals(java.util.Arrays.asList(providedMapId.toString(), null), mapper.convertValue(calls.getLast().outputSchema()
                 .path("properties").path("situations").path("items").path("properties").path("mapDefinitionId").path("enum"),
                 mapper.getTypeFactory().constructCollectionType(List.class, String.class)));
+        assertFalse(calls.getLast().outputSchema().toString().contains(unusableMapId.toString()));
         assertEquals(1, calls.getLast().outputSchema().path("properties").path("situations").path("items")
                 .path("properties").path("intents").path("minItems").asInt());
         assertEquals(1, calls.getLast().outputSchema().path("properties").path("coreProblem").path("minLength").asInt());

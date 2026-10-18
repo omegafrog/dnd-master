@@ -25,6 +25,22 @@ import org.junit.jupiter.api.Test;
 
 class CombatMapApiConfigurationTest {
     @Test
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    void mapGenerationRejectsMissingConnectedPlayerBeforeDispatch(org.springframework.boot.test.system.CapturedOutput output) {
+        var gateway = new HttpAiMapGenerationGateway(HttpClient.newHttpClient(),
+                java.net.URI.create("http://127.0.0.1:1/"), Duration.ofSeconds(1), new ObjectMapper(), "token");
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        try {
+            assertThrows(IllegalArgumentException.class, () -> gateway.generate(new MapGenerationRequest("map", "context")));
+            assertTrue(output.getOut().contains("dev_map_agent outcome=missing_owner expected=connected_solo_player_id actual=null recoveryAction=correct_request_owner"));
+        } finally {
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
+        }
+    }
+
+    @Test
     void internalTokenIsRequiredAtConfigurationBoundary() {
         assertThrows(ApiRequestGuard.ApiContractException.class,
                 () -> new CombatMapApiConfiguration().combatMapApiRequestGuard(""));
@@ -81,7 +97,7 @@ class CombatMapApiConfigurationTest {
                     Duration.ofSeconds(5), new ObjectMapper(), "token");
             var image = png(32, 40);
             PreparedMapData data = gateway.generate(new MapGenerationRequest("map", "context", 4, 3, 30, 5,
-                    java.util.List.of(), java.util.List.of(), null, image));
+                    java.util.List.of(), java.util.List.of(), null, image).withSoloPlayerId(java.util.UUID.randomUUID()));
 
             assertEquals(new GridSpec(4, 3, 30, 5), data.grid());
             assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("MAP_IMAGE")));
@@ -114,7 +130,7 @@ class CombatMapApiConfigurationTest {
                     112.5, 48.25, 31.75, "100,40,900,700", "revision-1",
                     java.util.List.of(new com.dndmaster.combatmap.domain.MapBoundary(1, 1,
                             com.dndmaster.combatmap.domain.MapBoundary.Orientation.VERTICAL,
-                            com.dndmaster.combatmap.domain.MapBoundary.Kind.WALL, false))));
+                            com.dndmaster.combatmap.domain.MapBoundary.Kind.WALL, false))).withSoloPlayerId(java.util.UUID.randomUUID()));
             JsonNode mapData = new ObjectMapper().readTree(new ObjectMapper().readTree(requestBody.get()).path("mapData").asText());
             assertEquals(112.5, mapData.path("gridOriginX").asDouble());
             assertEquals(48.25, mapData.path("gridOriginY").asDouble());

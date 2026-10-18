@@ -85,6 +85,54 @@ class SpatialFeatureApplicationServiceTest {
     }
 
     @Test
+    void retries_a_blocked_map_on_the_same_draft_once_and_checks_its_version() {
+        MapId mapId = new MapId(UUID.randomUUID());
+        MapOwnerId owner = new MapOwnerId(UUID.randomUUID());
+        var token = new com.dndmaster.combatmap.domain.CombatToken(new com.dndmaster.combatmap.domain.TokenId(UUID.randomUUID()),
+                com.dndmaster.combatmap.domain.TokenType.PLAYER, new GridPosition(1, 1),
+                com.dndmaster.combatmap.domain.TokenController.PLAYER,
+                new com.dndmaster.combatmap.domain.PlayerId(owner.value()));
+        CombatMap draft = new CombatMap(mapId, new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                new GridSpec(5, 5, 50, 5), new com.dndmaster.combatmap.domain.PlayerId(owner.value()),
+                List.of(token), java.util.Set.of(), List.of(), 0, null);
+        draft.blockSpatialPreparation();
+        InMemoryStore store = new InMemoryStore(owner, draft);
+        SpatialFeatureApplicationService application = new SpatialFeatureApplicationService(store);
+        SpatialPreparationCommand retry = new SpatialPreparationCommand(UUID.randomUUID(), "same-entry-retry", 0);
+
+        var first = application.retryBlocked(mapId, draft.adventureId(), owner, batch(), 1, retry);
+        var replay = application.retryBlocked(mapId, draft.adventureId(), owner, batch(), 1, retry);
+
+        assertEquals(1, first.version());
+        assertEquals(first, replay);
+        assertEquals(1, store.map.spatialFeatures().size());
+        assertTrue(store.map.spatialFeatures().stream().anyMatch(feature -> feature.id().equals(FEATURE_ID)));
+        assertEquals(List.of(token.id()), store.map.tokens().stream().map(com.dndmaster.combatmap.domain.CombatToken::id).toList());
+        assertTrue(!store.map.spatialPreparationBlocked());
+    }
+
+    @Test
+    void stale_or_wrong_owner_retry_does_not_change_a_blocked_draft() {
+        MapId mapId = new MapId(UUID.randomUUID());
+        MapOwnerId owner = new MapOwnerId(UUID.randomUUID());
+        CombatMap draft = map(mapId, owner);
+        draft.blockSpatialPreparation();
+        InMemoryStore store = new InMemoryStore(owner, draft);
+        SpatialFeatureApplicationService application = new SpatialFeatureApplicationService(store);
+
+        assertThrows(SpatialPreparationVersionConflictException.class,
+                () -> application.retryBlocked(mapId, draft.adventureId(), owner, batch(), 1,
+                        new SpatialPreparationCommand(UUID.randomUUID(), "stale-entry-retry", 1)));
+        assertThrows(IllegalArgumentException.class,
+                () -> application.retryBlocked(mapId, draft.adventureId(), new MapOwnerId(UUID.randomUUID()), batch(), 1,
+                        new SpatialPreparationCommand(UUID.randomUUID(), "foreign-entry-retry", 0)));
+
+        assertTrue(store.map.spatialPreparationBlocked());
+        assertTrue(store.map.spatialFeatures().isEmpty());
+        assertEquals(0, store.map.version());
+    }
+
+    @Test
     void rejects_evidence_that_does_not_belong_to_the_batch_version() {
         MapId mapId = new MapId(UUID.randomUUID());
         MapOwnerId owner = new MapOwnerId(UUID.randomUUID());

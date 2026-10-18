@@ -128,21 +128,24 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         if (gm != null) {
             ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
             List<List<String>> rules = lookupRules(scenarioPackage, request.sessionId(), request.requiredSituations());
+            Set<UUID> allowedMapIds = scenarioPackage.mapDefinitions().stream()
+                    .filter(com.dndmaster.adventure.domain.scenario.MapDefinition::autoActivatable)
+                    .map(com.dndmaster.adventure.domain.scenario.MapDefinition::id)
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
             String prompt = detailedPrompt(scenarioPackage, request.stageId(), request.evidence(), request.requiredSituations(),
                     request.alreadyAssignedRequiredSituationIds(), rules)
                     + (request.openingSituationRequired() ? " The openingSituationIndex must select one situation because this is the first stage. Include at least two optional intermediate candidate situations in addition to this stage's required situations." : "");
-            devLog("dev_initial_situation_input task=detailed adventureId={} sessionId={} packageId={} stageId={} openingSituationRequired={} requiredSituationCount={} requiredSituations={} alreadyAssignedRequiredSituationIds={} ruleEvidence={} sourceRefCount={} sourceRefs={} mapIds={} scenarioContextChars={} promptChars={} promptFingerprint={} retrievedPassageTextIncluded=false backboneStageSummaryIncluded=false",
+            devLog("dev_initial_situation_input task=detailed adventureId={} sessionId={} packageId={} stageId={} openingSituationRequired={} requiredSituationCount={} requiredSituations={} alreadyAssignedRequiredSituationIds={} ruleEvidence={} sourceRefCount={} sourceRefs={} mapDefinitionCount={} usableMapDefinitionCount={} excludedMapDefinitions={} allowedMapIds={} scenarioContextChars={} promptChars={} promptFingerprint={} retrievedPassageTextIncluded=false backboneStageSummaryIncluded=false",
                     request.adventureId().value(), request.sessionId().value(), request.scenarioPackageId(), request.stageId(),
                     request.openingSituationRequired(), request.requiredSituations().size(),
                     requiredSituationInventory(request.requiredSituations()), request.alreadyAssignedRequiredSituationIds(),
                     ruleEvidenceInventory(request.requiredSituations(), rules), request.evidence().size(),
-                    sourceReferenceInventory(request.evidence()), scenarioPackage.mapDefinitions().stream()
-                            .map(definition -> definition.id().toString()).toList(), promptStoryContext(scenarioPackage).length(),
+                    sourceReferenceInventory(request.evidence()), scenarioPackage.mapDefinitions().size(), allowedMapIds.size(),
+                    scenarioPackage.mapDefinitions().stream().filter(definition -> !definition.autoActivatable())
+                            .map(definition -> definition.id() + ":" + definition.safetyStatus() + ":confidence=" + definition.confidence()).toList(),
+                    allowedMapIds.stream().sorted().map(UUID::toString).toList(), promptStoryContext(scenarioPackage).length(),
                     prompt.length(), com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(prompt));
             String task = "stage:" + request.stageId();
-            Set<UUID> allowedMapIds = scenarioPackage.mapDefinitions().stream()
-                            .map(com.dndmaster.adventure.domain.scenario.MapDefinition::id)
-                            .collect(java.util.stream.Collectors.toUnmodifiableSet());
             JsonNode generated = generate(request.sessionId(), request.adventureId().value(),
                     request.scenarioPackageId(), task, prompt, request.evidence(), request.openingSituationRequired(),
                     allowedMapIds, null, false, null, request.requiredSituations());
@@ -193,20 +196,42 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     private DetailedStage materializeDetailedStage(StageDetailedGenerationPort.Request request, JsonNode generated,
             String prompt, Set<UUID> allowedMapIds, boolean repairInvalidIndexes) {
         JsonNode detail = generated;
-        try {
-            resolveSituationTargetIndexes(detail.deepCopy());
-        } catch (IllegalStateException invalidIndexes) {
-            if (!invalidIndexes.getMessage().contains("field=funnel.requiredRevelationIndexes")) throw invalidIndexes;
-            if (!repairInvalidIndexes) throw invalidIndexes;
-            int revelationCount = detail.path("revelations").size();
-            String validIndexes = java.util.stream.IntStream.range(0, revelationCount).boxed().toList().toString();
-            String repairPrompt = prompt + "\nCORRECT_INVALID_INDEXES: The previous response had " + revelationCount
-                    + " revelations, so funnel.requiredRevelationIndexes may contain only these zero-based indexes: "
-                    + validIndexes + ". Return the corrected complete object, preserving its content.";
+        for (int repairAttempt = 0; ; repairAttempt++) {
+            try {
+                resolveSituationTargetIndexes(detail.deepCopy());
+                break;
+            } catch (InvalidDynamicReferenceIndex invalidIndexes) {
+                if (!repairInvalidIndexes || repairAttempt >= 6) {
+                    devLog("dev_initial_situation_index_repair outcome=failed stageId={} field={} allowedTargetCount={} expectedIndexes={} actualIndexes={} failureClass={} recovery=reject_detail",
+                            request.stageId(), invalidIndexes.field(), invalidIndexes.allowedTargetCount(),
+                            java.util.stream.IntStream.range(0, invalidIndexes.allowedTargetCount()).boxed().toList(),
+                            invalidIndexes.actualIndexes(), invalidIndexes.getClass().getSimpleName());
+                    throw invalidIndexes;
+                }
+            var repairIndexes = java.util.stream.IntStream.range(0, invalidIndexes.allowedTargetCount()).boxed().toList();
+            String repairTask = "stage:" + request.stageId() + ":index-repair:" + (repairAttempt + 1);
+            String repairPrompt = prompt + "\nCORRECT_INVALID_INDEXES: The previous response had an invalid "
+                    + invalidIndexes.field() + " reference. Its target list contains "
+                    + invalidIndexes.allowedTargetCount() + " entries, so this field may contain only these zero-based indexes: "
+                    + repairIndexes + ". Return the corrected complete object, preserving all valid content and references.";
+            devLog("dev_initial_situation_index_repair outcome=started stageId={} field={} allowedTargetCount={} allowedIndexes={} actualIndexes={} responseChars={} responseFingerprint={} recovery=regenerate_complete_detail",
+                    request.stageId(), invalidIndexes.field(), invalidIndexes.allowedTargetCount(), repairIndexes,
+                    invalidIndexes.actualIndexes(),
+                    detail.toString().length(), com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics
+                            .fingerprint(detail.toString()));
+            long repairStartedAt = System.nanoTime();
+            JsonNode invalidDetail = detail;
             detail = generate(request.sessionId(), request.adventureId().value(), request.scenarioPackageId(),
-                    "stage:" + request.stageId() + ":index-repair", repairPrompt, request.evidence(),
-                    request.openingSituationRequired(), allowedMapIds, revelationCount, false, null,
-                    request.requiredSituations());
+                    repairTask, repairPrompt, request.evidence(),
+                    request.openingSituationRequired(), allowedMapIds,
+                    "funnel.requiredRevelationIndexes".equals(invalidIndexes.field())
+                            ? invalidIndexes.allowedTargetCount() : null, false,
+                    null, request.requiredSituations());
+            devLog("dev_initial_situation_index_repair outcome=completed stageId={} field={} allowedTargetCount={} expectedIndexes={} originalResponseChars={} repairedResponseChars={} elapsedMs={} recovery=strict_materialization",
+                    request.stageId(), invalidIndexes.field(), invalidIndexes.allowedTargetCount(), repairIndexes,
+                    invalidDetail.toString().length(), detail.toString().length(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - repairStartedAt));
+            }
         }
         var content = detail.deepCopy();
         resolveSituationTargetIndexes(content);
@@ -537,7 +562,9 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 + "sourceRefIndexes (integer indexes into NUMBERED_ALLOWED_SOURCE_REFS for extracted claims; empty for GM supplements), "
                 + "mapNeeded (an explicit situation attribute chosen from the situation, never inferred from map availability), and mapDefinitionId "
                 + "(one supplied map UUID or null; required when mapNeeded is true). Return a complete DetailedStage JSON object except package/revision/stage identifiers. "
-                + "Use only these map IDs: " + json(scenarioPackage.mapDefinitions().stream().map(m -> m.id()).toList())
+                + "Use only these map IDs: " + json(scenarioPackage.mapDefinitions().stream()
+                        .filter(com.dndmaster.adventure.domain.scenario.MapDefinition::autoActivatable)
+                        .map(m -> m.id()).toList())
                 + "\nFor every required situation, set requiredSituationIndex to its zero-based position in this stage's REQUIRED_STORY_SITUATIONS list; use null for every intermediate candidate. The server assigns the exact situationId for that index. Preserve each prerequisiteSituationIds list: "
                 + json(required) + "\nSCENARIO_CONTEXT=" + promptStoryContext(scenarioPackage)
                 + "\nCORE_RULEBOOK_EVIDENCE_BY_SITUATION=" + json(rulesBySituation(required, rules))
@@ -624,21 +651,44 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
 
     private static com.fasterxml.jackson.databind.node.ArrayNode indexValues(JsonNode indexes, List<String> canonicalIds,
             String field) {
-        if (!indexes.isArray()) throw targetIndexFailure(field, canonicalIds.size());
+        if (!indexes.isArray()) throw targetIndexFailure(field, canonicalIds.size(), "type=" + indexes.getNodeType());
         var resolved = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode();
         for (JsonNode index : indexes) {
             if (!index.isIntegralNumber() || !index.canConvertToInt() || index.intValue() < 0
                     || index.intValue() >= canonicalIds.size()) {
-                throw targetIndexFailure(field, canonicalIds.size());
+                throw targetIndexFailure(field, canonicalIds.size(), actualIndex(index));
             }
             resolved.add(canonicalIds.get(index.intValue()));
         }
         return resolved;
     }
 
-    private static IllegalStateException targetIndexFailure(String field, int allowedTargetCount) {
-        return new IllegalStateException("detailed situation target index is invalid: field=" + field
-                + ", allowedTargetCount=" + allowedTargetCount);
+    private static String actualIndex(JsonNode index) {
+        return index.isIntegralNumber() && index.canConvertToInt()
+                ? "index=" + index.intValue() : "type=" + index.getNodeType();
+    }
+
+    private static InvalidDynamicReferenceIndex targetIndexFailure(String field, int allowedTargetCount,
+            String actualIndexes) {
+        return new InvalidDynamicReferenceIndex(field, allowedTargetCount, actualIndexes);
+    }
+
+    private static final class InvalidDynamicReferenceIndex extends IllegalStateException {
+        private final String field;
+        private final int allowedTargetCount;
+        private final String actualIndexes;
+
+        private InvalidDynamicReferenceIndex(String field, int allowedTargetCount, String actualIndexes) {
+            super("detailed situation target index is invalid: field=" + field
+                    + ", allowedTargetCount=" + allowedTargetCount);
+            this.field = field;
+            this.allowedTargetCount = allowedTargetCount;
+            this.actualIndexes = actualIndexes;
+        }
+
+        private String field() { return field; }
+        private int allowedTargetCount() { return allowedTargetCount; }
+        private String actualIndexes() { return actualIndexes; }
     }
 
     private static void resolveOpeningSituationIndex(JsonNode detailed, boolean openingSituationRequired) {

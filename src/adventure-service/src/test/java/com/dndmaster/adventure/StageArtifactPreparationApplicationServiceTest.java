@@ -54,7 +54,7 @@ class StageArtifactPreparationApplicationServiceTest {
     }
 
     @Test
-    void prepares_and_persists_every_stage_before_returning() {
+    void prepares_only_the_opening_stage_before_returning() {
         var repository = new StageArtifactRepository.InMemory();
         var backbone = backbone();
         var first = detailed(true);
@@ -72,18 +72,17 @@ class StageArtifactPreparationApplicationServiceTest {
 
         service.prepare(adventureId, sessionId, packageId);
 
-        assertEquals(second, repository.findDetailedStage(adventureId, packageId, "stage-2", 1, 1).orElseThrow());
+        assertTrue(repository.findDetailedStage(adventureId, packageId, "stage-1", 1, 1).isPresent());
+        assertTrue(repository.findDetailedStage(adventureId, packageId, "stage-2", 1, 1).isEmpty());
     }
 
     @Test
-    void sends_all_stage_detail_requests_in_backbone_order() {
+    void generates_only_the_opening_stage_details_at_adventure_start() {
         var received = new java.util.concurrent.atomic.AtomicReference<List<StageDetailedGenerationPort.Request>>();
         StageDetailedGenerationPort generation = new StageDetailedGenerationPort() {
-            @Override public DetailedStage generate(Request request) { throw new AssertionError("batch generation expected"); }
-            @Override public List<DetailedStage> generateAll(List<Request> requests) {
-                received.set(List.copyOf(requests));
-                return requests.stream().map(request -> request.stageId().equals("stage-1")
-                        ? detailed(true) : secondDetailed()).toList();
+            @Override public DetailedStage generate(Request request) {
+                received.set(List.of(request));
+                return detailed(true);
             }
         };
         var service = new StageArtifactPreparationApplicationService(new StageArtifactRepository.InMemory(),
@@ -91,8 +90,8 @@ class StageArtifactPreparationApplicationServiceTest {
 
         var result = service.prepare(adventureId, sessionId, packageId);
 
-        assertEquals(List.of("stage-1", "stage-2"), received.get().stream().map(StageDetailedGenerationPort.Request::stageId).toList());
-        assertEquals(List.of("stage-1", "stage-2"), result.detailedStages().stream().map(DetailedStage::stageId).toList());
+        assertEquals(List.of("stage-1"), received.get().stream().map(StageDetailedGenerationPort.Request::stageId).toList());
+        assertEquals(List.of("stage-1"), result.detailedStages().stream().map(DetailedStage::stageId).toList());
     }
 
     @Test
@@ -131,10 +130,9 @@ class StageArtifactPreparationApplicationServiceTest {
 
         service.prepare(adventureId, sessionId, packageId);
 
+        assertEquals(1, requests.size());
         assertEquals(List.of(), requests.get(0).alreadyAssignedRequiredSituationIds());
-        assertEquals(List.of(), requests.get(1).alreadyAssignedRequiredSituationIds());
         assertEquals(List.of(required.getFirst()), requests.get(0).requiredSituations());
-        assertEquals(List.of(required.getLast()), requests.get(1).requiredSituations());
     }
 
     @Test
@@ -212,10 +210,10 @@ class StageArtifactPreparationApplicationServiceTest {
     }
 
     @Test
-    void reports_only_safe_origin_fields_when_initial_situation_ids_still_collide() {
+    void does_not_generate_future_stage_details_before_the_stage_is_reached() {
         var repository = new StageArtifactRepository.InMemory();
         var first = detailedWithSituations(List.of(
-                extractedRequired("opening-situation", List.of()),
+                extractedRequired("opening", List.of()),
                 supplementalCandidate("repeated-candidate"), supplementalCandidate("candidate-b")));
         var second = new DetailedStage(packageId, 1, "stage-2", 1, "Face the threat",
                 List.of(new RevelationDefinition("truth-2", true, List.of(evidence))),
@@ -229,17 +227,10 @@ class StageArtifactPreparationApplicationServiceTest {
                 request -> List.of(evidence), request -> backbone(),
                 request -> request.stageId().equals("stage-1") ? first : second);
 
-        var failure = assertThrows(IllegalStateException.class,
-                () -> service.prepare(adventureId, sessionId, packageId));
+        var result = service.prepare(adventureId, sessionId, packageId);
 
-        assertTrue(failure.getMessage().contains("previousStageId=stage-1"));
-        assertTrue(failure.getMessage().contains("previousProvenance=GM_SUPPLEMENTED"));
-        assertTrue(failure.getMessage().contains("previousRequired=false"));
-        assertTrue(failure.getMessage().contains("currentStageId=stage-2"));
-        assertTrue(failure.getMessage().contains("currentProvenance=GM_SUPPLEMENTED"));
-        assertTrue(failure.getMessage().contains("currentRequired=false"));
-        assertFalse(failure.getMessage().contains("repeated-candidate"));
-        assertEquals(0, repository.findBackbone(adventureId, packageId, 1).stream().count());
+        assertEquals(first, result.currentStage());
+        assertTrue(repository.findDetailedStage(adventureId, packageId, "stage-2", 1, 1).isEmpty());
     }
 
     @Test
@@ -451,11 +442,12 @@ class StageArtifactPreparationApplicationServiceTest {
     }
 
     @Test
-    void rejects_opening_situation_without_grounding_when_storybook_evidence_exists() {
+    void allows_gm_supplemented_opening_when_storybook_evidence_does_not_ground_it() {
         var service = new StageArtifactPreparationApplicationService(new StageArtifactRepository.InMemory(),
                 request -> List.of(evidence), request -> backbone(), request -> detailedWithOpening("opening-situation", List.of()));
 
-        assertThrows(IllegalStateException.class, () -> service.prepare(adventureId, sessionId, packageId));
+        assertEquals(SituationProvenance.GM_SUPPLEMENTED,
+                service.prepare(adventureId, sessionId, packageId).openingSituation().provenance());
     }
 
     @Test

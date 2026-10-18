@@ -18,15 +18,16 @@ public final class ScenarioSpatialFeaturePreparationService {
         this.model = Objects.requireNonNull(model, "placement model must not be null");
     }
 
-    public ScenarioSpatialFeaturePreparationResult prepare(MapDefinition map) {
+    public ScenarioSpatialFeaturePreparationResult prepare(MapDefinition map, UUID soloPlayerId) {
         Objects.requireNonNull(map, "map must not be null");
+        Objects.requireNonNull(soloPlayerId, "solo player id must not be null");
         if (map.spatialFeatures().isEmpty()) return new ScenarioSpatialFeaturePreparationResult(true, List.of(), List.of(), List.of(), 0);
         List<String> failures = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             ScenarioSpatialFeaturePlacementModelPort.Proposal proposal;
             try {
-                proposal = model.propose(new ScenarioSpatialFeaturePlacementModelPort.Context(map, attempt, failures));
+                proposal = model.propose(new ScenarioSpatialFeaturePlacementModelPort.Context(soloPlayerId, map, attempt, failures));
             } catch (RuntimeException exception) {
                 failures.add("spatial placement proposal was unavailable");
                 continue;

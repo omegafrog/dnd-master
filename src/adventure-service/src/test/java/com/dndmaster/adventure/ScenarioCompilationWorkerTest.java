@@ -51,6 +51,27 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
+    void compilesMapAnnotationFromARegularSourcePageLocator() {
+        KnowledgeDocumentId map = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(
+                document(map, ScenarioBundleDocumentRole.MAP, "STORYBOOK", 1)));
+        ResolutionExtractionPort.SourceExcerpt mapExcerpt = new ResolutionExtractionPort.SourceExcerpt(
+                "STORYBOOK", map, 1, "page=1",
+                "MAP asset=exploration-groups-room image=exploration-groups-room grid=5 originx=0 originy=0 rotation=0 distance=5ft confidence=0.98 safety=SAFE. The party starts at coordinate (1,2).");
+        Fixture fixture = new Fixture(bundle);
+
+        ScenarioPackage result = new ScenarioCompilationWorker(fixture.manager, fixture.compilations,
+                fixture.queue, new Bundles(bundle), request -> List.of(), ignored -> List.of(mapExcerpt),
+                fixture.tags, fixture.search, new ScenarioPackageCompilationService(fixture.packages), fixture.packages)
+                .processNext("worker", Duration.ofMinutes(1)).orElseThrow();
+
+        assertEquals(1, result.mapDefinitions().size());
+        assertEquals(map, result.mapDefinitions().getFirst().source().knowledgeDocumentId());
+        assertEquals("page=1", result.mapDefinitions().getFirst().source().locator());
+        assertEquals(new MapDefinition.MapPosition(1, 2), result.mapDefinitions().getFirst().playerStart());
+    }
+
+    @Test
     void retriesOnlyInvalidResolutionCandidatesAndPublishesRecoveredRange() {
         KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(List.of(

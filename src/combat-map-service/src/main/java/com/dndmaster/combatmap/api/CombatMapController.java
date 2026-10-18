@@ -32,6 +32,7 @@ import java.util.Base64;
 @RestController
 @RequestMapping
 public class CombatMapController {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(CombatMapController.class);
     private final CombatMapViewService mapViewService;
     private final CombatMapMovementService movementService;
     private final ApiRequestGuard requestGuard;
@@ -229,6 +230,25 @@ public class CombatMapController {
                 .map(CombatMapController::prepareResponse)
                 .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,
                         "preparation replay not found"));
+    }
+
+    @PostMapping("/internal/v1/combat-maps/{mapId}/spatial-preparation")
+    public PrepareResponse retryBlockedSpatialPreparation(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody(required = false) PrepareRequest request) {
+        requestGuard.internal(token);
+        requireRequest(request, "spatial preparation retry request is required");
+        requireIdempotencyKey(idempotencyKey, request.commandId());
+        if (request.adventureId() == null || request.ownerId() == null) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "adventureId and ownerId are required");
+        }
+        SpatialPreparationCommand command = new SpatialPreparationCommand(
+                request.commandId(), request.operationFingerprint(), request.expectedVersion());
+        return prepareResponse(mapViewService.retryBlockedSpatialPreparation(new MapId(mapId),
+                new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()), spatialBatch(request),
+                request.turnIndex(), command));
     }
 
     private static PrepareResponse prepareResponse(SpatialFeatureApplicationService.Result result) {
@@ -1019,11 +1039,45 @@ public class CombatMapController {
                 placements, request.spatialWarnings(), request.spatialFailures());
     }
 
-    private static Set<SpatialTrigger> requestTriggers(List<String> values) {
-        return (values == null ? List.<String>of() : values).stream().map(value -> {
-            try { return SpatialTrigger.valueOf(value); }
-            catch (RuntimeException exception) { throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "invalid spatial trigger", exception); }
-        }).collect(java.util.stream.Collectors.toSet());
+    static Set<SpatialTrigger> requestTriggers(List<String> values) {
+        List<String> supplied = values == null ? List.of() : values;
+        long startedAt = System.nanoTime();
+        int[] aliases = {0};
+        if (diagnosticsEnabled()) LOGGER.info("dev_spatial_trigger_adapter stage=started expectedSupportedCount={} actualTriggerCount={}",
+                SpatialTrigger.values().length, supplied.size());
+        try {
+            Set<SpatialTrigger> result = supplied.stream().map(value -> {
+                try {
+                return switch (value.trim().toLowerCase(java.util.Locale.ROOT)) {
+                    case "stepped-on" -> {
+                        aliases[0]++;
+                        yield SpatialTrigger.ENTER_CELL;
+                    }
+                    default -> SpatialTrigger.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+                };
+                } catch (RuntimeException exception) {
+                    if (diagnosticsEnabled()) LOGGER.info("dev_spatial_trigger_adapter outcome=failed expectedSupportedValues={} actualValue={} failureClass={} recoveryAction=correct_map_feature_trigger",
+                            java.util.Arrays.toString(SpatialTrigger.values()), value, exception.getClass().getSimpleName());
+                    throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "invalid spatial trigger", exception);
+                }
+            }).collect(java.util.stream.Collectors.toSet());
+            if (diagnosticsEnabled()) LOGGER.info("dev_spatial_trigger_adapter outcome=completed expectedSupportedCount={} actualTriggerCount={} normalizedAliasCount={} resultCount={} elapsedMs={}",
+                    SpatialTrigger.values().length, supplied.size(), aliases[0], result.size(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            return result;
+        } catch (RuntimeException | Error failure) {
+            if (diagnosticsEnabled() && !(failure instanceof org.springframework.web.server.ResponseStatusException)) {
+                LOGGER.info("dev_spatial_trigger_adapter outcome=failed expectedSupportedCount={} actualTriggerCount={} failureClass={} elapsedMs={} recoveryAction=correct_map_feature_trigger",
+                        SpatialTrigger.values().length, supplied.size(), failure.getClass().getSimpleName(),
+                        java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            }
+            throw failure;
+        }
+    }
+
+    private static boolean diagnosticsEnabled() {
+        return Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
     }
 
     private static Set<GridPosition> authoredPositions(List<String> values, String label) {

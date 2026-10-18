@@ -34,9 +34,10 @@ final class MapDefinitionCompiler {
                 throw new IllegalArgumentException("map source excerpt is outside locked bundle extraction version");
             }
             for (ResolutionExtractionPort.SourceExcerpt excerpt : scoped) {
-                if (excerpt.locator() == null || !excerpt.locator().startsWith("asset:")) continue;
+                if (excerpt.locator() == null || excerpt.locator().isBlank()) continue;
                 String text = excerpt.text() == null ? "" : excerpt.text();
-                if (!text.matches("(?is).*\\bMAP\\b.*")) continue;
+                if (!Pattern.compile("(?im)^\\s*MAP\\s+(?=.*\\b(?:asset|image|grid)\\s*=).*$")
+                        .matcher(text).find()) continue;
                 String asset = value(text, "asset", document.originalFilename());
                 double confidence = decimal(value(text, "confidence", "0"));
                 MapSafetyStatus safety = safety(value(text, "safety", "UNSAFE"));
@@ -46,7 +47,7 @@ final class MapDefinitionCompiler {
                         asset, value(text, "image", asset), new MapDefinition.MapGrid(decimal(value(text, "originx", "0")), decimal(value(text, "originy", "0")),
                                 decimal(value(text, "grid", "1")), decimal(value(text, "rotation", "0")), value(text, "distance", "5ft")),
                         values(text, "walls"), values(text, "doors"), values(text, "obstacles"),
-                        source, confidence, safety, spatialFeatures(text, source)));
+                        source, confidence, safety, spatialFeatures(text, source), playerStart(text)));
             }
         }
         List<StoryMapBinding> bindings = new ArrayList<>();
@@ -68,6 +69,18 @@ final class MapDefinitionCompiler {
     private static List<String> values(String text, String key) {
         String value = value(text, key, "");
         return splitValues(value);
+    }
+
+    private static MapDefinition.MapPosition playerStart(String text) {
+        String value = value(text, "playerstart", "");
+        if (value.isBlank()) {
+            Matcher authoredStart = Pattern.compile("(?i)\\bparty\\s+starts\\s+at\\s+coordinate\\s*\\(?\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\)?").matcher(text);
+            if (!authoredStart.find()) return null;
+            return new MapDefinition.MapPosition(integer(authoredStart.group(1)), integer(authoredStart.group(2)));
+        }
+        String[] coordinates = value.split(",", -1);
+        if (coordinates.length != 2) throw new IllegalArgumentException("map playerstart must use x,y coordinates");
+        return new MapDefinition.MapPosition(integer(coordinates[0]), integer(coordinates[1]));
     }
 
     private static List<String> splitValues(String value) {

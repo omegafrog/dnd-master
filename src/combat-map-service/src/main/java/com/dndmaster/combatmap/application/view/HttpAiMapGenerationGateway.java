@@ -52,6 +52,10 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
 
     @Override
     public PreparedMapData generate(MapGenerationRequest request) {
+        if (request.soloPlayerId() == null) {
+            if (diagnosticsEnabled()) LOGGER.warn("dev_map_agent outcome=missing_owner expected=connected_solo_player_id actual=null recoveryAction=correct_request_owner");
+            throw new IllegalArgumentException("map generation requires the connected solo player ID");
+        }
         try {
             String mapData = mapper.writeValueAsString(java.util.Map.ofEntries(
                     java.util.Map.entry("gridWidth", request.gridWidth()),
@@ -67,13 +71,13 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
                     java.util.Map.entry("authoredBoundaries", request.authoredBoundaries().stream().map(com.dndmaster.combatmap.domain.MapBoundary::encoded).toList()),
                     java.util.Map.entry("authoredPlayerStart", request.authoredPlayerStart() == null ? "" : position(request.authoredPlayerStart())),
                     java.util.Map.entry("mapImageAvailable", request.mapImage() != null)));
-            String body = mapper.writeValueAsString(new Request(request.soloPlayerId() == null ? new java.util.UUID(0, 0) : request.soloPlayerId(),
+            String body = mapper.writeValueAsString(new Request(request.soloPlayerId(),
                     request.selectedScenario(), request.currentContext(), mapData,
                     request.mapImage() == null ? "" : request.mapImage().dataUri()));
-            LOGGER.info("map_placement_agent_request scenario={} currentContext={} grid={}x{} cellSize={} distanceUnit={} origin=({}, {}) gridCellSize={} crop={} imageRevision={} mapImage={} authoredObstacles={} authoredDoors={} authoredBoundaries={}",
-                    request.selectedScenario(), compactLogValue(request.currentContext()), request.gridWidth(), request.gridHeight(),
+            if (diagnosticsEnabled()) LOGGER.info("dev_map_agent outcome=request ownerId={} scenarioChars={} contextChars={} grid={}x{} cellSize={} distanceUnit={} origin=({}, {}) gridCellSize={} cropChars={} imageRevisionPresent={} mapImage={} authoredObstacles={} authoredDoors={} authoredBoundaries={}",
+                    request.soloPlayerId(), request.selectedScenario().length(), request.currentContext().length(), request.gridWidth(), request.gridHeight(),
                     request.cellSize(), request.distanceUnit(), request.gridOriginX(), request.gridOriginY(), request.gridCellSize(),
-                    compactLogValue(request.crop()), compactLogValue(request.imageRevision()), request.mapImage() != null,
+                    request.crop().length(), !request.imageRevision().isBlank(), request.mapImage() != null,
                     request.authoredObstacles().size(), request.authoredDoors().size(), request.authoredBoundaries().size());
             HttpRequest httpRequest = HttpRequest.newBuilder(endpoint)
                     .timeout(timeout)
@@ -86,20 +90,22 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
                 // 지도 초안 생성에서 AI 분석은 선택 기능이다. 분석 실패가
                 // 이미지·사용자 격자·사용자 선까지 버리고 모험 전체를 막으면
                 // 준비 화면에서 사용자가 직접 검수할 수 없다.
-                LOGGER.warn("map_placement_agent_unavailable status={} response={}", response.statusCode(), compactLogValue(response.body()));
+                if (diagnosticsEnabled()) LOGGER.warn("dev_map_agent outcome=unavailable expected=map_geometry_and_start_candidate actualHttpStatus={} responseChars={} recoveryAction=deterministic_fallback",
+                        response.statusCode(), response.body() == null ? 0 : response.body().length());
                 return deterministicFallback(request);
             }
             JsonNode root = mapper.readTree(response.body());
-            LOGGER.info("map_placement_agent_response scenario={} status={} responseChars={} responseBody={} dimensions={}x{} boundaries={} obstacles={} doors={} playerStart={} proposalStatus={} proposalPosition={} proposalConfidence={} proposalEvidence={} proposalSource={} rationale={}",
-                    request.selectedScenario(), response.statusCode(), response.body().length(), compactLogValue(response.body()),
+            if (diagnosticsEnabled()) LOGGER.info("dev_map_agent outcome=response scenario={} status={} responseChars={} dimensions={}x{} boundaries={} obstacles={} doors={} playerStartPresent={} proposalStatus={} proposalPosition={} proposalConfidence={} proposalEvidenceCount={} proposalSourcePresent={} rationaleChars={}",
+                    request.selectedScenario(), response.statusCode(), response.body().length(),
                     root.path("width").asInt(-1), root.path("height").asInt(-1), root.path("boundaries").size(), root.path("obstacles").size(),
-                    root.path("doors").size(), compactLogValue(root.path("playerStart").asText("")),
+                    root.path("doors").size(), !root.path("playerStart").asText("").isBlank(),
                     compactLogValue(root.path("playerStartProposal").path("status").asText("")),
-                    compactLogValue(root.path("playerStartProposal").path("position").asText("")),
+                    !root.path("playerStartProposal").path("position").asText("").isBlank(),
                     root.path("playerStartProposal").path("confidence").asDouble(-1),
-                    compactLogValue(root.path("playerStartProposal").path("evidence").toString()),
-                    compactLogValue(root.path("playerStartProposal").path("source").asText("")),
-                    compactLogValue(root.path("rationale").asText("")));
+                    root.path("playerStartProposal").path("evidence").isArray()
+                            ? root.path("playerStartProposal").path("evidence").size() : 0,
+                    !root.path("playerStartProposal").path("source").asText("").isBlank(),
+                    root.path("rationale").asText("").length());
             return toPreparedMap(root, request, mapper);
         } catch (IOException exception) {
             throw new IllegalStateException("AI Game Master map proposal transport failed", exception);
@@ -130,11 +136,11 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
                     request.soloPlayerId(), entryTargetScene(request.currentContext()), request.entryLocation(), request.entryFirstNarration(),
                     request.entryAction(), request.entryJudgment(), request.entryNarration(),
                     mapData, request.mapImage() == null ? "" : request.mapImage().dataUri());
-            LOGGER.info("map_entry_localization_request scene={} location={} firstNarration={} action={} judgment={} narration={} mapData={} image={}",
-                    compactLogValue(request.currentContext()), compactLogValue(request.entryLocation()),
-                    compactLogValue(request.entryFirstNarration()), compactLogValue(request.entryAction()),
-                    compactLogValue(request.entryJudgment()), compactLogValue(request.entryNarration()),
-                    compactLogValue(mapData), request.mapImage() != null);
+            if (diagnosticsEnabled()) LOGGER.info("dev_map_entry_agent outcome=request sceneChars={} locationChars={} firstNarrationChars={} actionChars={} judgmentChars={} narrationChars={} mapDataChars={} imageAvailable={} grid={}x{} obstacles={} doors={} boundaries={}",
+                    request.currentContext().length(), request.entryLocation().length(), request.entryFirstNarration().length(),
+                    request.entryAction().length(), request.entryJudgment().length(), request.entryNarration().length(),
+                    mapData.length(), request.mapImage() != null, request.gridWidth(), request.gridHeight(),
+                    request.authoredObstacles().size(), request.authoredDoors().size(), request.authoredBoundaries().size());
             HttpRequest httpRequest = HttpRequest.newBuilder(entryPlacementEndpoint)
                     .timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken == null ? "" : internalToken)
@@ -146,13 +152,11 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
             JsonNode root = mapper.readTree(response.body());
             JsonNode interpretation = root.path("entryInterpretation").isObject()
                     ? root.path("entryInterpretation") : root.path("interpretation");
-            LOGGER.info("map_entry_localization_response status={} responseChars={} responseBody={} placementStatus={} transition={} targetScene={} anchor={} placementRelation={} candidates={} reason={}",
-                    response.statusCode(), response.body().length(), compactLogValue(response.body()),
-                    root.path("status").asText(""), compactLogValue(interpretation.path("transition").asText("")),
-                    compactLogValue(interpretation.path("targetScene").asText("")),
-                    compactLogValue(interpretation.path("anchor").asText("")),
-                    compactLogValue(interpretation.path("placementRelation").asText("")), root.path("candidates").size(),
-                    compactLogValue(root.path("reason").asText("")));
+            if (diagnosticsEnabled()) LOGGER.info("dev_map_entry_agent outcome=response status={} responseChars={} placementStatus={} transitionPresent={} targetScenePresent={} anchorPresent={} placementRelationPresent={} candidateCount={} reasonChars={}",
+                    response.statusCode(), response.body().length(), root.path("status").asText(""),
+                    !interpretation.path("transition").asText("").isBlank(), !interpretation.path("targetScene").asText("").isBlank(),
+                    !interpretation.path("anchor").asText("").isBlank(), !interpretation.path("placementRelation").asText("").isBlank(),
+                    root.path("candidates").size(), root.path("reason").asText("").length());
             return toEntryPlacement(root, request);
         } catch (IOException exception) {
             throw new IllegalStateException("AI Game Master entry placement transport failed", exception);
@@ -180,44 +184,42 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
                 int index = candidateIndex++;
                 JsonNode exitPoint = candidate.path("exitPoint");
                 if (!exitPoint.isObject()) {
-                    LOGGER.info("map_entry_candidate_rejected index={} reason=EXIT_POINT_MISSING candidate={}",
-                            index, compactLogValue(candidate.toString()));
+                    if (diagnosticsEnabled()) LOGGER.info("dev_map_entry_candidate outcome=rejected index={} expected=exit_point actual=missing recoveryAction=manual_placement_or_retry", index);
                     continue;
                 }
                 double xNormalized = exitPoint.path("xNormalized").asDouble(Double.NaN);
                 double yNormalized = exitPoint.path("yNormalized").asDouble(Double.NaN);
                 if (!Double.isFinite(xNormalized) || !Double.isFinite(yNormalized)
                         || xNormalized < 0 || xNormalized > 1 || yNormalized < 0 || yNormalized > 1) {
-                    LOGGER.info("map_entry_candidate_rejected index={} reason=NORMALIZED_COORDINATE_OUT_OF_RANGE xNormalized={} yNormalized={} candidate={}",
-                            index, xNormalized, yNormalized, compactLogValue(candidate.toString()));
+                    if (diagnosticsEnabled()) LOGGER.info("dev_map_entry_candidate outcome=rejected index={} expected=normalized_coordinates_in_range actual=out_of_range recoveryAction=manual_placement_or_retry", index);
                     continue;
                 }
                 if (geometry.isEmpty()) {
-                    LOGGER.info("map_entry_candidate_rejected index={} reason=GRID_GEOMETRY_UNAVAILABLE xNormalized={} yNormalized={} gridConfirmed={} imageAvailable={} grid={}x{} origin=({}, {}) gridCellSize={}",
-                            index, xNormalized, yNormalized, request.gridConfirmed(), request.mapImage() != null,
+                    if (diagnosticsEnabled()) LOGGER.info("dev_map_entry_candidate outcome=rejected index={} expected=confirmed_grid_geometry actual=unavailable gridConfirmed={} imageAvailable={} grid={}x{} origin=({}, {}) gridCellSize={} recoveryAction=manual_placement_or_retry",
+                            index, request.gridConfirmed(), request.mapImage() != null,
                             request.gridWidth(), request.gridHeight(), request.gridOriginX(), request.gridOriginY(), request.gridCellSize());
                     continue;
                 }
                 EntryPlacementProjector.Geometry confirmedGeometry = geometry.orElseThrow();
                 EntryPlacementProjector.Projection projection = confirmedGeometry.projectWithDiagnostics(xNormalized, yNormalized);
                 if (projection.position().isEmpty()) {
-                    LOGGER.info("map_entry_candidate_rejected index={} reason={} xNormalized={} yNormalized={} imagePoint=({}, {}) imageSize={}x{} gridPoint=({}, {}) grid={}x{} origin=({}, {}) gridCellSize={} candidate={}",
+                    if (diagnosticsEnabled()) LOGGER.info("dev_map_entry_candidate outcome=rejected index={} reason={} xNormalized={} yNormalized={} imagePoint=({}, {}) imageSize={}x{} gridPoint=({}, {}) grid={}x{} origin=({}, {}) gridCellSize={} recoveryAction=manual_placement_or_retry",
                             index, projection.rejectionReason(), xNormalized, yNormalized,
                             projection.imageX(), projection.imageY(), confirmedGeometry.imageWidth(), confirmedGeometry.imageHeight(),
                             projection.projectedX(), projection.projectedY(), request.gridWidth(), request.gridHeight(),
-                            request.gridOriginX(), request.gridOriginY(), request.gridCellSize(), compactLogValue(candidate.toString()));
+                            request.gridOriginX(), request.gridOriginY(), request.gridCellSize());
                     continue;
                 }
                 double confidence = candidate.path("confidence").asDouble(Double.NaN);
                 if (!Double.isFinite(confidence) || confidence < 0 || confidence > 1) {
-                    LOGGER.info("map_entry_candidate_rejected index={} reason=CONFIDENCE_OUT_OF_RANGE confidence={} xNormalized={} yNormalized={} position={}",
-                            index, confidence, xNormalized, yNormalized, projection.position().orElseThrow());
+                    if (diagnosticsEnabled()) LOGGER.info("dev_map_entry_candidate outcome=rejected index={} expected=confidence_0_to_1 actual={} recoveryAction=manual_placement_or_retry",
+                            index, confidence);
                     continue;
                 }
                 List<String> evidence = new ArrayList<>();
                 if (candidate.path("evidence").isArray()) candidate.path("evidence").forEach(item -> evidence.add(item.asText()));
                 if (projection.snapped()) {
-                    LOGGER.info("map_entry_candidate_snapped index={} imagePoint=({}, {}) rawGridPoint=({}, {}) position={} grid={}x{}",
+                    if (diagnosticsEnabled()) LOGGER.info("dev_map_entry_candidate outcome=snapped index={} imagePoint=({}, {}) rawGridPoint=({}, {}) position={} grid={}x{}",
                             index, projection.imageX(), projection.imageY(), projection.projectedX(), projection.projectedY(),
                             projection.position().orElseThrow(), request.gridWidth(), request.gridHeight());
                 }
@@ -227,7 +229,7 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
             }
         }
         List<MapEntryCandidate> valid = candidates.stream().limit(3).toList();
-        LOGGER.info("map_entry_projection gridConfirmed={} imageGeometry={} rawCandidates={} projectedCandidates={}",
+        if (diagnosticsEnabled()) LOGGER.info("dev_map_entry_projection outcome=complete gridConfirmed={} imageGeometry={} expectedCandidates={} actualProjectedCandidates={}",
                 request.gridConfirmed(), geometry.isPresent(), root.path("candidates").size(), valid.size());
         com.fasterxml.jackson.databind.node.ObjectNode projectedResult = root.deepCopy();
         var projectedCandidates = mapper.createArrayNode();
@@ -440,6 +442,11 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
         if (value == null) return "";
         String compact = value.replace("\r", "").replace("\n", "\\n").trim();
         return compact.length() <= 2000 ? compact : compact.substring(0, 2000) + "…";
+    }
+
+    private static boolean diagnosticsEnabled() {
+        return Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
     }
 
     /** AI 제공자가 실패해도 사용자가 검수·저장할 수 있는 최소 초안. */

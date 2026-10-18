@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationBlockedException;
@@ -26,10 +27,92 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class HttpCombatMapPreparationGatewayTest {
+    @Test
+    void retries_blocked_map_preparation_on_the_same_draft_with_a_stable_command() throws Exception {
+        UUID adventureId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID mapId = UUID.randomUUID();
+        UUID ruleSetId = UUID.randomUUID();
+        MapDefinition definition = spatialMapDefinition();
+        var context = new CombatMapPreparationPort.ActivationContext(UUID.randomUUID(), UUID.randomUUID(), 1, 1,
+                "cellar", "cellar", 1, 2, "the party enters the cellar");
+        UUID featureId = definition.spatialFeatures().getFirst().featureId();
+        AtomicReference<JsonNode> retryRequest = new AtomicReference<>();
+        AtomicReference<UUID> initialCommandId = new AtomicReference<>();
+        AtomicReference<UUID> retryCommandId = new AtomicReference<>();
+        AtomicInteger retryWriteCount = new AtomicInteger();
+        ObjectMapper mapper = new ObjectMapper();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/combat-maps/prepare", exchange -> {
+            JsonNode body = mapper.readTree(exchange.getRequestBody());
+            initialCommandId.set(UUID.fromString(body.path("commandId").asText()));
+            byte[] response = ("{\"mapId\":\"" + mapId + "\",\"status\":\"BLOCKED\",\"warningCount\":0}")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            try (var output = exchange.getResponseBody()) { output.write(response); }
+        });
+        server.createContext("/internal/v1/combat-maps/preparation-replay", exchange -> {
+            JsonNode body = mapper.readTree(exchange.getRequestBody());
+            UUID commandId = UUID.fromString(body.path("commandId").asText());
+            boolean initial = commandId.equals(initialCommandId.get());
+            boolean retried = commandId.equals(retryCommandId.get());
+            byte[] response = initial
+                    ? ("{\"mapId\":\"" + mapId + "\",\"status\":\"BLOCKED\",\"warningCount\":0}")
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                    : retried ? ("{\"mapId\":\"" + mapId + "\",\"status\":\"READY\",\"warningCount\":0}")
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8) : new byte[0];
+            exchange.sendResponseHeaders(initial || retried ? 200 : 404, initial || retried ? response.length : -1);
+            if (response.length > 0) try (var output = exchange.getResponseBody()) { output.write(response); }
+            else exchange.close();
+        });
+        server.createContext("/internal/v1/adventures/", exchange -> {
+            byte[] response = "{\"version\":0}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            try (var output = exchange.getResponseBody()) { output.write(response); }
+        });
+        server.createContext("/internal/v1/combat-maps/" + mapId + "/spatial-preparation", exchange -> {
+            retryWriteCount.incrementAndGet();
+            retryRequest.set(mapper.readTree(exchange.getRequestBody()));
+            retryCommandId.set(UUID.fromString(exchange.getRequestHeaders().getFirst("Idempotency-Key")));
+            byte[] response = ("{\"mapId\":\"" + mapId + "\",\"status\":\"READY\",\"warningCount\":0}")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            try (var output = exchange.getResponseBody()) { output.write(response); }
+        });
+        server.start();
+        try {
+            var gateway = new HttpCombatMapPreparationGateway(HttpClient.newHttpClient(),
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(2), mapper, "secret",
+                    new ScenarioSpatialFeaturePreparationService(placementContext -> new ScenarioSpatialFeaturePlacementModelPort.Proposal(
+                            List.of(new ScenarioSpatialFeaturePlacementModelPort.Candidate(
+                                    featureId, "TRAP", List.of("2,2"), true)))));
+            assertThrows(CombatMapPreparationBlockedException.class, () -> gateway.prepareDraft(
+                    new AdventureId(adventureId), ownerId, new RuleSetId(ruleSetId), definition, context));
+
+            assertEquals(mapId, gateway.prepareDraft(
+                    new AdventureId(adventureId), ownerId, new RuleSetId(ruleSetId), definition, context));
+            String identity = "DRAFT|" + adventureId + "|" + definition.id() + "|" + definition.spatialFeatures()
+                    + "|null|" + context.situationId() + "|" + context.situationRevision() + "|" + context.entryEvidence();
+            assertEquals(UUID.nameUUIDFromBytes(identity.getBytes(java.nio.charset.StandardCharsets.UTF_8)), initialCommandId.get());
+            UUID expectedRetryId = UUID.nameUUIDFromBytes((identity + "|spatial-retry").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            assertEquals(expectedRetryId, retryCommandId.get());
+            assertEquals(expectedRetryId.toString(), retryRequest.get().path("commandId").asText());
+            assertEquals(0, retryRequest.get().path("expectedVersion").asInt(-1));
+            assertEquals(1, retryRequest.get().path("spatialPlacements").size());
+            assertEquals(mapId, gateway.prepareDraft(
+                    new AdventureId(adventureId), ownerId, new RuleSetId(ruleSetId), definition, context));
+            assertEquals(1, retryWriteCount.get(), "replaying the completed entry must not write features twice");
+        } finally {
+            server.stop(0);
+        }
+    }
+
     @Test
     void deactivates_an_old_map_for_a_mapless_situation() throws Exception {
         UUID adventureId = UUID.randomUUID();

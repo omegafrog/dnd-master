@@ -35,8 +35,9 @@ public final class HttpScenarioSpatialFeaturePlacementGateway implements Scenari
     @Override
     public ScenarioSpatialFeaturePlacementModelPort.Proposal propose(ScenarioSpatialFeaturePlacementModelPort.Context context) {
         MapDefinition map = context.map();
-        Request payload = new Request(map.source().scenarioPackageVersion(), context.attempt(),
-                context.previousFailureReasons(), map.spatialFeatures().stream().map(MapDefinition.SpatialFeatureRequirement::featureId).toList(),
+        Request payload = new Request(context.soloPlayerId(), map.source().scenarioPackageVersion(), context.attempt(),
+                context.previousFailureReasons(), sourceExtent(map, 0), sourceExtent(map, 1), map.obstacles(),
+                map.spatialFeatures().stream().map(MapDefinition.SpatialFeatureRequirement::featureId).toList(),
                 map.spatialFeatures().stream().map(requirement -> new Requirement(requirement.featureId(), requirement.type(),
                         requirement.required(), requirement.evidenceReferences(), requirement.authoritativeCells())).toList());
         try {
@@ -68,7 +69,15 @@ public final class HttpScenarioSpatialFeaturePlacementGateway implements Scenari
         return new ScenarioSpatialFeaturePlacementModelPort.Proposal(candidates);
     }
 
-    private record Request(@JsonProperty("story" + "PlanReference") String scenarioPackageVersion, int attempt, List<String> previousFailureReasons,
+    private static int sourceExtent(MapDefinition map, int axis) {
+        return java.util.stream.Stream.concat(map.spatialFeatures().stream()
+                        .flatMap(feature -> feature.authoritativeCells().stream()), map.obstacles().stream())
+                .mapToInt(cell -> Integer.parseInt(cell.split(",", -1)[axis].trim()) + 1)
+                .max().orElse(1);
+    }
+
+    private record Request(UUID soloPlayerId, @JsonProperty("story" + "PlanReference") String scenarioPackageVersion,
+            int attempt, List<String> previousFailureReasons, int gridWidth, int gridHeight, List<String> obstacles,
             List<UUID> requirementIds, List<Requirement> requirements) {}
 
     private record Requirement(UUID featureId, String type, boolean required,

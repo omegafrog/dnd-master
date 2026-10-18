@@ -223,7 +223,7 @@ public class AiGameMasterApiConfiguration {
     @Bean
     SpatialFeaturePlacementModelPort spatialFeaturePlacementModelPort(GmCompletionAdapter adapter,
             com.fasterxml.jackson.databind.ObjectMapper mapper) {
-        return input -> adapter.complete("spatial-feature-placement-" + UUID.randomUUID(),
+        return input -> adapter.complete(input.soloPlayerId(), "spatial-feature-placement-" + UUID.randomUUID(),
                 "ROLE=SPATIAL_FEATURE_PLACEMENT_AGENT\n"
                         + "STORY_PLAN_REFERENCE=" + input.scenarioPackageVersion() + "\n"
                         + "ATTEMPT=" + input.attempt() + "\n"

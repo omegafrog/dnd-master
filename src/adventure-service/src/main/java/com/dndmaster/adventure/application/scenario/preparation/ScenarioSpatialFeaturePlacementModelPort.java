@@ -9,8 +9,9 @@ import java.util.UUID;
 public interface ScenarioSpatialFeaturePlacementModelPort {
     Proposal propose(Context context);
 
-    record Context(MapDefinition map, int attempt, List<String> previousFailureReasons) {
+    record Context(UUID soloPlayerId, MapDefinition map, int attempt, List<String> previousFailureReasons) {
         public Context {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "solo player id must not be null");
             map = Objects.requireNonNull(map, "map must not be null");
             if (attempt < 1 || attempt > 3) throw new IllegalArgumentException("placement attempt must be between 1 and 3");
             previousFailureReasons = List.copyOf(Objects.requireNonNull(previousFailureReasons));

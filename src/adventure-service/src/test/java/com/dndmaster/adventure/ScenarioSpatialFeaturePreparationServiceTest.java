@@ -16,6 +16,51 @@ import org.junit.jupiter.api.Test;
 
 class ScenarioSpatialFeaturePreparationServiceTest {
     @Test
+    void spatial_placement_http_request_carries_owner_and_source_cell_bounds() throws Exception {
+        UUID owner = UUID.randomUUID();
+        MapDefinition map = map(UUID.randomUUID(), true, "TRAP", List.of("4,3"), -1, "", false);
+        var body = new java.util.concurrent.atomic.AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/gm/spatial-features", exchange -> {
+            body.set(new com.fasterxml.jackson.databind.ObjectMapper().readTree(exchange.getRequestBody()));
+            byte[] response = "{\"candidates\":[]}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            try (var output = exchange.getResponseBody()) { output.write(response); }
+        });
+        server.start();
+        try {
+            var gateway = new com.dndmaster.adventure.infrastructure.integration.HttpScenarioSpatialFeaturePlacementGateway(
+                    java.net.http.HttpClient.newHttpClient(),
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    java.time.Duration.ofSeconds(2), new com.fasterxml.jackson.databind.ObjectMapper(), "token");
+            gateway.propose(new ScenarioSpatialFeaturePlacementModelPort.Context(owner, map, 1, List.of()));
+            assertEquals(owner.toString(), body.get().path("soloPlayerId").asText());
+            assertEquals(5, body.get().path("gridWidth").asInt());
+            assertEquals(4, body.get().path("gridHeight").asInt());
+            assertTrue(body.get().path("obstacles").isArray());
+            assertEquals("4,3", body.get().path("requirements").get(0).path("authoritativeCells").get(0).asText());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void sends_connected_player_with_locked_feature_to_the_placement_model() {
+        UUID owner = UUID.randomUUID();
+        UUID featureId = UUID.randomUUID();
+        MapDefinition map = map(featureId, true, "TRAP", List.of("4,3"), -1, "", false);
+        var seen = new java.util.concurrent.atomic.AtomicReference<ScenarioSpatialFeaturePlacementModelPort.Context>();
+        var result = new ScenarioSpatialFeaturePreparationService(context -> {
+            seen.set(context);
+            return new ScenarioSpatialFeaturePlacementModelPort.Proposal(List.of(
+                    new ScenarioSpatialFeaturePlacementModelPort.Candidate(featureId, "TRAP", List.of("4,3"), true)));
+        }).prepare(map, owner);
+        assertTrue(result.activationAllowed());
+        assertEquals(owner, seen.get().soloPlayerId());
+        assertEquals(map.id(), seen.get().map().id());
+    }
+
+    @Test
     void sends_only_validated_structured_batch_facts_to_the_map_boundary() {
         UUID featureId = UUID.randomUUID();
         MapDefinition map = map(featureId, true, "MAGICAL_AREA_EFFECT", List.of("2,2"), 3, "EXPIRE", true);
@@ -23,7 +68,7 @@ class ScenarioSpatialFeaturePreparationServiceTest {
         var result = new ScenarioSpatialFeaturePreparationService(context ->
                 new ScenarioSpatialFeaturePlacementModelPort.Proposal(List.of(
                         new ScenarioSpatialFeaturePlacementModelPort.Candidate(featureId, "MAGICAL_AREA_EFFECT", List.of("2,2"), true))))
-                .prepare(map);
+                .prepare(map, UUID.randomUUID());
 
         assertTrue(result.activationAllowed());
         assertEquals(1, result.placements().size());
@@ -45,7 +90,7 @@ class ScenarioSpatialFeaturePreparationServiceTest {
         var result = new ScenarioSpatialFeaturePreparationService(context ->
                 new ScenarioSpatialFeaturePlacementModelPort.Proposal(List.of(
                         new ScenarioSpatialFeaturePlacementModelPort.Candidate(featureId, "TRAP", List.of("9,9"), true))))
-                .prepare(map);
+                .prepare(map, UUID.randomUUID());
 
         assertFalse(result.activationAllowed());
         assertEquals(3, result.attempts());

@@ -8,9 +8,10 @@ import java.util.UUID;
 public interface SpatialFeaturePlacementModelPort {
     PlacementOutput propose(PlacementInput input);
 
-    record PlacementInput(String scenarioPackageVersion, int attempt, List<String> previousFailureReasons,
+    record PlacementInput(UUID soloPlayerId, String scenarioPackageVersion, int attempt, List<String> previousFailureReasons,
             int gridWidth, int gridHeight, List<String> obstacles, List<Requirement> requirements) {
         public PlacementInput {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "solo player id must not be null");
             scenarioPackageVersion = SpatialFeaturePlacementModelPort.required(scenarioPackageVersion, "scenario package version");
             if (attempt < 1 || attempt > 3) throw new IllegalArgumentException("placement attempt must be between 1 and 3");
             previousFailureReasons = List.copyOf(Objects.requireNonNull(previousFailureReasons));

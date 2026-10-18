@@ -16,11 +16,18 @@ public record MapDefinition(
         MapSourceReference source,
         double confidence,
         MapSafetyStatus safetyStatus,
-        List<SpatialFeatureRequirement> spatialFeatures) {
+        List<SpatialFeatureRequirement> spatialFeatures,
+        MapPosition playerStart) {
     public MapDefinition(UUID id, String assetId, String assetLocator, MapGrid grid,
             List<String> walls, List<String> doors, List<String> obstacles, MapSourceReference source,
             double confidence, MapSafetyStatus safetyStatus) {
-        this(id, assetId, assetLocator, grid, walls, doors, obstacles, source, confidence, safetyStatus, List.of());
+        this(id, assetId, assetLocator, grid, walls, doors, obstacles, source, confidence, safetyStatus, List.of(), null);
+    }
+
+    public MapDefinition(UUID id, String assetId, String assetLocator, MapGrid grid,
+            List<String> walls, List<String> doors, List<String> obstacles, MapSourceReference source,
+            double confidence, MapSafetyStatus safetyStatus, List<SpatialFeatureRequirement> spatialFeatures) {
+        this(id, assetId, assetLocator, grid, walls, doors, obstacles, source, confidence, safetyStatus, spatialFeatures, null);
     }
 
     public MapDefinition {
@@ -39,6 +46,9 @@ public record MapDefinition(
     private static String required(String value, String name) { if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " must not be blank"); return value.trim(); }
     private static List<String> immutable(List<String> value, String name) { return List.copyOf(Objects.requireNonNull(value, name + " must not be null")); }
     public boolean autoActivatable() { return safetyStatus == MapSafetyStatus.SAFE && confidence >= .8; }
+    public record MapPosition(int x, int y) {
+        public MapPosition { if (x < 0 || y < 0) throw new IllegalArgumentException("player start coordinates must be non-negative"); }
+    }
     public record MapGrid(double originX, double originY, double cellSize, double rotation, String distance) {
         public MapGrid { if (cellSize <= 0) throw new IllegalArgumentException("cell size must be positive"); distance = required(distance, "distance"); }
     }

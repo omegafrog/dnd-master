@@ -2160,9 +2160,9 @@ public final class TypedAgentContractController {
         }
         public RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
                 java.util.List<java.util.Map<String, Object>> ignored) {
-            this(soloPlayerId, operationKey, action, null, "codex-cli", "gpt-5.6-luna", "medium",
-                    java.util.UUID.nameUUIDFromBytes("codex-cli/gpt-5.6-luna".getBytes(java.nio.charset.StandardCharsets.UTF_8)),
-                    java.time.Instant.EPOCH.toString(), "codex-cli", "gpt-5.6-luna", "ROLE=RUNTIME_GM");
+                this(soloPlayerId, operationKey, action, null, "codex-cli", "gpt-6-luna", "medium",
+                    java.util.UUID.nameUUIDFromBytes("codex-cli/gpt-6-luna".getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                    java.time.Instant.EPOCH.toString(), "codex-cli", "gpt-6-luna", "ROLE=RUNTIME_GM");
         }
         public RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
                 java.util.List<java.util.Map<String, Object>> ignored, java.util.Map<String, Object> ignoredContext) {

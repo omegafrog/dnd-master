@@ -481,6 +481,8 @@ test('fresh database bootstraps an adventure, creates a character, and prepares 
   const started = await startedResponse.json() as { status: string; adventureId: string }
   expect(started.status).toBe('STARTED')
   const adventureId = started.adventureId
+  const openingPlayerText = await page.getByLabel('대화 기록').textContent()
+  expect(openingPlayerText).not.toMatch(/압력판|함정|pressure plate|trap|\(?4,\s*3\)?/iu)
   const opening = await readPersistedOpeningSituation(adventureId)
   expect(opening.mapNeeded).toBe(false)
   expect(opening.mapDefinitionId).toBeNull()
@@ -488,8 +490,16 @@ test('fresh database bootstraps an adventure, creates a character, and prepares 
   const destination = situations.find(situation => !situation.opening && situation.mapNeeded)
   expect(destination, 'the seeded destination should require a map').toBeTruthy()
   expect(situations.filter(situation => situation.mapNeeded)).toHaveLength(1)
-  const storedMapDefinitions = JSON.parse(await readStoredMapDefinitions(packageId)) as Array<{ id: string }>
+  const storedMapDefinitions = JSON.parse(await readStoredMapDefinitions(packageId)) as Array<{
+    id: string
+    spatialFeatures: Array<{ type: string; authoritativeCells: string[]; evidenceReferences: string[] }>
+  }>
   expect(storedMapDefinitions.map(map => map.id)).toContain(destination!.mapDefinitionId)
+  const sourceTrap = storedMapDefinitions.find(map => map.id === destination!.mapDefinitionId)?.spatialFeatures
+    .find(feature => feature.type === 'TRAP')
+  expect(sourceTrap, 'the map source should compile its authored hidden pressure plate').toBeTruthy()
+  expect(sourceTrap?.authoritativeCells).toContain('4,3')
+  expect(sourceTrap?.evidenceReferences.length).toBeGreaterThan(0)
 
   const internalHeaders = { 'X-Internal-Token': process.env.INTERNAL_SERVICE_TOKEN ?? 'local-development-internal-token' }
   const beforeEntryMap = await request.get(
@@ -562,8 +572,11 @@ test('fresh database bootstraps an adventure, creates a character, and prepares 
   expect(gmMapResponse.ok(), await gmMapResponse.text()).toBeTruthy()
   const gmMap = await gmMapResponse.json() as {
     tokens: Array<{ id: string; discovery: string }>
-    spatialFeatures: Array<{ id: string; visibility: string }>
+    spatialFeatures: Array<{ id: string; type: string; cells: Array<{ x: number; y: number }>; visibility: string }>
   }
+  expect(gmMap.spatialFeatures).toEqual(expect.arrayContaining([
+    expect.objectContaining({ type: 'TRAP', cells: expect.arrayContaining([{ x: 4, y: 3 }]), visibility: 'HIDDEN' }),
+  ]))
   const hiddenIds = [
     ...gmMap.tokens.filter(token => token.discovery === 'HIDDEN').map(token => token.id),
     ...gmMap.spatialFeatures.filter(feature => feature.visibility === 'HIDDEN').map(feature => feature.id),

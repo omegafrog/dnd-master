@@ -75,6 +75,7 @@ class RuntimeGmPromptComposerTest {
         assertTrue(prompt.contains("상황을 다시 생성·수정·전환하거나 새 사건"));
         assertTrue(prompt.contains("JSON object with narration only"));
         assertTrue(prompt.contains("길이를 짧게 제한하지 말고"));
+        assertTrue(prompt.contains("숨겨진 함정·배치의 종류, 위치, 작동 조건, 탐지 난도는 GM만 아는 사실"));
         assertTrue(!prompt.contains("SITUATION_PROGRESS_RULE"));
         assertTrue(!prompt.contains("ADVENTURE_COMPLETION_RULE"));
         assertTrue(!prompt.contains("scene, judgment, narration, situation"));
@@ -89,6 +90,7 @@ class RuntimeGmPromptComposerTest {
                 new EvidencePack(List.of(), List.of(), List.of()), List.of()).composePrompt(272_000);
 
         assertTrue(prompt.contains("SITUATION_PROGRESS_RULE"));
+        assertTrue(prompt.contains("Source-authored hidden traps and placements are private GM facts until the party discovers them"));
         assertTrue(prompt.contains("TRANSITION"));
         assertTrue(prompt.contains("판정제안"));
         assertTrue(prompt.contains("For an ordinary turn, do not include abilities or actions"));

@@ -35,12 +35,14 @@ public interface StageArtifactRepository {
 
         @Override
         public synchronized void saveInitialArtifacts(AdventureId adventureId, StageBackbone backbone, List<DetailedStage> stages) {
-            if (backbone.revision() != 1 || stages.size() != backbone.stages().size()
+            String openingStageId = backbone.stages().getFirst().stageId();
+            if (backbone.revision() != 1 || stages.isEmpty()
+                    || stages.stream().noneMatch(stage -> stage.stageId().equals(openingStageId))
                     || stages.stream().anyMatch(stage -> stage.revision() != 1
                             || !backbone.scenarioPackageId().equals(stage.scenarioPackageId())
                             || stage.backboneRevision() != backbone.revision()
                             || backbone.stages().stream().noneMatch(entry -> entry.stageId().equals(stage.stageId())))) {
-                throw new IllegalArgumentException("initial artifacts must contain every stage at revision one");
+                throw new IllegalArgumentException("initial artifacts must contain the opening stage at revision one");
             }
             if (backbones.containsKey(adventureId + ":" + backbone.scenarioPackageId() + ":" + backbone.revision())
                     || stages.stream().anyMatch(stage -> detailedStages.containsKey(
