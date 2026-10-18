@@ -1,0 +1,41 @@
+@startuml
+title UC-005 그룹으로 탐험하고 사건을 해결한다
+left to right direction
+actor "플레이어" as Player
+actor "GM" as GM
+rectangle "그룹 탐험과 전술 이동" {
+  usecase "시작 위치를 제안·검증한 뒤 맵 필요 시츄에이션에 진입한다" as Start
+  usecase "진입 서술·근거·지도에 맞는 시작 위치를 제안·검증한다" as VerifyStart
+  usecase "맵과 초기 상태를 준비한다" as Prepare
+  usecase "그룹 토큰과 대열로 경로를 정한다" as Move
+  usecase "그룹을 나누거나 명시적으로 합친다" as Group
+  usecase "그룹 우선권 순서로 차례 이동한다" as Turns
+  usecase "사건을 해결하고 이동을 재확인한다" as Interrupt
+  usecase "6초 동안 환경을 진행한다" as Environment
+  usecase "전투 차례로 전환한다" as Combat
+  usecase "전투 후 그룹 구성을 복원한다" as Restore
+}
+Player --> Move
+Player --> Group
+GM --> Start
+Start .> Prepare : <<include>>
+Start .> VerifyStart : <<include>>
+Start .> Turns : <<include>>
+Turns .> Move : <<include>>
+Turns .> Environment : <<include>>
+Move .> Interrupt : <<extend>>
+Interrupt .> Turns : <<extend>>
+Turns .> Combat : <<extend>>
+Combat .> Restore : <<include>>
+note right of Start
+  맵 필요 여부는 시츄에이션 속성을 따른다.
+  위치를 먼저 제안하고 진입 서술·근거·지도와 일치하는지 검증한다.
+  불일치하면 진입을 보류한다. 일치하면 맵과 초기 배치를 준비하고
+  진입 서술을 저장·공개한 뒤 진입한다.
+end note
+note bottom of Move
+  탐험에서는 그룹당 토큰 하나를 사용한다.
+  그룹 속도는 가장 느린 구성원을 기준으로 한다.
+  전투가 끝나도 별도 그룹을 자동 병합하지 않는다.
+end note
+@enduml

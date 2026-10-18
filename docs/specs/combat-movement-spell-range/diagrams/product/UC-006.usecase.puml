@@ -1,0 +1,45 @@
+@startuml
+title UC-006 파티 대화를 진행하고 중요한 선택을 확인한다
+left to right direction
+actor "플레이어" as Player
+actor "AI 게임 마스터" as GM
+actor "런타임 시스템" as Runtime
+rectangle "파티 대화와 결정" {
+  usecase "일상 대화와 대사를 생성한다" as Banter
+  usecase "대화 선택지를 고르거나 동료 대화 행동을 제안한다" as DialogueChoice
+  usecase "맥락의 가치관·성격 묘사와 충돌하는지 확인한다" as CheckContext
+  usecase "충돌 사유를 설명하고 다른 선택을 기다린다" as Reject
+  usecase "파티 행동을 선택하고 확정한다" as PartyAction
+  usecase "선택된 행동의 규칙 결과를 판정·서술한다" as Narrate
+  usecase "판정으로 정해진 상태 변화와 자원 변화를 적용한다" as Apply
+}
+GM --> Banter
+GM --> DialogueChoice
+GM --> CheckContext
+GM --> Reject
+GM --> Narrate
+Player --> DialogueChoice
+Player --> PartyAction
+Runtime --> Apply
+CheckContext .> DialogueChoice : <<extend>>\n[플레이어가 동료 대화 행동을 자연어로 제안]
+Reject .> CheckContext : <<extend>>\n[가치관·성격 묘사와 충돌]
+Narrate .> DialogueChoice : <<extend>>\n[충돌 없는 대화 선택]
+Narrate .> PartyAction : <<extend>>\n[플레이어가 확정한 파티 행동]
+Apply .> Narrate : <<extend>>\n[규칙 결과에 상태 변화가 있는 경우]
+note bottom of Banter
+  일상 대화는 파티 상태를 바꾸지 않는다.
+end note
+note right of Reject
+  해당 대화 행동은 일어나지 않는다.
+  이 경로는 GM 판정·서술과 상태 반영으로 이어지지 않는다.
+end note
+note bottom of PartyAction
+  일반 파티 행동은 성격·가치관 충돌 검사를 거치지 않고
+  GM 판정·서술과 런타임 시스템의 결과 반영으로 이어진다.
+end note
+note bottom of Apply
+  플레이어가 선택·확정한 행동의 규칙 결과를 GM이 판정·서술하고,
+  런타임 시스템이 상태 변화와 자원 변화를 적용한다.
+  결과마다 플레이어의 추가 승인을 요구하지 않는다.
+end note
+@enduml

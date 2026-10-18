@@ -2,78 +2,53 @@
 
 ## 구현 목적
 
-D&D 5판(2014) 기본 룰북 전체 주문과 원거리·투척 행동을 모험별로 검토한 정의에 따라 실행하고, 이동·지도 미리보기·확대·안개 및 기존 GM 환경 응용 연결을 보강한다.
+현재 모험에서 실제로 배운 주문·기술만 준비하고, 그룹 탐험과 전투 이동을 구현한다. 지도는 상호작용 화면 중앙에 두며, 주문·기술 실행 전에 사거리·효과 범위를 지도에 표시하고 확정 시 최신 상태와 자원을 검증한다.
 
-## 상위 계획과 실행 경로
+## 상위 이슈와 실행 경로
 
-- 상위 이슈: [#362](https://github.com/omegafrog/dnd-master/issues/362)
-- 티켓 저장소: `omegafrog/dnd-master`
-- 프로젝트: [dnd-master-workflow · 5번](https://github.com/users/omegafrog/projects/5)
+- 상위 이슈: [전투 이동·주문 사거리: 그룹 탐험·지도 조준·능력 처리](https://github.com/omegafrog/dnd-master/issues/362)
+- 선행 이슈: [#376 공용 룰북 전처리 페이지 검토·재시도](https://github.com/omegafrog/dnd-master/issues/376) — 완료 상태이며 능력 습득 시 RAG 출처 위치 확인에 사용한다.
+- 프로젝트 5번 `Workflow Status`가 계획 진행 상태의 정본이다.
 - 작업 디렉터리: `/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range`
-- 세션 브랜치: `spec/combat-movement-spell-range`
-- 구현 결과를 통합할 브랜치(`execution_line`): `spec/combat-movement-spell-range`
-- 계획 기준 커밋: `b55be7b5755f656bde82dc46cd1bef5a8309d973`
-- 티켓의 진행 상태는 GitHub 프로젝트의 `Workflow Status`가 정본이다. 이 목록은 개별 이슈로 이동하기 위한 안내이며 구현 계약·상태를 복제하지 않는다.
+- 세션 브랜치와 구현 통합 경로: `spec/combat-movement-spell-range`
+- 계획 기준 커밋: `7d0297217875663807284924e7e4845659ab50f3`
 
 ## 명세와 다이어그램
 
-- [제품 명세](../../specs/combat-movement-spell-range/product-spec.md)
-- [아키텍처 명세](../../specs/combat-movement-spell-range/architecture-spec.md)
-- [공용 룰북 전처리 검토 보충 제품 계약](../../specs/combat-movement-spell-range/source-review-product-spec.md)
-- [공용 룰북 전처리 검토 보충 구조 계약](../../specs/combat-movement-spell-range/source-review-architecture-spec.md)
-- [시스템 목표](../../specs/combat-movement-spell-range/system-targets.yaml)
-- [주사위 굴림의 모험 서비스 내부 통합 계획](dice-in-adventure.md): 사용자가 추가로 지시한 서비스 경계 정리. 개별 전투 기능의 완료 상태와 구분한다.
-
-- [UC-001.usecase.svg](../../specs/combat-movement-spell-range/diagrams/product/UC-001.usecase.svg)
-- [UC-001.activity.svg](../../specs/combat-movement-spell-range/diagrams/product/UC-001.activity.svg)
-- [UC-002.usecase.svg](../../specs/combat-movement-spell-range/diagrams/product/UC-002.usecase.svg)
-- [UC-002.activity.svg](../../specs/combat-movement-spell-range/diagrams/product/UC-002.activity.svg)
-- [UC-004.usecase.svg](../../specs/combat-movement-spell-range/diagrams/product/UC-004.usecase.svg)
-- [UC-004.activity.svg](../../specs/combat-movement-spell-range/diagrams/product/UC-004.activity.svg)
-- [spell-action.class.svg](../../specs/combat-movement-spell-range/diagrams/architecture/spell-action.class.svg)
-- [spell-action-execution.state.svg](../../specs/combat-movement-spell-range/diagrams/architecture/spell-action-execution.state.svg)
+- [제품 명세](https://github.com/omegafrog/dnd-master/blob/spec/combat-movement-spell-range/docs/specs/combat-movement-spell-range/product-spec.md)
+- [아키텍처 명세](https://github.com/omegafrog/dnd-master/blob/spec/combat-movement-spell-range/docs/specs/combat-movement-spell-range/architecture-spec.md)
+- 제품 흐름:
+  - [UC-001 능력 준비](https://github.com/omegafrog/dnd-master/blob/spec/combat-movement-spell-range/docs/specs/combat-movement-spell-range/diagrams/product/UC-001.activity.svg)
+  - [UC-002 이동·조준 미리보기](https://github.com/omegafrog/dnd-master/blob/spec/combat-movement-spell-range/docs/specs/combat-movement-spell-range/diagrams/product/UC-002.activity.svg)
+  - [UC-004 비전투 환경 응용](https://github.com/omegafrog/dnd-master/blob/spec/combat-movement-spell-range/docs/specs/combat-movement-spell-range/diagrams/product/UC-004.activity.svg)
+  - [UC-005 그룹 탐험·조우](https://github.com/omegafrog/dnd-master/blob/spec/combat-movement-spell-range/docs/specs/combat-movement-spell-range/diagrams/product/UC-005.activity.svg)
+- 구조 흐름:
+  - [능력 정의와 실행 책임](https://github.com/omegafrog/dnd-master/blob/spec/combat-movement-spell-range/docs/specs/combat-movement-spell-range/diagrams/architecture/spell-action.class.svg)
+  - [능력 실행 상태와 복구](https://github.com/omegafrog/dnd-master/blob/spec/combat-movement-spell-range/docs/specs/combat-movement-spell-range/diagrams/architecture/spell-action-execution.state.svg)
 
 ## 실행 순서와 의존성
 
-| 순서 | 계획 | 구현할 내용 | 먼저 완료할 티켓 |
-|---|---|---|---|
-| 선행 | [#376](https://github.com/omegafrog/dnd-master/issues/376) | 공용 룰북 전처리 페이지의 관리자 검토·재시도 복구 | 없음 |
-| 1 | [#363](https://github.com/omegafrog/dnd-master/issues/363) · `combat-01` | 기본 룰북 주문 전수 목록과 출처·실행 기제 확인 | [#376](https://github.com/omegafrog/dnd-master/issues/376) |
-| 2 | [#364](https://github.com/omegafrog/dnd-master/issues/364) · `combat-02` | 현재 모험의 정의 검토·수정·승인과 시작 잠금 | [#363](https://github.com/omegafrog/dnd-master/issues/363) |
-| 3 | [#365](https://github.com/omegafrog/dnd-master/issues/365) · `combat-03` | 전투 턴 이동량과 실제 경로 이동 | 없음 |
-| 4 | [#366](https://github.com/omegafrog/dnd-master/issues/366) · `combat-04` | 비행 높이·지도 확대·숨겨진 벽 공개 경계 | [#365](https://github.com/omegafrog/dnd-master/issues/365) |
-| 5 | [#367](https://github.com/omegafrog/dnd-master/issues/367) · `combat-05` | 주문·원거리 공격·투척의 자료 기반 조준, 효과 모양·붉은 경로 미리보기와 선택 입력 | [#364](https://github.com/omegafrog/dnd-master/issues/364), [#366](https://github.com/omegafrog/dnd-master/issues/366) |
-| 6 | [#368](https://github.com/omegafrog/dnd-master/issues/368) · `combat-06` | 단일 선택 주문·원거리 공격·투척의 권위 실행과 기본 효과 | [#367](https://github.com/omegafrog/dnd-master/issues/367) |
-| 7 | [#369](https://github.com/omegafrog/dnd-master/issues/369) · `combat-07` | 복수 대상·투사체 배분과 공간 효과 | [#368](https://github.com/omegafrog/dnd-master/issues/368) |
-| 8 | [#370](https://github.com/omegafrog/dnd-master/issues/370) · `combat-08` | 시전 시점·지속·집중·발동과 높은 등급 슬롯 | [#368](https://github.com/omegafrog/dnd-master/issues/368) |
-| 9 | [#371](https://github.com/omegafrog/dnd-master/issues/371) · `combat-09` | 소환·조종과 이후 턴의 지속 주문 효과 | [#370](https://github.com/omegafrog/dnd-master/issues/370) |
-| 10 | [#372](https://github.com/omegafrog/dnd-master/issues/372) · `combat-10` | 비전투 변화·생성·정보 확인 주문의 실제 효과 | [#369](https://github.com/omegafrog/dnd-master/issues/369), [#370](https://github.com/omegafrog/dnd-master/issues/370), [#371](https://github.com/omegafrog/dnd-master/issues/371) |
-| 11 | [#373](https://github.com/omegafrog/dnd-master/issues/373) · `combat-11` | 주문 기본 효과 뒤 환경 응용과 GM 작업 보정 | [#368](https://github.com/omegafrog/dnd-master/issues/368) |
-| 12 | [#374](https://github.com/omegafrog/dnd-master/issues/374) · `combat-12` | 자연어 선언과 지도 조작의 동일 규칙 적용 | [#365](https://github.com/omegafrog/dnd-master/issues/365), [#372](https://github.com/omegafrog/dnd-master/issues/372), [#373](https://github.com/omegafrog/dnd-master/issues/373) |
-| 13 | [#375](https://github.com/omegafrog/dnd-master/issues/375) · `combat-13` | 기본 룰북 전체 주문의 실제 실행과 완료 판정 | [#363](https://github.com/omegafrog/dnd-master/issues/363), [#364](https://github.com/omegafrog/dnd-master/issues/364), [#367](https://github.com/omegafrog/dnd-master/issues/367), [#368](https://github.com/omegafrog/dnd-master/issues/368), [#369](https://github.com/omegafrog/dnd-master/issues/369), [#370](https://github.com/omegafrog/dnd-master/issues/370), [#371](https://github.com/omegafrog/dnd-master/issues/371), [#372](https://github.com/omegafrog/dnd-master/issues/372), [#374](https://github.com/omegafrog/dnd-master/issues/374) |
+| 순서 | 계획 | 구현 내용 | 선행 이슈 |
+|---:|---|---|---|
+| 1 | [#363 배운 주문·기술 상세정보 준비와 GM 조회](https://github.com/omegafrog/dnd-master/issues/363) | 배우고 사용할 수 있는 능력만 현재 모험의 자료에서 구조화해 저장하고 MCP로 조회한다. | [#376](https://github.com/omegafrog/dnd-master/issues/376) |
+| 2 | [#364 캐릭터 시트 자원 상태와 결정적 소모·회복](https://github.com/omegafrog/dnd-master/issues/364) | 캐릭터 시트의 능력 식별자와 자원 현재량·최대량·회복 조건을 정본으로 관리한다. | 없음 |
+| 3 | [#365 시츄에이션 속성에 따른 지도 준비와 비공개 배치](https://github.com/omegafrog/dnd-master/issues/365) | 시츄에이션의 지도 필요 속성을 기준으로 시작 전 지도와 숨겨진 초기 배치를 준비한다. | 없음 |
+| 4 | [#366 그룹 토큰·대열·분리·합류](https://github.com/omegafrog/dnd-master/issues/366) | 탐험 이동을 캐릭터가 아니라 그룹 단위로 표현하고 분리·합류 상태를 저장한다. | 없음 |
+| 5 | [#367 우선권 순차 이동·발견·조우·환경 순환](https://github.com/omegafrog/dnd-master/issues/367) | 시간을 멈춘 상태에서 그룹 우선권대로 이동시키고 사건과 공통 환경 시간을 순서대로 처리한다. | [#365](https://github.com/omegafrog/dnd-master/issues/365), [#366](https://github.com/omegafrog/dnd-master/issues/366) |
+| 6 | [#368 탐험 그룹과 전투 캐릭터 토큰 전환](https://github.com/omegafrog/dnd-master/issues/368) | 전투가 시작될 때 그룹의 위치와 대열을 캐릭터별 전투 위치로 바꾸고 전투 종료 후 그룹을 복원한다. | [#366](https://github.com/omegafrog/dnd-master/issues/366), [#367](https://github.com/omegafrog/dnd-master/issues/367) |
+| 7 | [#369 전투 경로 이동과 칸별 안개 갱신](https://github.com/omegafrog/dnd-master/issues/369) | 전투 지도에서 경로를 정하고 확인한 뒤 한 칸씩 이동하며 실제 도달 상태를 반영한다. | [#368](https://github.com/omegafrog/dnd-master/issues/368) |
+| 8 | [#370 높이·확대·중앙 지도 화면 정렬](https://github.com/omegafrog/dnd-master/issues/370) | 중앙 지도 화면의 확대·축소와 지면 높이 표현을 포인터·범위 오버레이에 맞춘다. | [#369](https://github.com/omegafrog/dnd-master/issues/369) |
+| 9 | [#371 지도에서 주문·기술 조준과 범위 미리보기](https://github.com/omegafrog/dnd-master/issues/371) | 주문·기술을 발사하거나 실행하기 전에 중앙 지도에서 사거리와 대상·효과 범위를 확인하게 한다. | [#363](https://github.com/omegafrog/dnd-master/issues/363), [#370](https://github.com/omegafrog/dnd-master/issues/370) |
+| 10 | [#372 전투 주문·기술 실행과 비용 확정](https://github.com/omegafrog/dnd-master/issues/372) | 지도에서 조준을 확인한 능력을 최신 전투·지도·캐릭터 상태로 재검증한 뒤 실행한다. | [#364](https://github.com/omegafrog/dnd-master/issues/364), [#371](https://github.com/omegafrog/dnd-master/issues/371) |
+| 11 | [#373 비전투 주문·기술 사용과 GM 판정](https://github.com/omegafrog/dnd-master/issues/373) | 비전투 엔진이 사용 조건과 자원을 결정적으로 처리하고 환경 결과는 GM이 판정하게 한다. | [#363](https://github.com/omegafrog/dnd-master/issues/363), [#364](https://github.com/omegafrog/dnd-master/issues/364) |
+| 12 | [#374 주문 기본 효과 뒤 환경 응용](https://github.com/omegafrog/dnd-master/issues/374) | 주문 기본 효과 이후 허용된 환경 작업으로 응용하고 실패해도 기본 효과와 비용을 반복하지 않는다. | [#373](https://github.com/omegafrog/dnd-master/issues/373) |
+| 13 | [#375 자연어 행동과 지도 실행의 동일한 규칙 적용](https://github.com/omegafrog/dnd-master/issues/375) | 자연어로 선언한 이동·능력도 지도 미리보기와 동일한 판정·확정 경계를 거치게 한다. | [#367](https://github.com/omegafrog/dnd-master/issues/367), [#369](https://github.com/omegafrog/dnd-master/issues/369), [#371](https://github.com/omegafrog/dnd-master/issues/371), [#372](https://github.com/omegafrog/dnd-master/issues/372), [#373](https://github.com/omegafrog/dnd-master/issues/373), [#374](https://github.com/omegafrog/dnd-master/issues/374) |
 
-## 공유 파일과 통합 순서
+## 통합·검증 조건
 
-- 계획 1·2는 ScenarioPackage/준비 서비스·저장소·준비 화면을 공유하므로 순차 적용한다.
-- 계획 3·4는 Combat Map 이동·공개 투영과 CombatMapView를 공유하므로 순차 적용한다.
-- 계획 5~10은 CombatActionApplicationService/주문 전략 등록부/CombatScreen을 공유한다. 논리 의존이 없는 7·8 및 9·11도 동일 파일 변경 시 단일 작업 슬롯 또는 순차 통합으로 충돌을 피한다.
-- 계획 11·12는 GM 계획 어댑터를 공유하므로 순차 적용한다.
-- 계획 13은 구현 티켓의 실제 실행 증거가 준비될 때까지 완료할 수 없다.
+- 지도 시작 위치 진입 흐름의 세부 실행 계획: [시츄에이션 진입 시 지도와 시작 위치 결정](map-entry-flow.md)
 
-## 구현에 인계할 조건
-
-- 각 이슈의 구현 범위·수용 기준·상태 전이와 단위/E2E 테스트 계약을 따른다. 이 단계에서는 애플리케이션을 구현하거나 테스트하지 않았다.
-- 주문별 수치·기제 조합은 모험별 승인 정의 자료로 관리하고, 새로운 실행 기제만 서버 전략·객체 조합으로 확장한다.
-- 준비 중 의미·조건은 사용자가 검토하며, 구조·출처·지원 여부의 자동 확인을 완전한 의미 검증으로 바꾸지 않는다.
-- 모든 기본 주문의 실제 실행을 확인하기 전에는 전체 지원 완료로 표시하지 않는다. 추가 자료의 미지원 표시로 기본 주문 지원을 대체하지 않는다.
-- 기존 컨텍스트·서비스·명령 복구 경계를 유지한다. 새 MCP 서버·애드온 설치 기능은 범위 밖이다.
-- 구현 작업 브랜치는 위 실행 라인에 통합한다. 최종 PR은 전체 계획의 구현과 검증이 끝난 뒤 만든다.
-
-## 티켓 생성 검증
-
-- 확인 시각: `2026-10-07T13:48:27.801Z`.
-- 상위 1개와 실제 하위 이슈 13개의 공식 연결 및 각 하위의 상위 참조를 확인했다.
-- 승인한 의존성은 GitHub의 실제 차단 관계로 저장·대조했다.
-- 상위·하위 모두 프로젝트 5번에 연결되고 생성 시 상태는 `Planned`이다.
-- 담당자와 실제 이슈 번호를 사용한 최종 본문·계약 및 명세/SVG 링크를 확인했다.
-- 스킬 수정 후 이슈 번호 없는 생성용 자료를 먼저 검증하고, 생성 후 실제 번호가 있는 완성 계약으로 다시 검증했다.
+- 모든 하위 이슈에는 정책 단위 검증과 화면 조작부터 정본 상태까지 확인하는 `ui ~ entity` E2E 계약이 있다.
+- 실제 지도 UI에서 이동 경로, 주문·기술 사거리·효과 범위, 중앙 배치와 자원 상태를 확인한다.
+- 각 이슈의 구현·검증 범위는 해당 이슈 본문과 Product/Architecture Spec을 따른다.
+- 세션 브랜치에서 계획을 이어가며 별도 계획 브랜치를 만들거나 원격에 푸시하지 않는다. 최종 PR은 모든 구현을 통합한 뒤 만든다.
