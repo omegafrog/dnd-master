@@ -101,11 +101,12 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages,
             SessionKnowledgeSetRepository knowledgeSets, AdventureSessionRepository sessions,
             RuntimeCharacterSheetReadPort sheets, RuntimeEvidenceSearchPort evidenceSearch,
+            com.dndmaster.adventure.application.runtime.RuntimeEvidenceLocationLookupPort locationLookup,
             GmProviderBindingRepository providerBindings,
             com.dndmaster.adventure.application.scenario.preparation.InitialSituationGmPort gm,
             ObjectMapper mapper) {
         return new com.dndmaster.adventure.application.ability.AdventureAbilityDefinitionPreparationService(
-                definitions, packages, knowledgeSets, sessions, sheets, evidenceSearch, providerBindings, gm, mapper);
+                definitions, packages, knowledgeSets, sessions, sheets, evidenceSearch, locationLookup, providerBindings, gm, mapper);
     }
 
     @Bean

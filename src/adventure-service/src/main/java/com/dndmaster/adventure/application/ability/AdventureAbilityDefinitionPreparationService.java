@@ -7,6 +7,8 @@ import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceSearchPort;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceSearchRequest;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidenceLocationLookupPort;
+import com.dndmaster.adventure.evidence.EvidenceSearchScope;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.preparation.InitialSituationGmPort;
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
@@ -32,6 +34,7 @@ public final class AdventureAbilityDefinitionPreparationService {
     private final AdventureSessionRepository sessions;
     private final RuntimeCharacterSheetReadPort characterSheets;
     private final RuntimeEvidenceSearchPort evidenceSearch;
+    private final RuntimeEvidenceLocationLookupPort locationLookup;
     private final GmProviderBindingRepository providerBindings;
     private final InitialSituationGmPort gm;
     private final ObjectMapper mapper;
@@ -39,7 +42,8 @@ public final class AdventureAbilityDefinitionPreparationService {
     public AdventureAbilityDefinitionPreparationService(AdventureAbilityDefinitionRepository definitions,
             ScenarioPackageRepository packages, SessionKnowledgeSetRepository knowledgeSets,
             AdventureSessionRepository sessions, RuntimeCharacterSheetReadPort characterSheets,
-            RuntimeEvidenceSearchPort evidenceSearch, GmProviderBindingRepository providerBindings,
+            RuntimeEvidenceSearchPort evidenceSearch, RuntimeEvidenceLocationLookupPort locationLookup,
+            GmProviderBindingRepository providerBindings,
             InitialSituationGmPort gm, ObjectMapper mapper) {
         this.definitions = Objects.requireNonNull(definitions);
         this.packages = Objects.requireNonNull(packages);
@@ -47,6 +51,7 @@ public final class AdventureAbilityDefinitionPreparationService {
         this.sessions = Objects.requireNonNull(sessions);
         this.characterSheets = Objects.requireNonNull(characterSheets);
         this.evidenceSearch = Objects.requireNonNull(evidenceSearch);
+        this.locationLookup = Objects.requireNonNull(locationLookup);
         this.providerBindings = Objects.requireNonNull(providerBindings);
         this.gm = Objects.requireNonNull(gm);
         this.mapper = Objects.requireNonNull(mapper);
@@ -86,14 +91,20 @@ public final class AdventureAbilityDefinitionPreparationService {
             if (definitions.find(adventureId.value(), abilityId).isPresent()) continue;
             long started = System.nanoTime();
             List<RuntimeEvidence> evidence = List.of();
+            Map<UUID, Long> authorizedSources = Map.of();
+            EvidenceSearchScope sourceScope = null;
             try {
-                evidence = search(adventureId, sessionId, owner, abilityId);
+                SearchResult searchResult = search(adventureId, sessionId, owner, abilityId);
+                evidence = searchResult.evidence();
+                authorizedSources = searchResult.authorizedSourceVersions();
+                sourceScope = searchResult.sourceScope();
                 JsonNode proposed;
                 if (sourceDefinition != null && !sourceDefinition.isNull()) {
                     proposed = selectSourceDefinition(abilityId, sourceDefinition);
-                    validate(abilityId, proposed, evidence);
+                    validate(abilityId, proposed, evidence, authorizedSources, true);
+                    validateSourceLocators(proposed, evidence, sourceScope);
                 } else {
-                    proposed = generateValidated(adventureId, sessionId, owner, abilityId, evidence);
+                    proposed = generateValidated(adventureId, sessionId, owner, abilityId, evidence, authorizedSources);
                 }
                 definitions.prepare(adventureId.value(), abilityId, proposed);
                 diagnostic("complete", adventureId, sessionId, abilityId, evidence.size(), "valid_definition_saved",
@@ -107,19 +118,21 @@ public final class AdventureAbilityDefinitionPreparationService {
     }
 
     JsonNode generateValidated(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner, String abilityId,
-            List<RuntimeEvidence> evidence) {
+            List<RuntimeEvidence> evidence, Map<UUID, Long> authorizedSources) {
         List<String> corrections = new ArrayList<>();
         while (true) {
+            long attemptStarted = System.nanoTime();
             JsonNode proposed = generate(adventureId, sessionId, owner, abilityId, evidence, corrections);
             try {
-                validate(abilityId, proposed, evidence);
+                validate(abilityId, proposed, evidence, authorizedSources, false);
                 return proposed;
             } catch (AbilityDefinitionValidationException invalid) {
                 String correction = invalid.code();
                 if (corrections.contains(correction)) throw invalid;
                 corrections.add(correction);
                 diagnostic("structured_output_repair", adventureId, sessionId, abilityId, evidence.size(),
-                        "new_validation_feedback", 0, "validation_failure:" + corrections.size());
+                        "new_validation_feedback", (System.nanoTime() - attemptStarted) / 1_000_000,
+                        "validation_failure:" + corrections.size());
             }
         }
     }
@@ -154,7 +167,7 @@ public final class AdventureAbilityDefinitionPreparationService {
         abilityIds.forEach(id -> definitions.activate(adventureId, id));
     }
 
-    private List<RuntimeEvidence> search(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner, String abilityId) {
+    private SearchResult search(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner, String abilityId) {
         var adventure = new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId.value());
         var session = sessions.findById(sessionId).orElseThrow(() -> new IllegalStateException("adventure session not found"));
         UUID packageId = packages.findById(session.scenarioPackageId()).orElseThrow().packageId();
@@ -163,6 +176,11 @@ public final class AdventureAbilityDefinitionPreparationService {
         var scenarioPackage = packages.findById(packageId).orElseThrow();
         List<ScenarioBundleDocumentSelection> selected = scenarioPackage.documents().stream()
                 .filter(doc -> selectedIds.contains(doc.knowledgeDocumentId().value())).toList();
+        Map<UUID, Long> authorizedSources = selected.stream()
+                .filter(doc -> RuntimeEvidenceType.RULEBOOK.name().equalsIgnoreCase(doc.documentType())
+                        || RuntimeEvidenceType.STORYBOOK.name().equalsIgnoreCase(doc.documentType()))
+                .collect(java.util.stream.Collectors.toMap(doc -> doc.knowledgeDocumentId().value(),
+                        ScenarioBundleDocumentSelection::extractionVersion, (first, ignored) -> first));
         List<RuntimeEvidence> result = new ArrayList<>();
         for (RuntimeEvidenceType type : List.of(RuntimeEvidenceType.RULEBOOK, RuntimeEvidenceType.STORYBOOK)) {
             List<ScenarioBundleDocumentSelection> documents = selected.stream().filter(doc -> type.name().equalsIgnoreCase(doc.documentType())).toList();
@@ -175,7 +193,13 @@ public final class AdventureAbilityDefinitionPreparationService {
                     "ability:" + abilityId, "RULE_LOOKUP"));
             result.addAll(found);
         }
-        return List.copyOf(result);
+        var sourceDocuments = selected.stream()
+                .filter(doc -> authorizedSources.containsKey(doc.knowledgeDocumentId().value()))
+                .map(doc -> new EvidenceSearchScope.Document(doc.knowledgeDocumentId().value(), doc.extractionVersion(),
+                        doc.documentType().toUpperCase(java.util.Locale.ROOT))).toList();
+        EvidenceSearchScope sourceScope = sourceDocuments.isEmpty() ? null : new EvidenceSearchScope(owner.value(),
+                sessionId.value(), packageId, "ability-definition", "RULE_LOOKUP", sourceDocuments, List.of());
+        return new SearchResult(List.copyOf(result), Map.copyOf(authorizedSources), sourceScope);
     }
 
     private JsonNode generate(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner,
@@ -193,13 +217,19 @@ public final class AdventureAbilityDefinitionPreparationService {
     }
 
     void validate(String abilityId, JsonNode definition, List<RuntimeEvidence> evidence) {
+        validate(abilityId, definition, evidence, Map.of(), false);
+    }
+
+    void validate(String abilityId, JsonNode definition, List<RuntimeEvidence> evidence,
+            Map<UUID, Long> authorizedSources, boolean userSourceInput) {
         java.util.Set<String> expectedFields = new java.util.LinkedHashSet<>(List.of("abilityId", "name", "actionTiming",
                 "resourceCost", "visibility", "range", "targeting", "origin", "effect", "pathBlocking",
-                "effectSpread", "check", "duration", "trigger", "exceptions", "sourceLocations"));
+                "effectSpread", "check", "duration", "trigger", "exceptions", "actionKind", "rangeForm", "targetMode",
+                "originMode", "effectShape", "pathBlockingRule", "propagationRule", "verticalDirection", "sourceLocations"));
         java.util.Set<String> actualFields = new java.util.LinkedHashSet<>();
         if (definition != null && definition.isObject()) definition.fieldNames().forEachRemaining(actualFields::add);
         if (!definition.isObject() || definition.size() != expectedFields.size() || !actualFields.equals(expectedFields)
-                || !abilityId.equals(definition.path("abilityId").asText()))
+                || !definition.path("abilityId").isTextual() || !abilityId.equals(definition.path("abilityId").asText()))
             throw new AbilityDefinitionValidationException("SCHEMA_OR_IDENTIFIER", "ability definition schema or identifier is invalid");
         if (!definition.path("name").isTextual() || definition.path("name").asText().isBlank())
             throw new AbilityDefinitionValidationException("NAME_INVALID", "ability definition name must be a nonempty string");
@@ -214,8 +244,15 @@ public final class AdventureAbilityDefinitionPreparationService {
             if (!value.isNull() && !value.isTextual()) throw new AbilityDefinitionValidationException("FIELD_TYPE:" + field,
                     "ability definition field must be a string or null: " + field);
         }
+        Map<String, List<String>> allowedEnums = allowedEnumValues();
+        for (Map.Entry<String, List<String>> entry : allowedEnums.entrySet()) {
+            JsonNode value = definition.get(entry.getKey());
+            if (!value.isNull() && (!value.isTextual() || !entry.getValue().contains(value.asText())))
+                throw new AbilityDefinitionValidationException("ENUM_VALUE:" + entry.getKey(),
+                        "ability definition enum value is not supported: " + entry.getKey());
+        }
         JsonNode sources = definition.path("sourceLocations");
-        if (!sources.isArray() || sources.isEmpty()) throw new AbilityDefinitionValidationException("SOURCE_LOCATIONS_REQUIRED",
+        if (!sources.isArray() || sources.isEmpty() || sources.size() > 10) throw new AbilityDefinitionValidationException("SOURCE_LOCATIONS_REQUIRED",
                 "ability definition source locations are required");
         for (JsonNode source : sources) {
             java.util.Set<String> sourceFields = new java.util.LinkedHashSet<>();
@@ -229,11 +266,44 @@ public final class AdventureAbilityDefinitionPreparationService {
             catch (IllegalArgumentException malformed) {
                 throw new AbilityDefinitionValidationException("SOURCE_LOCATION_SHAPE", "ability definition source location is invalid");
             }
-            boolean matched = evidence.stream().anyMatch(item -> item.knowledgeDocumentId().value().toString().equals(source.path("documentId").asText())
-                    && item.extractionVersion() == source.path("extractionVersion").asLong(-1)
-                    && item.locator().equals(source.path("locator").asText()));
+            UUID documentId = UUID.fromString(source.path("documentId").asText());
+            long extractionVersion = source.path("extractionVersion").asLong(-1);
+            boolean matched = userSourceInput
+                    ? authorizedSources.getOrDefault(documentId, -1L) == extractionVersion
+                    : evidence.stream().anyMatch(item -> item.knowledgeDocumentId().value().equals(documentId)
+                            && item.extractionVersion() == extractionVersion
+                            && item.locator().equals(source.path("locator").asText()));
             if (!matched) throw new AbilityDefinitionValidationException("SOURCE_LOCATION_NOT_RETRIEVED",
-                    "ability definition source location is outside retrieved evidence");
+                    userSourceInput ? "ability definition source document is not selected for this adventure"
+                            : "ability definition source location is outside retrieved evidence");
+        }
+    }
+
+    void validateSourceLocators(JsonNode definition, List<RuntimeEvidence> evidence, EvidenceSearchScope scope) {
+        if (scope == null) throw new AbilityDefinitionValidationException("SOURCE_SCOPE_EMPTY",
+                "no selected rule or story source is available for source input");
+        List<RuntimeEvidence> unresolved = new ArrayList<>();
+        for (JsonNode source : definition.path("sourceLocations")) {
+            UUID documentId = UUID.fromString(source.path("documentId").asText());
+            long version = source.path("extractionVersion").asLong();
+            String locator = source.path("locator").asText();
+            boolean retrieved = evidence.stream().anyMatch(item -> item.knowledgeDocumentId().value().equals(documentId)
+                    && item.extractionVersion() == version && item.locator().equals(locator));
+            if (retrieved) continue;
+            RuntimeEvidenceType type = scope.documents().stream().filter(doc -> doc.id().equals(documentId)
+                    && doc.extractionVersion() == version).map(doc -> RuntimeEvidenceType.valueOf(doc.type())).findFirst()
+                    .orElseThrow(() -> new AbilityDefinitionValidationException("SOURCE_LOCATION_NOT_SELECTED",
+                            "ability definition source document is not selected for this adventure"));
+            unresolved.add(new RuntimeEvidence(type, new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(documentId),
+                    version, locator, "source location verification anchor"));
+        }
+        if (unresolved.isEmpty()) return;
+        List<RuntimeEvidence> indexed = locationLookup.findOnSamePages(scope, unresolved, 1);
+        for (RuntimeEvidence anchor : unresolved) {
+            if (indexed == null || indexed.stream().noneMatch(item -> item.knowledgeDocumentId().equals(anchor.knowledgeDocumentId())
+                    && item.extractionVersion() == anchor.extractionVersion() && item.locator().equals(anchor.locator())))
+                throw new AbilityDefinitionValidationException("SOURCE_LOCATOR_NOT_INDEXED",
+                        "ability definition source locator is not present in the selected source index");
         }
     }
 
@@ -244,19 +314,50 @@ public final class AdventureAbilityDefinitionPreparationService {
         for (String field : List.of("actionTiming", "resourceCost", "visibility", "range", "targeting", "origin",
                 "effect", "pathBlocking", "effectSpread", "check", "duration", "trigger", "exceptions"))
             props.putObject(field).set("type", mapper.valueToTree(List.of("string", "null")));
+        enumProperty(props, "actionKind", com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ActionKind.values());
+        enumProperty(props, "rangeForm", com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.RangeForm.values());
+        enumProperty(props, "targetMode", com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.TargetMode.values());
+        enumProperty(props, "originMode", com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.OriginMode.values());
+        enumProperty(props, "effectShape", com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.EffectShape.values());
+        enumProperty(props, "pathBlockingRule", com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.PathBlockingRule.values());
+        enumProperty(props, "propagationRule", com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.PropagationRule.values());
+        enumProperty(props, "verticalDirection", com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.VerticalDirection.values());
         ObjectNode sourceSchema = mapper.createObjectNode().put("type", "object").put("additionalProperties", false);
         ObjectNode sourceProps = sourceSchema.putObject("properties");
         sourceProps.putObject("documentId").put("type", "string");
         sourceProps.putObject("extractionVersion").put("type", "integer");
         sourceProps.putObject("locator").put("type", "string");
         sourceSchema.set("required", mapper.valueToTree(List.of("documentId", "extractionVersion", "locator")));
-        ObjectNode sources = props.putObject("sourceLocations").put("type", "array").put("minItems", 1);
+        ObjectNode sources = props.putObject("sourceLocations").put("type", "array").put("minItems", 1).put("maxItems", 10);
         sources.set("items", sourceSchema);
         ObjectNode schema = mapper.createObjectNode().put("type", "object").put("additionalProperties", false);
         schema.set("properties", props);
         schema.set("required", mapper.valueToTree(List.of("abilityId", "name", "actionTiming", "resourceCost", "visibility", "range",
-                "targeting", "origin", "effect", "pathBlocking", "effectSpread", "check", "duration", "trigger", "exceptions", "sourceLocations")));
+                "targeting", "origin", "effect", "pathBlocking", "effectSpread", "check", "duration", "trigger", "exceptions",
+                "actionKind", "rangeForm", "targetMode", "originMode", "effectShape", "pathBlockingRule", "propagationRule",
+                "verticalDirection", "sourceLocations")));
         return schema;
+    }
+
+    private void enumProperty(ObjectNode properties, String name, Enum<?>[] values) {
+        var schema = properties.putObject(name);
+        schema.set("type", mapper.valueToTree(List.of("string", "null")));
+        var allowedValues = mapper.createArrayNode();
+        java.util.Arrays.stream(values).map(Enum::name).forEach(allowedValues::add);
+        allowedValues.addNull();
+        schema.set("enum", allowedValues);
+    }
+
+    private static Map<String, List<String>> allowedEnumValues() {
+        return Map.of(
+                "actionKind", java.util.Arrays.stream(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ActionKind.values()).map(Enum::name).toList(),
+                "rangeForm", java.util.Arrays.stream(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.RangeForm.values()).map(Enum::name).toList(),
+                "targetMode", java.util.Arrays.stream(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.TargetMode.values()).map(Enum::name).toList(),
+                "originMode", java.util.Arrays.stream(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.OriginMode.values()).map(Enum::name).toList(),
+                "effectShape", java.util.Arrays.stream(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.EffectShape.values()).map(Enum::name).toList(),
+                "pathBlockingRule", java.util.Arrays.stream(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.PathBlockingRule.values()).map(Enum::name).toList(),
+                "propagationRule", java.util.Arrays.stream(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.PropagationRule.values()).map(Enum::name).toList(),
+                "verticalDirection", java.util.Arrays.stream(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.VerticalDirection.values()).map(Enum::name).toList());
     }
 
     private JsonNode readSheet(UUID id) { try { return mapper.readTree(characterSheets.read(id)); } catch (Exception failure) { throw new IllegalStateException("character sheet read failed", failure); } }
@@ -267,4 +368,7 @@ public final class AdventureAbilityDefinitionPreparationService {
         private AbilityDefinitionValidationException(String code, String message) { super(message); this.code = code; }
         private String code() { return code; }
     }
+
+    private record SearchResult(List<RuntimeEvidence> evidence, Map<UUID, Long> authorizedSourceVersions,
+            EvidenceSearchScope sourceScope) {}
 }

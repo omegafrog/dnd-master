@@ -14,6 +14,7 @@ import com.dndmaster.adventure.application.runtime.GmProviderSelection;
 import com.dndmaster.adventure.application.runtime.ProviderBinding;
 import com.dndmaster.adventure.application.runtime.RuntimeCharacterSheetReadPort;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidenceLocationLookupPort;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceSearchPort;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
@@ -23,6 +24,7 @@ import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
+import com.dndmaster.adventure.evidence.EvidenceSearchScope;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -49,12 +51,12 @@ class AdventureAbilityDefinitionPreparationServiceTest {
         var service = new AdventureAbilityDefinitionPreparationService(definitions,
                 mock(ScenarioPackageRepository.class), mock(SessionKnowledgeSetRepository.class),
                 mock(AdventureSessionRepository.class), mock(RuntimeCharacterSheetReadPort.class),
-                mock(RuntimeEvidenceSearchPort.class), bindings, gm, JSON);
+                mock(RuntimeEvidenceSearchPort.class), mock(RuntimeEvidenceLocationLookupPort.class), bindings, gm, JSON);
         var evidence = List.of(new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
                 new KnowledgeDocumentId(documentUuid), 3, "page 12", "The ability moves the user.", "cite-1"));
 
         JsonNode result = service.generateValidated(new AdventureId(UUID.randomUUID()), session,
-                new OwnerPlayerId(ownerUuid), "ability:blink", evidence);
+                new OwnerPlayerId(ownerUuid), "ability:blink", evidence, java.util.Map.of(documentUuid, 3L));
 
         assertThat(result.path("abilityId").asText()).isEqualTo("ability:blink");
         verify(gm, times(2)).generate(any());
@@ -73,12 +75,13 @@ class AdventureAbilityDefinitionPreparationServiceTest {
         var service = new AdventureAbilityDefinitionPreparationService(mock(AdventureAbilityDefinitionRepository.class),
                 mock(ScenarioPackageRepository.class), mock(SessionKnowledgeSetRepository.class),
                 mock(AdventureSessionRepository.class), mock(RuntimeCharacterSheetReadPort.class),
-                mock(RuntimeEvidenceSearchPort.class), bindings, gm, JSON);
+                mock(RuntimeEvidenceSearchPort.class), mock(RuntimeEvidenceLocationLookupPort.class), bindings, gm, JSON);
         var evidence = List.of(new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
                 new KnowledgeDocumentId(documentUuid), 3, "page 12", "The ability moves the user.", "cite-1"));
 
         assertThatThrownBy(() -> service.generateValidated(new AdventureId(UUID.randomUUID()),
-                new SessionId(sessionUuid), new OwnerPlayerId(UUID.randomUUID()), "ability:blink", evidence))
+                new SessionId(sessionUuid), new OwnerPlayerId(UUID.randomUUID()), "ability:blink", evidence,
+                java.util.Map.of(documentUuid, 3L)))
                 .isInstanceOf(IllegalArgumentException.class);
         verify(gm, times(2)).generate(any());
     }
@@ -90,7 +93,7 @@ class AdventureAbilityDefinitionPreparationServiceTest {
         var service = new AdventureAbilityDefinitionPreparationService(mock(AdventureAbilityDefinitionRepository.class),
                 mock(ScenarioPackageRepository.class), mock(SessionKnowledgeSetRepository.class),
                 mock(AdventureSessionRepository.class), mock(RuntimeCharacterSheetReadPort.class),
-                mock(RuntimeEvidenceSearchPort.class), mock(GmProviderBindingRepository.class),
+                mock(RuntimeEvidenceSearchPort.class), mock(RuntimeEvidenceLocationLookupPort.class), mock(GmProviderBindingRepository.class),
                 mock(InitialSituationGmPort.class), JSON);
         var evidence = List.of(new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
                 new KnowledgeDocumentId(documentId), 3, "page 12", "The ability moves the user.", "cite-1"));
@@ -98,6 +101,37 @@ class AdventureAbilityDefinitionPreparationServiceTest {
         assertThatThrownBy(() -> service.validate("ability:blink", malformed, evidence))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("string or null");
+        JsonNode invalidEnum = ((com.fasterxml.jackson.databind.node.ObjectNode) validDefinition(documentId))
+                .put("actionKind", "OTHER");
+        assertThatThrownBy(() -> service.validate("ability:blink", invalidEnum, evidence))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("enum value is not supported");
+    }
+
+    @Test
+    void accepts_source_based_definition_when_rag_has_no_excerpt_but_source_is_selected_for_the_adventure() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        JsonNode sourceDefinition = validDefinition(documentId);
+        var service = new AdventureAbilityDefinitionPreparationService(mock(AdventureAbilityDefinitionRepository.class),
+                mock(ScenarioPackageRepository.class), mock(SessionKnowledgeSetRepository.class),
+                mock(AdventureSessionRepository.class), mock(RuntimeCharacterSheetReadPort.class),
+                mock(RuntimeEvidenceSearchPort.class), mock(RuntimeEvidenceLocationLookupPort.class), mock(GmProviderBindingRepository.class),
+                mock(InitialSituationGmPort.class), JSON);
+
+        service.validate("ability:blink", sourceDefinition, List.of(), java.util.Map.of(documentId, 3L), true);
+        var sourceEvidence = new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK, new KnowledgeDocumentId(documentId),
+                3, "page 12", "The ability moves the user.", "cite-1");
+        var locations = mock(RuntimeEvidenceLocationLookupPort.class);
+        when(locations.findOnSamePages(any(), any(), org.mockito.ArgumentMatchers.eq(1))).thenReturn(List.of(sourceEvidence));
+        var sourceService = new AdventureAbilityDefinitionPreparationService(mock(AdventureAbilityDefinitionRepository.class),
+                mock(ScenarioPackageRepository.class), mock(SessionKnowledgeSetRepository.class),
+                mock(AdventureSessionRepository.class), mock(RuntimeCharacterSheetReadPort.class),
+                mock(RuntimeEvidenceSearchPort.class), locations, mock(GmProviderBindingRepository.class),
+                mock(InitialSituationGmPort.class), JSON);
+        var scope = new EvidenceSearchScope(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                "ability-definition", "RULE_LOOKUP", List.of(new EvidenceSearchScope.Document(documentId, 3, "RULEBOOK")), List.of());
+        org.assertj.core.api.Assertions.assertThatCode(() -> sourceService.validateSourceLocators(sourceDefinition,
+                List.of(), scope)).doesNotThrowAnyException();
     }
 
     private static JsonNode validDefinition(UUID documentId) throws Exception {
@@ -105,7 +139,10 @@ class AdventureAbilityDefinitionPreparationServiceTest {
                 {"abilityId":"ability:blink","name":"Blink","actionTiming":"action","resourceCost":null,
                 "visibility":null,"range":"self","targeting":"self","origin":"self","effect":"teleport",
                 "pathBlocking":null,"effectSpread":null,"check":null,"duration":"instant","trigger":null,
-                "exceptions":null,"sourceLocations":[{"documentId":"%s","extractionVersion":3,"locator":"page 12"}]}
+                "exceptions":null,"actionKind":"SPELL","rangeForm":"SINGLE","targetMode":"SELF",
+                "originMode":"ACTOR_TOKEN","effectShape":"NONE","pathBlockingRule":"NONE",
+                "propagationRule":"DIRECT","verticalDirection":"UP",
+                "sourceLocations":[{"documentId":"%s","extractionVersion":3,"locator":"page 12"}]}
                 """.formatted(documentId));
     }
 }
