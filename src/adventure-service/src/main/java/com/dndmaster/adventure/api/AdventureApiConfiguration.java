@@ -1104,6 +1104,7 @@ public class AdventureApiConfiguration {
         service.setAdventureCompletionCommitPort(adventureCompletionCommitPort);
         service.setEnemyCharacterSheetRepository(enemyCharacterSheetRepository);
         service.setStageArtifactRepository(stageArtifactRepository);
+        service.setCombatMapViewPort(combatMapViewPort);
         return service;
     }
 

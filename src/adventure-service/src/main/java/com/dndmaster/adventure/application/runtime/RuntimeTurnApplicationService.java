@@ -73,6 +73,7 @@ public class RuntimeTurnApplicationService {
     private RuntimeCharacterSheetReadPort characterSheetReadPort;
     private ConversationCompactionJobRepository conversationCompactionJobRepository;
     private com.dndmaster.adventure.application.combat.EnemyCharacterSheetRepository enemyCharacterSheetRepository;
+    private com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
     private com.dndmaster.adventure.domain.scenario.StageArtifactRepository stageArtifactRepository;
     private final ResolutionPort resolutionPort = new DefaultResolutionPort();
     private final NarrativeVerificationPolicy verificationPolicy = new NarrativeVerificationPolicy();
@@ -156,6 +157,10 @@ public class RuntimeTurnApplicationService {
 
     public void setStageArtifactRepository(com.dndmaster.adventure.domain.scenario.StageArtifactRepository repository) {
         this.stageArtifactRepository = Objects.requireNonNull(repository);
+    }
+
+    public void setCombatMapViewPort(com.dndmaster.adventure.application.combat.CombatMapViewPort port) {
+        this.combatMapViewPort = Objects.requireNonNull(port);
     }
 
     public void setFailurePersistence(RuntimeTurnFailurePersistence failurePersistence) {
@@ -846,33 +851,74 @@ public class RuntimeTurnApplicationService {
     }
 
     private List<String> hiddenMapFactsForTurn(RuntimeTurn turn, Adventure adventure, ScenarioPackage scenarioPackage) {
-        if (stageArtifactRepository == null) return List.of();
         var pending = turn.pendingState();
         var storyState = pending == null || pending.storyRuntimeState() == null
                 ? adventure.storyRuntimeState() : pending.storyRuntimeState();
-        if (storyState == null) return List.of();
-        var stage = stageArtifactRepository.findDetailedStage(adventure.id(), storyState.scenarioPackageId(),
-                storyState.stageId(), storyState.backboneRevision(), storyState.detailedStageRevision()).orElse(null);
         String situationId = pending != null && pending.selectedSituationId() != null
-                ? pending.selectedSituationId() : storyState.activeSituationId();
-        List<String> facts = HiddenMapNarrationFacts.forSituation(scenarioPackage, stage, situationId);
+                ? pending.selectedSituationId() : storyState == null ? null : storyState.activeSituationId();
+        var stage = storyState == null || stageArtifactRepository == null ? null
+                : stageArtifactRepository.findDetailedStage(adventure.id(), storyState.scenarioPackageId(),
+                        storyState.stageId(), storyState.backboneRevision(), storyState.detailedStageRevision()).orElse(null);
+        List<String> facts = new ArrayList<>(HiddenMapNarrationFacts.forSituation(scenarioPackage, stage, situationId));
+        facts.addAll(runtimeHiddenMapFacts(adventure));
+        facts = facts.stream().distinct().toList();
         logHiddenMapFacts(turn.turnId(), situationId, facts.size());
         return facts;
     }
 
     private List<String> hiddenMapFactsForCurrentSituation(ScenarioPackage scenarioPackage, Adventure adventure) {
-        if (stageArtifactRepository == null || adventure.storyRuntimeState() == null) return List.of();
         var state = adventure.storyRuntimeState();
-        var stage = stageArtifactRepository.findDetailedStage(adventure.id(), state.scenarioPackageId(),
-                state.stageId(), state.backboneRevision(), state.detailedStageRevision()).orElse(null);
-        List<String> facts = HiddenMapNarrationFacts.forSituation(scenarioPackage, stage, state.activeSituationId());
-        logHiddenMapFacts(null, state.activeSituationId(), facts.size());
+        var stage = state == null || stageArtifactRepository == null ? null
+                : stageArtifactRepository.findDetailedStage(adventure.id(), state.scenarioPackageId(),
+                        state.stageId(), state.backboneRevision(), state.detailedStageRevision()).orElse(null);
+        List<String> facts = new ArrayList<>(HiddenMapNarrationFacts.forSituation(
+                scenarioPackage, stage, state == null ? null : state.activeSituationId()));
+        facts.addAll(runtimeHiddenMapFacts(adventure));
+        facts = facts.stream().distinct().toList();
+        logHiddenMapFacts(null, state == null ? null : state.activeSituationId(), facts.size());
         return facts;
+    }
+
+    private List<String> runtimeHiddenMapFacts(Adventure adventure) {
+        if (combatMapViewPort == null) return List.of();
+        long startedAt = System.nanoTime();
+        UUID mapId = null;
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_narration_hidden_map_runtime outcome=started adventureId={} mapId=pending source=internal_gm_view",
+                    adventure.id().value());
+        }
+        try {
+            var map = combatMapViewPort.preparationView(adventure.id().value(), adventure.ownerPlayerId().value()).orElse(null);
+            if (map == null) {
+                if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                    LOGGER.info("dev_narration_hidden_map_runtime outcome=skipped adventureId={} mapId=null featureCount=0 hiddenTermCount=0 elapsedMs={}",
+                            adventure.id().value(), java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+                }
+                return List.of();
+            }
+            mapId = map.mapId();
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.SpatialFeature> features =
+                    combatMapViewPort.gmSpatialFeatures(mapId, adventure.ownerPlayerId().value());
+            List<String> facts = HiddenMapNarrationFacts.forRuntimeFeatures(features);
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                LOGGER.info("dev_narration_hidden_map_runtime outcome=loaded adventureId={} mapId={} featureCount={} hiddenTermCount={} elapsedMs={}",
+                        adventure.id().value(), mapId, features.size(), facts.size(),
+                        java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            }
+            return facts;
+        } catch (RuntimeException | Error failure) {
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                LOGGER.error("dev_narration_hidden_map_runtime outcome=failed adventureId={} mapId={} failureClass={} elapsedMs={} recoveryAction=reject_player_presentation",
+                        adventure.id().value(), mapId, failure.getClass().getSimpleName(),
+                        java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            }
+            throw failure;
+        }
     }
 
     private static void logHiddenMapFacts(UUID turnId, String situationId, int factCount) {
         if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
-            LOGGER.info("dev_narration_hidden_map_facts outcome=loaded turnId={} situationId={} hiddenTermCount={} source=locked_map_definition",
+            LOGGER.info("dev_narration_hidden_map_facts outcome=loaded turnId={} situationId={} hiddenTermCount={} source=locked_definition_and_runtime_map",
                     turnId, situationId, factCount);
         }
     }
@@ -1127,7 +1173,9 @@ public class RuntimeTurnApplicationService {
         String selectedSituationId = proposal.situationProposal() == null ? null
                 : proposal.situationProposal().selectedSituationId();
         String narrationSituationId = selectedSituationId == null ? activeSituationId : selectedSituationId;
-        List<String> hiddenMapFacts = HiddenMapNarrationFacts.forSituation(scenarioPackage, activeStage, narrationSituationId);
+        List<String> hiddenMapFacts = new ArrayList<>(HiddenMapNarrationFacts.forSituation(
+                scenarioPackage, activeStage, narrationSituationId));
+        hiddenMapFacts.addAll(runtimeHiddenMapFacts(adventure));
         logHiddenMapFacts(command.turnId(), narrationSituationId, hiddenMapFacts.size());
         boolean storySituationTransition = turnStoryState != null && activeStage != null
                 && proposal.situationProposal() != null

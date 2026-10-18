@@ -7,6 +7,7 @@ import com.dndmaster.adventure.application.runtime.EvidencePack;
 import com.dndmaster.adventure.application.runtime.NarrationSafetyRequest;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
+import com.dndmaster.adventure.application.combat.CombatMapViewPort;
 import com.dndmaster.adventure.domain.scenario.MapDefinition;
 import com.dndmaster.adventure.domain.scenario.MapSafetyStatus;
 import com.dndmaster.adventure.domain.scenario.MapSourceReference;
@@ -30,6 +31,25 @@ class HiddenMapNarrationFactsTest {
                 evidence, context, "enter", hiddenFacts)).approved()).isFalse();
         assertThat(policy.assess(new NarrationSafetyRequest("A mechanism lies at 4,3.",
                 evidence, context, "enter", hiddenFacts)).approved()).isFalse();
+        assertThat(policy.assess(new NarrationSafetyRequest("A mechanism lies at (4, 3).",
+                evidence, context, "enter", hiddenFacts)).approved()).isFalse();
+    }
+
+    @Test
+    void generatedHiddenMapPlacementIsCheckedButDiscoveredPlacementIsNot() {
+        List<String> hiddenFacts = HiddenMapNarrationFacts.forRuntimeFeatures(List.of(
+                new CombatMapViewPort.SpatialFeature(UUID.randomUUID(), "TRAP", List.of(
+                        new CombatMapViewPort.Position(8, 5)), "HIDDEN", "HIDDEN", false),
+                new CombatMapViewPort.SpatialFeature(UUID.randomUUID(), "SECRET_DOOR", List.of(
+                        new CombatMapViewPort.Position(2, 1)), "DISCOVERED", "DISCOVERED", false)));
+        var context = new AdventureContext("stone room", null, "enter", null);
+        var evidence = new EvidencePack(List.of(), List.of(), List.of());
+
+        assertThat(hiddenFacts).contains("8,5", "pressure plate").doesNotContain("2,1");
+        assertThat(policy.assess(new NarrationSafetyRequest("A pressure plate is at (8, 5).",
+                evidence, context, "enter", hiddenFacts)).approved()).isFalse();
+        assertThat(policy.assess(new NarrationSafetyRequest("A stone tile is at (2, 1).",
+                evidence, context, "enter", hiddenFacts)).approved()).isTrue();
     }
 
     private static MapDefinition mapWithHiddenTrap() {

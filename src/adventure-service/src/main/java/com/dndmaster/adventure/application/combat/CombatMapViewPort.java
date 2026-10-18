@@ -6,6 +6,7 @@ import java.util.UUID;
 
 public interface CombatMapViewPort {
     Optional<View> playerView(UUID adventureId, UUID ownerId);
+    default List<SpatialFeature> gmSpatialFeatures(UUID mapId, UUID ownerId) { return List.of(); }
     default List<ExplorationToken> ensureExplorationTokens(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId,
             List<UUID> preferredTokenIds, UUID originTokenId, int count) {
         throw new UnsupportedOperationException("exploration token lifecycle unavailable");

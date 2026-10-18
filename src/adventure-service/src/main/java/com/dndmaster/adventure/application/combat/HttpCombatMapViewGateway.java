@@ -47,6 +47,31 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     }
 
     @Override
+    public List<SpatialFeature> gmSpatialFeatures(UUID mapId, UUID ownerId) {
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId
+                + "/gm-view?ownerId=" + ownerId)).timeout(timeout)
+                .header("X-Internal-Token", internalToken).GET().build();
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("combat map GM view failed");
+            }
+            var features = mapper.readTree(response.body()).path("spatialFeatures");
+            if (!features.isArray()) throw new IllegalStateException("combat map GM view has no spatial feature list");
+            List<SpatialFeature> result = new java.util.ArrayList<>();
+            for (var feature : features) {
+                List<Position> cells = new java.util.ArrayList<>();
+                var positions = feature.path("cells");
+                if (positions.isArray()) for (var cell : positions) cells.add(new Position(cell.path("x").asInt(), cell.path("y").asInt()));
+                result.add(new SpatialFeature(UUID.fromString(feature.path("id").asText()), feature.path("type").asText(), cells,
+                        feature.path("visibility").asText(), feature.path("state").asText(), false));
+            }
+            return List.copyOf(result);
+        } catch (IOException exception) { throw new IllegalStateException("combat map GM view transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map GM view interrupted", exception); }
+    }
+
+    @Override
     public List<ExplorationToken> ensureExplorationTokens(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId,
             List<UUID> preferredTokenIds, UUID originTokenId, int count) {
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/exploration-tokens"))
