@@ -75,7 +75,14 @@ public final class AdventureAbilityDefinitionPreparationService {
 
     public void prepare(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner, List<String> abilityIds,
             JsonNode sourceDefinition) {
-        for (String abilityId : abilityIds.stream().distinct().toList()) {
+        List<String> requestedAbilityIds = abilityIds.stream().distinct().toList();
+        if (sourceDefinition != null && !sourceDefinition.isNull()) {
+            try { validateSourceInputSet(requestedAbilityIds, sourceDefinition); }
+            catch (IllegalArgumentException invalid) {
+                throw new AbilityDefinitionSourceInputRequiredException(requestedAbilityIds.getFirst(), invalid);
+            }
+        }
+        for (String abilityId : requestedAbilityIds) {
             if (definitions.find(adventureId.value(), abilityId).isPresent()) continue;
             long started = System.nanoTime();
             List<RuntimeEvidence> evidence = List.of();
@@ -83,7 +90,7 @@ public final class AdventureAbilityDefinitionPreparationService {
                 evidence = search(adventureId, sessionId, owner, abilityId);
                 JsonNode proposed;
                 if (sourceDefinition != null && !sourceDefinition.isNull()) {
-                    proposed = sourceDefinition;
+                    proposed = selectSourceDefinition(abilityId, sourceDefinition);
                     validate(abilityId, proposed, evidence);
                 } else {
                     proposed = generateValidated(adventureId, sessionId, owner, abilityId, evidence);
@@ -107,14 +114,32 @@ public final class AdventureAbilityDefinitionPreparationService {
             try {
                 validate(abilityId, proposed, evidence);
                 return proposed;
-            } catch (IllegalArgumentException invalid) {
-                String correction = invalid.getMessage() == null ? "ABILITY_DEFINITION_INVALID" : invalid.getMessage();
+            } catch (AbilityDefinitionValidationException invalid) {
+                String correction = invalid.code();
                 if (corrections.contains(correction)) throw invalid;
                 corrections.add(correction);
                 diagnostic("structured_output_repair", adventureId, sessionId, abilityId, evidence.size(),
                         "new_validation_feedback", 0, "validation_failure:" + corrections.size());
             }
         }
+    }
+
+    private void validateSourceInputSet(List<String> requestedIds, JsonNode input) {
+        List<String> suppliedIds;
+        if (input.isObject()) suppliedIds = List.of(input.path("abilityId").asText(""));
+        else if (input.isArray()) {
+            suppliedIds = new ArrayList<>();
+            input.forEach(item -> suppliedIds.add(item.path("abilityId").asText("")));
+        } else throw new IllegalArgumentException("source definition must be an object or an array of objects");
+        if (suppliedIds.stream().anyMatch(String::isBlank) || suppliedIds.size() != suppliedIds.stream().distinct().count()
+                || !new java.util.HashSet<>(suppliedIds).equals(new java.util.HashSet<>(requestedIds)))
+            throw new IllegalArgumentException("source definitions must provide exactly one entry for every requested ability ID");
+    }
+
+    private JsonNode selectSourceDefinition(String abilityId, JsonNode input) {
+        if (input.isObject()) return input;
+        for (JsonNode item : input) if (abilityId.equals(item.path("abilityId").asText())) return item;
+        throw new IllegalArgumentException("source definition for the requested ability ID is missing");
     }
 
     private static void diagnostic(String outcome, AdventureId adventure, SessionId session, String abilityId,
@@ -167,20 +192,48 @@ public final class AdventureAbilityDefinitionPreparationService {
                 prompt, schema()));
     }
 
-    private void validate(String abilityId, JsonNode definition, List<RuntimeEvidence> evidence) {
-        if (!definition.isObject() || definition.size() != 16 || !abilityId.equals(definition.path("abilityId").asText()))
-            throw new IllegalArgumentException("ability definition schema or identifier is invalid");
+    void validate(String abilityId, JsonNode definition, List<RuntimeEvidence> evidence) {
+        java.util.Set<String> expectedFields = new java.util.LinkedHashSet<>(List.of("abilityId", "name", "actionTiming",
+                "resourceCost", "visibility", "range", "targeting", "origin", "effect", "pathBlocking",
+                "effectSpread", "check", "duration", "trigger", "exceptions", "sourceLocations"));
+        java.util.Set<String> actualFields = new java.util.LinkedHashSet<>();
+        if (definition != null && definition.isObject()) definition.fieldNames().forEachRemaining(actualFields::add);
+        if (!definition.isObject() || definition.size() != expectedFields.size() || !actualFields.equals(expectedFields)
+                || !abilityId.equals(definition.path("abilityId").asText()))
+            throw new AbilityDefinitionValidationException("SCHEMA_OR_IDENTIFIER", "ability definition schema or identifier is invalid");
+        if (!definition.path("name").isTextual() || definition.path("name").asText().isBlank())
+            throw new AbilityDefinitionValidationException("NAME_INVALID", "ability definition name must be a nonempty string");
         for (String field : List.of("name", "actionTiming", "resourceCost", "visibility", "range", "targeting", "origin",
                 "effect", "pathBlocking", "effectSpread", "check", "duration", "trigger", "exceptions", "sourceLocations")) {
-            if (!definition.has(field)) throw new IllegalArgumentException("ability definition field is missing: " + field);
+            if (!definition.has(field)) throw new AbilityDefinitionValidationException("MISSING_FIELD:" + field,
+                    "ability definition field is missing: " + field);
+        }
+        for (String field : List.of("actionTiming", "resourceCost", "visibility", "range", "targeting", "origin",
+                "effect", "pathBlocking", "effectSpread", "check", "duration", "trigger", "exceptions")) {
+            JsonNode value = definition.get(field);
+            if (!value.isNull() && !value.isTextual()) throw new AbilityDefinitionValidationException("FIELD_TYPE:" + field,
+                    "ability definition field must be a string or null: " + field);
         }
         JsonNode sources = definition.path("sourceLocations");
-        if (!sources.isArray() || sources.isEmpty()) throw new IllegalArgumentException("ability definition source locations are required");
+        if (!sources.isArray() || sources.isEmpty()) throw new AbilityDefinitionValidationException("SOURCE_LOCATIONS_REQUIRED",
+                "ability definition source locations are required");
         for (JsonNode source : sources) {
+            java.util.Set<String> sourceFields = new java.util.LinkedHashSet<>();
+            if (source.isObject()) source.fieldNames().forEachRemaining(sourceFields::add);
+            if (!source.isObject() || source.size() != 3 || !sourceFields.equals(java.util.Set.of("documentId", "extractionVersion", "locator"))
+                    || !source.path("documentId").isTextual() || !source.path("locator").isTextual()
+                    || source.path("locator").asText().isBlank() || !source.path("extractionVersion").canConvertToLong()
+                    || source.path("extractionVersion").asLong() < 1)
+                throw new AbilityDefinitionValidationException("SOURCE_LOCATION_SHAPE", "ability definition source location is invalid");
+            try { UUID.fromString(source.path("documentId").asText()); }
+            catch (IllegalArgumentException malformed) {
+                throw new AbilityDefinitionValidationException("SOURCE_LOCATION_SHAPE", "ability definition source location is invalid");
+            }
             boolean matched = evidence.stream().anyMatch(item -> item.knowledgeDocumentId().value().toString().equals(source.path("documentId").asText())
                     && item.extractionVersion() == source.path("extractionVersion").asLong(-1)
                     && item.locator().equals(source.path("locator").asText()));
-            if (!matched) throw new IllegalArgumentException("ability definition source location is outside retrieved evidence");
+            if (!matched) throw new AbilityDefinitionValidationException("SOURCE_LOCATION_NOT_RETRIEVED",
+                    "ability definition source location is outside retrieved evidence");
         }
     }
 
@@ -208,4 +261,10 @@ public final class AdventureAbilityDefinitionPreparationService {
 
     private JsonNode readSheet(UUID id) { try { return mapper.readTree(characterSheets.read(id)); } catch (Exception failure) { throw new IllegalStateException("character sheet read failed", failure); } }
     private JsonNode parseState(JsonNode sheet) { try { return mapper.readTree(sheet.path("characterState").asText("{}")); } catch (Exception failure) { throw new IllegalStateException("character sheet state is invalid", failure); } }
+
+    private static final class AbilityDefinitionValidationException extends IllegalArgumentException {
+        private final String code;
+        private AbilityDefinitionValidationException(String code, String message) { super(message); this.code = code; }
+        private String code() { return code; }
+    }
 }

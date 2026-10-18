@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.application.ability;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -57,6 +58,46 @@ class AdventureAbilityDefinitionPreparationServiceTest {
 
         assertThat(result.path("abilityId").asText()).isEqualTo("ability:blink");
         verify(gm, times(2)).generate(any());
+    }
+
+    @Test
+    void repeated_validation_failure_exhausts_distinct_correction_paths_and_requests_source_input() throws Exception {
+        var bindings = mock(GmProviderBindingRepository.class);
+        var gm = mock(InitialSituationGmPort.class);
+        UUID sessionUuid = UUID.randomUUID();
+        UUID documentUuid = UUID.randomUUID();
+        var invalid = JSON.readTree("{\"abilityId\":\"ability:blink\"}");
+        when(bindings.current(sessionUuid)).thenReturn(Optional.of(new ProviderBinding(sessionUuid,
+                new GmProviderSelection(UUID.randomUUID(), "codex", "test-model", "medium"), 1)));
+        when(gm.generate(any())).thenReturn(invalid, invalid);
+        var service = new AdventureAbilityDefinitionPreparationService(mock(AdventureAbilityDefinitionRepository.class),
+                mock(ScenarioPackageRepository.class), mock(SessionKnowledgeSetRepository.class),
+                mock(AdventureSessionRepository.class), mock(RuntimeCharacterSheetReadPort.class),
+                mock(RuntimeEvidenceSearchPort.class), bindings, gm, JSON);
+        var evidence = List.of(new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
+                new KnowledgeDocumentId(documentUuid), 3, "page 12", "The ability moves the user.", "cite-1"));
+
+        assertThatThrownBy(() -> service.generateValidated(new AdventureId(UUID.randomUUID()),
+                new SessionId(sessionUuid), new OwnerPlayerId(UUID.randomUUID()), "ability:blink", evidence))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(gm, times(2)).generate(any());
+    }
+
+    @Test
+    void rejects_user_input_that_does_not_match_the_fixed_definition_field_types() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        JsonNode malformed = ((com.fasterxml.jackson.databind.node.ObjectNode) validDefinition(documentId)).put("range", 30);
+        var service = new AdventureAbilityDefinitionPreparationService(mock(AdventureAbilityDefinitionRepository.class),
+                mock(ScenarioPackageRepository.class), mock(SessionKnowledgeSetRepository.class),
+                mock(AdventureSessionRepository.class), mock(RuntimeCharacterSheetReadPort.class),
+                mock(RuntimeEvidenceSearchPort.class), mock(GmProviderBindingRepository.class),
+                mock(InitialSituationGmPort.class), JSON);
+        var evidence = List.of(new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
+                new KnowledgeDocumentId(documentId), 3, "page 12", "The ability moves the user.", "cite-1"));
+
+        assertThatThrownBy(() -> service.validate("ability:blink", malformed, evidence))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("string or null");
     }
 
     private static JsonNode validDefinition(UUID documentId) throws Exception {
