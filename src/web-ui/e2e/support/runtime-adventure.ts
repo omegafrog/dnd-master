@@ -48,6 +48,25 @@ export function sessionCreationPayload(packageId: string, blueprintRevision: num
 
 export async function bootstrapStartedAdventure(request: APIRequestContext, partyMemberCount = 1, sources = storybooks,
     learnedAbilityIds: readonly string[] = []) {
+  const { auth, sessionId, version } = await createAdventureSession(request, partyMemberCount, sources, learnedAbilityIds)
+  const started = await request.post(`${backend}/api/v1/adventure-sessions/${sessionId}/start`, {
+    headers: { ...auth.headers, 'If-Match-Version': String(version), 'Idempotency-Key': crypto.randomUUID() },
+    data: { adventureId: crypto.randomUUID(), prepareMapOnly: false },
+  })
+  expect(started.ok(), await started.text()).toBeTruthy()
+  const view = await started.json() as { adventureId: string, status: string }
+  expect(view.status).toBe('STARTED')
+  return { adventureId: view.adventureId, sessionId }
+}
+
+export async function bootstrapAdventureSession(request: APIRequestContext, partyMemberCount = 1, sources = storybooks,
+    learnedAbilityIds: readonly string[] = []) {
+  const { sessionId } = await createAdventureSession(request, partyMemberCount, sources, learnedAbilityIds)
+  return { sessionId }
+}
+
+async function createAdventureSession(request: APIRequestContext, partyMemberCount: number, sources: ReadonlyArray<{ path: string, role: string }>,
+    learnedAbilityIds: readonly string[]) {
   const auth = await login(request)
   const prepared = await createPreparedPackage(request, auth, sources)
   const session = await createSession(request, auth, prepared, partyMemberCount)
@@ -67,15 +86,7 @@ export async function bootstrapStartedAdventure(request: APIRequestContext, part
     expect(provider.ok(), await provider.text()).toBeTruthy()
     expect(await provider.json()).toEqual(expect.objectContaining({ provider: expect.any(String), model: expect.any(String), version: expect.any(Number) }))
   }
-  const adventureId = crypto.randomUUID()
-  const started = await request.post(`${backend}/api/v1/adventure-sessions/${session.sessionId}/start`, {
-    headers: { ...auth.headers, 'If-Match-Version': String(version), 'Idempotency-Key': crypto.randomUUID() },
-    data: { adventureId, prepareMapOnly: false },
-  })
-  expect(started.ok(), await started.text()).toBeTruthy()
-  const view = await started.json() as { adventureId: string, status: string }
-  expect(view.status).toBe('STARTED')
-  return { adventureId: view.adventureId, sessionId: session.sessionId }
+  return { auth, sessionId: session.sessionId, version }
 }
 
 export async function readPersistedLongTermFacts(adventureId: string) {
