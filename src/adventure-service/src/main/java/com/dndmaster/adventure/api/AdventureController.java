@@ -397,6 +397,8 @@ public class AdventureController {
                     }
                     combatLifecycleService.findActiveEncounter(adventureId)
                             .ifPresent(encounter -> linkExplorationCycleToCombat(adventureId, encounter.encounterId()));
+                } else if (!(turn.input() instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput)) {
+                    resolvePendingEnvironmentEncounterWithoutCombat(adventureId, turn.turnId(), "committed_turn");
                 }
                 sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
                         result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
@@ -490,10 +492,50 @@ public class AdventureController {
             }
             combatLifecycleService.findActiveEncounter(adventureId)
                     .ifPresent(encounter -> linkExplorationCycleToCombat(adventureId, encounter.encounterId()));
+        } else if (!(existing.input() instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput)) {
+            resolvePendingEnvironmentEncounterWithoutCombat(adventureId, result.turn().turnId(), "recovered_turn");
+        }
+    }
+
+    private void resolvePendingEnvironmentEncounterWithoutCombat(UUID adventureId, UUID turnId, String source) {
+        Adventure snapshot = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        if (!snapshot.gameState().values().containsKey("explorationState")) return;
+        var snapshotState = storedExplorationState(snapshot);
+        var snapshotCycle = snapshotState.cycle();
+        var snapshotProposal = snapshotCycle == null ? null : snapshotCycle.pendingEnvironmentProposal();
+        if (snapshotCycle == null || snapshotProposal == null || !snapshotProposal.encounterRequested()
+                || snapshotCycle.linkedCombatEncounterId() != null
+                || snapshotCycle.phase() != com.dndmaster.adventure.domain.runtime.ExplorationCycle.Phase.ENVIRONMENT) return;
+        Adventure adventure = adventureRepository.findByIdForUpdate(new AdventureId(adventureId)).orElseThrow();
+        var state = storedExplorationState(adventure);
+        var cycle = state.cycle();
+        var proposal = cycle == null ? null : cycle.pendingEnvironmentProposal();
+        if (cycle == null || proposal == null || !proposal.encounterRequested()
+                || cycle.linkedCombatEncounterId() != null
+                || cycle.phase() != com.dndmaster.adventure.domain.runtime.ExplorationCycle.Phase.ENVIRONMENT) return;
+        String diagnosticContext = "adventureId=" + adventureId + " turnId=" + turnId + " cycleId=" + cycle.id()
+                + " phaseId=" + cycle.currentPhaseCommandId() + " source=" + source + " narrationChars="
+                + (proposal.narration() == null ? 0 : proposal.narration().length());
+        long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "pending_environment_encounter_resolve", diagnosticContext);
+        try {
+            var resolved = cycle.resolveEncounterWithoutCombat();
+            adventure.updateExplorationState(adventure.ownerPlayerId(), adventure.version(), state.withCycle(resolved));
+            adventureRepository.save(adventure);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "pending_environment_encounter_resolve", diagnosticContext + " expectedEncounterRequested=true"
+                            + " actualEncounterRequested=" + resolved.pendingEnvironmentProposal().encounterRequested()
+                            + " narrationPreserved=true environmentPhase=" + resolved.environmentPhase(), started);
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "pending_environment_encounter_resolve", diagnosticContext + " recoveryAction=retry_after_committed_turn", started, failure);
+            throw failure;
         }
     }
 
     void linkExplorationCycleToCombat(UUID adventureId, UUID encounterId) {
+        Adventure snapshot = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        if (!snapshot.gameState().values().containsKey("explorationState")) return;
         Adventure adventure = adventureRepository.findByIdForUpdate(new AdventureId(adventureId)).orElseThrow();
         var state = storedExplorationState(adventure);
         var cycle = state.cycle();
@@ -750,6 +792,8 @@ public class AdventureController {
         var cycle = state.cycle();
         if (cycle == null || cycle.phase() != com.dndmaster.adventure.domain.runtime.ExplorationCycle.Phase.ENVIRONMENT)
             throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_ENVIRONMENT_PHASE_NOT_ACTIVE");
+        if (cycle.pendingEnvironmentProposal() != null && cycle.pendingEnvironmentProposal().encounterRequested())
+            throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_ENCOUNTER_RESOLUTION_PENDING");
         if (combatLifecycleService.findActiveEncounter(adventureId).isPresent())
             throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_CYCLE_SUSPENDED_FOR_COMBAT");
         UUID phaseId = cycle.currentPhaseCommandId();

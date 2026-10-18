@@ -893,7 +893,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
             {explorationCycle.phase === 'ENVIRONMENT' && !explorationCycle.pendingMovementEvent && <div>
               {explorationCycle.pendingEnvironmentProposal?.narration && <p>{explorationCycle.pendingEnvironmentProposal.narration}</p>}
               {explorationCycle.pendingEnvironmentProposal?.encounterRequested && !explorationCycle.pendingEnvironmentProposal.linkedCombatEncounterId
-                ? <p role="alert">GM이 적대적 조우 전환을 요청했습니다. 모험 진행을 이어가면 일반 전투 시작 절차로 연결됩니다.</p>
+                ? <p role="alert">이 상황을 어떻게 처리할지 모험 대화에 입력해주세요. 다음 GM 응답에서 전투를 시작하거나 전투 없이 상황을 해결합니다. 해결되면 환경 진행을 이어갈 수 있습니다.</p>
                 : <button type="button" disabled={explorationBusy} onClick={() => {
                   void updateExplorationCycle(() => api.advanceExplorationEnvironment!(adventureId, explorationVersion, explorationCycle.currentPhaseCommandId))
                 }}>환경 단계 진행</button>}

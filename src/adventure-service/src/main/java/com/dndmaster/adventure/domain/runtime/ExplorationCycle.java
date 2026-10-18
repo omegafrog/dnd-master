@@ -220,6 +220,19 @@ public record ExplorationCycle(
                 completedEnvironmentActions, pendingMovementEvent, resolvedMovementEventIds, null);
     }
 
+    public ExplorationCycle resolveEncounterWithoutCombat() {
+        if (phase != Phase.ENVIRONMENT || pendingEnvironmentProposal == null || !pendingEnvironmentProposal.encounterRequested())
+            throw new IllegalStateException("environment encounter request is not pending");
+        if (linkedCombatEncounterId != null || pendingEnvironmentProposal.linkedCombatEncounterId() != null)
+            throw new IllegalStateException("environment encounter is linked to combat");
+        EnvironmentProposal resolved = new EnvironmentProposal(pendingEnvironmentProposal.narration(),
+                pendingEnvironmentProposal.enemyMoves(), pendingEnvironmentProposal.featureInteractions(),
+                pendingEnvironmentProposal.expectedMapVersion(), false, null);
+        return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
+                environmentPhase, completedEnvironmentCommands, elapsedSeconds, resolved, completedEnvironmentActions,
+                pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId);
+    }
+
     public ExplorationCycle completeEnvironmentAction(UUID actionId) {
         Objects.requireNonNull(actionId);
         if (phase != Phase.ENVIRONMENT || pendingEnvironmentProposal == null)

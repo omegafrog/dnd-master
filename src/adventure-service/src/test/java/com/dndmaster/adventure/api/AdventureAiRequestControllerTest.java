@@ -41,6 +41,66 @@ import org.springframework.beans.factory.ObjectProvider;
 
 class AdventureAiRequestControllerTest {
     @Test
+    void committed_noncombat_turn_resolves_pending_environment_encounter_but_meta_question_preserves_it() {
+        assertPendingEncounterTurnResolution("TEXT", false,
+                com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.COMMITTED);
+        assertPendingEncounterTurnResolution("META_QUESTION", true,
+                com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.COMMITTED);
+        assertPendingEncounterTurnResolution("TEXT", true,
+                com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.DISCARDED);
+    }
+
+    private void assertPendingEncounterTurnResolution(String inputType, boolean remainsPending,
+            com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle lifecycle) {
+        AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
+        when(sessions.tryAcquireAiRequest(any(), any(), any())).thenReturn(true);
+        when(sessions.releaseAiRequest(any(), any(), any())).thenReturn(true);
+        Fixture fixture = fixture(new AdventureAiRequestApplicationService(sessions));
+        var adventure = fixture.adventure();
+        UUID groupId = UUID.randomUUID();
+        var member = new com.dndmaster.adventure.domain.runtime.ExplorationGroup.Member(
+                adventure.party().getFirst().characterSheetId().value(),
+                com.dndmaster.adventure.domain.runtime.ExplorationGroup.Formation.FRONT, 30);
+        var group = new com.dndmaster.adventure.domain.runtime.ExplorationGroup(groupId, UUID.randomUUID(), java.util.List.of(member));
+        var cycle = com.dndmaster.adventure.domain.runtime.ExplorationCycle.start(UUID.randomUUID(), java.util.Map.of(groupId, 12))
+                .finishGroupTurn(groupId, false)
+                .withEnvironmentProposal(new com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal(
+                        "복도에서 금속 소리가 납니다.", java.util.List.of(), 2, true, null));
+        adventure.updateExplorationState(adventure.ownerPlayerId(), adventure.version(),
+                new com.dndmaster.adventure.domain.runtime.ExplorationState(java.util.List.of(group), cycle));
+        when(fixture.adventureRepository().findByIdForUpdate(adventure.id())).thenReturn(Optional.of(adventure));
+
+        UUID commandId = UUID.randomUUID();
+        UUID turnId = UUID.randomUUID();
+        var input = inputType.equals("META_QUESTION")
+                ? new AdventureController.GmInputRequest("META_QUESTION", null, null, null, null, "규칙 질문")
+                : new AdventureController.GmInputRequest("TEXT", "복도 소리를 확인한다", null, null, null, null);
+        var runtimeTurn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
+        when(runtimeTurn.plan()).thenReturn(new com.dndmaster.adventure.application.runtime.RuntimePlan(
+                "복도", null, "소리가 멀어집니다", "복도는 다시 조용해집니다", null, java.util.List.of(), java.util.List.of()));
+        when(runtimeTurn.turnId()).thenReturn(turnId);
+        when(runtimeTurn.commandId()).thenReturn(commandId);
+        when(runtimeTurn.adventureId()).thenReturn(adventure.id());
+        when(runtimeTurn.sessionId()).thenReturn(adventure.sessionId().value());
+        when(runtimeTurn.lifecycle()).thenReturn(lifecycle);
+        when(fixture.runtimeTurns().submitTurn(any())).thenReturn(
+                new com.dndmaster.adventure.application.runtime.RuntimeTurnResult(runtimeTurn,
+                        adventure.currentContext(), adventure.conversation(), adventure.version() + 1));
+
+        var response = fixture.adventureController().submitTypedTurn(adventure.id().value(), commandId,
+                adventure.version(), new AdventureController.GmTurnRequest(turnId, input));
+
+        assertEquals(org.springframework.http.HttpStatus.ACCEPTED, response.getStatusCode());
+        var resolved = (com.dndmaster.adventure.domain.runtime.ExplorationState)
+                adventure.gameState().values().get("explorationState");
+        assertEquals(remainsPending, resolved.cycle().pendingEnvironmentProposal().encounterRequested());
+        assertEquals("복도에서 금속 소리가 납니다.", resolved.cycle().pendingEnvironmentProposal().narration());
+        assertEquals(com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION,
+                resolved.cycle().environmentPhase());
+        verify(fixture.adventureRepository(), remainsPending ? never() : org.mockito.Mockito.times(1)).save(adventure);
+    }
+
+    @Test
     void completed_player_roll_commits_the_matching_gm_turn_and_publishes_completion_event() {
         Fixture fixture = fixture();
         UUID commandId = UUID.randomUUID();
@@ -488,7 +548,8 @@ class AdventureAiRequestControllerTest {
                 mock(com.dndmaster.adventure.application.combat.CharacterCombatPort.class), aiRequests,
                 packages, maps);
         return new Fixture(adventure, adventureController, combatController, aiRequests, gmTurns, runtimeTurns, runtimeTurnRepository,
-                combatActions, encounters, workItems, scheduler, gmTurnFailures, sessionEvents, combatLifecycle, packages, maps);
+                combatActions, encounters, workItems, scheduler, gmTurnFailures, sessionEvents, combatLifecycle, packages,
+                adventures, maps);
     }
 
     private static void assertRangedAttackRejectedBeforeSubmit(
@@ -577,5 +638,6 @@ class AdventureAiRequestControllerTest {
             com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEvents,
             com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycle,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages,
+            AdventureRepository adventureRepository,
             com.dndmaster.adventure.application.combat.CombatMapViewPort maps) { }
 }

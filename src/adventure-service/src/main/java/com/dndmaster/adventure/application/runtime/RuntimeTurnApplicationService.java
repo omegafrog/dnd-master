@@ -43,6 +43,7 @@ public class RuntimeTurnApplicationService {
     private record RuntimeFactLookupAttempt(RuntimeFactLookupResult result, boolean technicalFailure) {}
     private static final String SESSION_OPENING_ACTION = "SESSION_OPENING";
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(RuntimeTurnApplicationService.class);
+    private static final com.fasterxml.jackson.databind.ObjectMapper CONTEXT_OBJECT_MAPPER = new com.fasterxml.jackson.databind.ObjectMapper();
     private static final RuntimeTurnFailureClassifier FAILURE_CLASSIFIER = new RuntimeTurnFailureClassifier();
     private final AdventureRepository adventureRepository;
     private final RuntimeBindingRepository bindingRepository;
@@ -1177,10 +1178,13 @@ public class RuntimeTurnApplicationService {
                 ? NarrativeState.empty() : narrativeStateService.load(adventure.sessionId().value()));
         NarrativeContext narrativeContext = narrativeState.project(command.ownerPlayerId().value().toString(),
                 adventure.currentSituation().problem());
+        List<String> recentTurns = withPendingEnvironmentEncounterContext(
+                adventure.gameState().values().get("explorationState"),
+                recentConversationForPrompt(adventure), command.turnId(), command.advancesState());
         RuntimePlanningRequest planningRequest = new RuntimePlanningRequest(
                 command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
-                recentConversationForPrompt(adventure),
+                recentTurns,
                 characterSheets, lockedScenarioContext(scenarioPackage, scenarioPackage.scenarioModel()), providerEndpointId(adventure.sessionId().value()),
                 providerSelection(adventure.sessionId().value(), "provider"), providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value(),
@@ -1469,6 +1473,33 @@ public class RuntimeTurnApplicationService {
         final List<ConversationSummary> published = selectedSummaries;
         result.addAll(adventure.conversation().stream().filter(entry -> !coveredByPublishedSummary(entry, published))
                 .map(entry -> entry.speaker() + ": " + entry.content()).toList());
+        return List.copyOf(result);
+    }
+
+    static List<String> withPendingEnvironmentEncounterContext(Object storedExplorationState,
+            List<String> recentTurns, UUID turnId, boolean stateAdvancing) {
+        List<String> result = new ArrayList<>(recentTurns);
+        if (!stateAdvancing || storedExplorationState == null) return List.copyOf(result);
+        var state = CONTEXT_OBJECT_MAPPER.convertValue(storedExplorationState,
+                com.dndmaster.adventure.domain.runtime.ExplorationState.class);
+        var cycle = state.cycle();
+        var proposal = cycle == null ? null : cycle.pendingEnvironmentProposal();
+        if (cycle == null || cycle.phase() != com.dndmaster.adventure.domain.runtime.ExplorationCycle.Phase.ENVIRONMENT
+                || proposal == null || !proposal.encounterRequested() || cycle.linkedCombatEncounterId() != null) {
+            return List.copyOf(result);
+        }
+        String narration = proposal.narration() == null ? "" : proposal.narration().trim();
+        long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "pending_environment_encounter_context", "turnId=" + turnId + " cycleId=" + cycle.id()
+                        + " phaseId=" + cycle.currentPhaseCommandId() + " stateAdvancing=true"
+                        + " narrationChars=" + narration.length());
+        result.add("미해결 조우 판단: 이전 환경 단계에서 다음 상황이 제시되었습니다. " + narration
+                + " 이 플레이어 입력에 따라 일반 모험 턴에서 조우를 전투로 시작할지, 전투 없이 해결할지 판단하세요. "
+                + "전투를 시작하지 않는 경우에는 서술로 해결하고, 별도의 턴을 만들지 마세요.");
+        com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                "pending_environment_encounter_context", "turnId=" + turnId + " cycleId=" + cycle.id()
+                        + " phaseId=" + cycle.currentPhaseCommandId() + " expectedContextEntries=1 actualContextEntries=1"
+                        + " narrationChars=" + narration.length() + " hiddenMapDetailsIncluded=false", started);
         return List.copyOf(result);
     }
 

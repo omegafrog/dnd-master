@@ -60,9 +60,9 @@ class ExplorationEnvironmentControllerTest {
         assertEquals(phaseId, first.cycle().currentPhaseCommandId());
         assertEquals(0, first.cycle().elapsedSeconds());
 
-        var retry = controller.advanceExplorationEnvironmentPhase(adventureId,
-                new AdventureController.ExplorationCycleFinishRequest(adventure.version(), phaseId, false));
-        assertEquals(first.cycle(), retry.cycle());
+        var retry = assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.advanceExplorationEnvironmentPhase(adventureId,
+                new AdventureController.ExplorationCycleFinishRequest(adventure.version(), phaseId, false)));
+        assertEquals("EXPLORATION_ENCOUNTER_RESOLUTION_PENDING", retry.getMessage());
         verify(runtime, times(1)).planExplorationEnvironmentPhase(any(), any(), any(), any(), any());
         verify(mapPort, never()).advanceDurations(any());
         verify(mapPort, never()).advanceGameTime(any());
@@ -84,6 +84,7 @@ class ExplorationEnvironmentControllerTest {
                 .withEnvironmentProposal(new ExplorationCycle.EnvironmentProposal("적대적 접촉", List.of(), 0, true, null));
         adventure.updateExplorationState(new OwnerPlayerId(owner), 0, new ExplorationState(List.of(group), cycle));
         AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
         when(adventures.findByIdForUpdate(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
         AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
         when(players.playerId()).thenReturn(owner);
@@ -161,6 +162,7 @@ class ExplorationEnvironmentControllerTest {
         cycle = cycle.interruptGroupTurn(interruptedGroup, event);
         adventure.updateExplorationState(new OwnerPlayerId(owner), 0, new ExplorationState(groups, cycle));
         AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
         when(adventures.findByIdForUpdate(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
         AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
         when(players.playerId()).thenReturn(owner);

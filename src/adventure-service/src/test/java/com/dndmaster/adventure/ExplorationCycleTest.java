@@ -180,4 +180,25 @@ class ExplorationCycleTest {
         assertThrows(IllegalArgumentException.class, () -> durations.withEnvironmentProposal(
                 new ExplorationCycle.EnvironmentProposal("wrong phase", java.util.List.of(), interaction, -1, false, null)));
     }
+
+    @Test void resolvingPendingEncounterWithoutCombatKeepsPhaseAndAppliedActionsReadyToResume() {
+        UUID group = UUID.randomUUID(), enemy = UUID.randomUUID(), appliedAction = UUID.randomUUID();
+        ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(group, 12)).finishGroupTurn(group, false)
+                .withEnvironmentProposal(new ExplorationCycle.EnvironmentProposal("적이 물러납니다.",
+                        java.util.List.of(new ExplorationCycle.EnemyMove(enemy,
+                                java.util.List.of(new ExplorationCycle.Position(1, 1)))), 7, true, null))
+                .completeEnvironmentAction(appliedAction);
+        UUID phaseId = cycle.currentPhaseCommandId();
+
+        ExplorationCycle resolved = cycle.resolveEncounterWithoutCombat();
+
+        assertEquals("적이 물러납니다.", resolved.pendingEnvironmentProposal().narration());
+        assertFalse(resolved.pendingEnvironmentProposal().encounterRequested());
+        assertEquals(java.util.List.of(appliedAction), resolved.completedEnvironmentActions().stream().toList());
+        assertEquals(phaseId, resolved.currentPhaseCommandId());
+        assertEquals(0, resolved.elapsedSeconds());
+        assertEquals(ExplorationCycle.EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION, resolved.environmentPhase());
+        assertEquals(ExplorationCycle.EnvironmentPhase.HAZARDS_AND_ENVIRONMENT,
+                resolved.completeEnvironmentPhase(phaseId).environmentPhase());
+    }
 }
