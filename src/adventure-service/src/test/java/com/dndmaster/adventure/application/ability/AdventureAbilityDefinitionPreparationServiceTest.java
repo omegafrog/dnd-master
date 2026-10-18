@@ -369,6 +369,14 @@ class AdventureAbilityDefinitionPreparationServiceTest {
             else System.setProperty(DevelopmentDiagnostics.FLAG, previous);
         }
         verify(definitions, times(1)).prepare(packageId, "ability:blink", validDefinition(storyDocumentId));
+
+        org.mockito.Mockito.doThrow(new IllegalStateException("evidence search service unavailable"))
+                .when(evidenceSearch).search(any());
+        assertThatThrownBy(() -> service.prepare(new AdventureId(packageId), sessionKey,
+                new OwnerPlayerId(ownerId), List.of("ability:blink")))
+                .isInstanceOf(IllegalStateException.class)
+                .isNotInstanceOf(AbilityDefinitionSourceInputRequiredException.class);
+        verify(definitions, times(1)).prepare(packageId, "ability:blink", validDefinition(storyDocumentId));
     }
 
     private static ScenarioBundleDocumentSelection selectedDocument(UUID documentId, String type) {

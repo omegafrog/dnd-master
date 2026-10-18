@@ -239,8 +239,8 @@ public final class AdventureAbilityDefinitionPreparationService {
             case "evidence_query_complete" -> "try_next_distinct_query";
             case "generation_retry" -> "retry_transient_provider_once";
             case "structured_output_repair" -> "regenerate_with_validation_feedback";
-            case "validation_recovery_exhausted", "generation_failed", "source_input_required" -> "resubmit_source_definition";
-            case "failed" -> "resolve_failure_then_retry_operation";
+            case "validation_recovery_exhausted", "source_input_required" -> "resubmit_source_definition";
+            case "failed", "generation_failed" -> "resolve_failure_then_retry_operation";
             default -> "continue_preparation_flow";
         };
     }
@@ -278,18 +278,22 @@ public final class AdventureAbilityDefinitionPreparationService {
 
     private SearchResult searchWithRecovery(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner, String abilityId) {
         SelectedSources selected = selectedSources(adventureId, sessionId, owner);
+        if (selected.authorizedSourceVersions().isEmpty())
+            throw new AbilityEvidenceSearchFailureException(null);
         String searchableId = abilityId.replaceAll("[^\\p{Alnum}]+", " ").trim();
         List<String> queries = List.of(
                 "Prepare the ability " + abilityId + " from this source type",
                 "Find rules and details for " + searchableId,
                 "Ability " + searchableId + " rules, effects, range, targets, and cost");
         RuntimeException lastFailure = null;
+        boolean completedQuery = false;
         SearchResult lastSuccessfulResult = null;
         java.util.LinkedHashSet<RuntimeEvidence> collectedEvidence = new java.util.LinkedHashSet<>();
         for (String query : queries.stream().distinct().toList()) {
             long started = System.nanoTime();
             try {
                 SearchResult result = search(adventureId, sessionId, owner, abilityId, query, selected);
+                completedQuery = true;
                 lastSuccessfulResult = result;
                 collectedEvidence.addAll(result.evidence());
                 diagnostic(collectedEvidence.isEmpty() ? "search_retry" : "evidence_query_complete", adventureId,
@@ -305,7 +309,8 @@ public final class AdventureAbilityDefinitionPreparationService {
         if (!collectedEvidence.isEmpty() && lastSuccessfulResult != null)
             return new SearchResult(List.copyOf(collectedEvidence), lastSuccessfulResult.authorizedSourceVersions(),
                     lastSuccessfulResult.sourceScope());
-        throw new AbilityEvidenceRecoveryExhaustedException(lastFailure);
+        if (completedQuery) throw new AbilityEvidenceRecoveryExhaustedException(null);
+        throw new AbilityEvidenceSearchFailureException(lastFailure);
     }
 
     private SearchResult search(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner, String abilityId,
@@ -533,6 +538,12 @@ public final class AdventureAbilityDefinitionPreparationService {
     private static final class AbilityEvidenceRecoveryExhaustedException extends IllegalStateException {
         private AbilityEvidenceRecoveryExhaustedException(Throwable cause) {
             super("ability evidence search recovery was exhausted", cause);
+        }
+    }
+
+    private static final class AbilityEvidenceSearchFailureException extends IllegalStateException {
+        private AbilityEvidenceSearchFailureException(Throwable cause) {
+            super("ability evidence search failed before it could complete", cause);
         }
     }
 
