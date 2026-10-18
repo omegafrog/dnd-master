@@ -589,8 +589,11 @@ public class RuntimeTurnApplicationService {
         WriterProse prose = writePresentationWithRetry(turn, turn.resolvedArtifact(), visibleTurn, state, narrativeContext,
                 turn.evidencePack(), exemplars);
         try {
+            ScenarioPackage scenarioPackage = scenarioPackageRepository.findById(turn.scenarioPackageId())
+                    .orElseThrow(() -> new IllegalStateException("scenario package not found"));
             NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
-                    prose.prose(), turn.evidencePack(), turn.context(), turn.action()));
+                    prose.prose(), turn.evidencePack(), turn.context(), turn.action(),
+                    hiddenMapFactsForTurn(turn, adventure, scenarioPackage)));
             if (!safety.approved()) throw new IllegalStateException("narration safety rejected: " + safety.reason());
         } catch (RuntimeException failure) {
             failurePersistence.persist(turn, FAILURE_CLASSIFIER.classify(turn.turnId(),
@@ -760,6 +763,7 @@ public class RuntimeTurnApplicationService {
                 .filter(turn -> turn.lifecycle() == RuntimeTurnLifecycle.PENDING_ROLL)
                 .forEach(turn -> recentTurns.add("PENDING_ROLL: " + turn.action()));
         List<String> hiddenFacts = new ArrayList<>(hiddenFactsForPlayer(scenarioPackage, adventure, narrativeState));
+        hiddenFacts.addAll(hiddenMapFactsForCurrentSituation(scenarioPackage, adventure));
         RuntimePlanningRequest planningRequest = new RuntimePlanningRequest(adventure.id(), adventure.ownerPlayerId(),
                 adventure.sessionId().value(), request.command().operationId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), contextCommand.action(), evidencePack, recentTurns,
@@ -839,6 +843,38 @@ public class RuntimeTurnApplicationService {
                 .map(com.dndmaster.adventure.domain.runtime.narrative.WorldFact::value)
                 .forEach(hiddenFacts::add);
         return hiddenFacts.stream().filter(value -> value != null && !value.isBlank()).map(String::trim).distinct().toList();
+    }
+
+    private List<String> hiddenMapFactsForTurn(RuntimeTurn turn, Adventure adventure, ScenarioPackage scenarioPackage) {
+        if (stageArtifactRepository == null) return List.of();
+        var pending = turn.pendingState();
+        var storyState = pending == null || pending.storyRuntimeState() == null
+                ? adventure.storyRuntimeState() : pending.storyRuntimeState();
+        if (storyState == null) return List.of();
+        var stage = stageArtifactRepository.findDetailedStage(adventure.id(), storyState.scenarioPackageId(),
+                storyState.stageId(), storyState.backboneRevision(), storyState.detailedStageRevision()).orElse(null);
+        String situationId = pending != null && pending.selectedSituationId() != null
+                ? pending.selectedSituationId() : storyState.activeSituationId();
+        List<String> facts = HiddenMapNarrationFacts.forSituation(scenarioPackage, stage, situationId);
+        logHiddenMapFacts(turn.turnId(), situationId, facts.size());
+        return facts;
+    }
+
+    private List<String> hiddenMapFactsForCurrentSituation(ScenarioPackage scenarioPackage, Adventure adventure) {
+        if (stageArtifactRepository == null || adventure.storyRuntimeState() == null) return List.of();
+        var state = adventure.storyRuntimeState();
+        var stage = stageArtifactRepository.findDetailedStage(adventure.id(), state.scenarioPackageId(),
+                state.stageId(), state.backboneRevision(), state.detailedStageRevision()).orElse(null);
+        List<String> facts = HiddenMapNarrationFacts.forSituation(scenarioPackage, stage, state.activeSituationId());
+        logHiddenMapFacts(null, state.activeSituationId(), facts.size());
+        return facts;
+    }
+
+    private static void logHiddenMapFacts(UUID turnId, String situationId, int factCount) {
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_narration_hidden_map_facts outcome=loaded turnId={} situationId={} hiddenTermCount={} source=locked_map_definition",
+                    turnId, situationId, factCount);
+        }
     }
 
     private static String lockedScenarioContext(ScenarioPackage scenarioPackage, ScenarioModel scenarioModel) {
@@ -1090,6 +1126,9 @@ public class RuntimeTurnApplicationService {
         });
         String selectedSituationId = proposal.situationProposal() == null ? null
                 : proposal.situationProposal().selectedSituationId();
+        String narrationSituationId = selectedSituationId == null ? activeSituationId : selectedSituationId;
+        List<String> hiddenMapFacts = HiddenMapNarrationFacts.forSituation(scenarioPackage, activeStage, narrationSituationId);
+        logHiddenMapFacts(command.turnId(), narrationSituationId, hiddenMapFacts.size());
         boolean storySituationTransition = turnStoryState != null && activeStage != null
                 && proposal.situationProposal() != null
                 && proposal.situationProposal().update().kind() == SituationUpdateProposal.Kind.TRANSITION;
@@ -1207,7 +1246,7 @@ public class RuntimeTurnApplicationService {
             String preCheckNarration = stage(command.turnId(), "player_check_pre_narration", () -> {
                 String prose = writerPort.write(preCheckInput).prose();
                 NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
-                        prose, preCheckEvidencePack, adventure.currentContext(), command.action()));
+                        prose, preCheckEvidencePack, adventure.currentContext(), command.action(), hiddenMapFacts));
                 if (!safety.approved()) throw new IllegalStateException("narration safety rejected: " + safety.reason());
                 return prose;
             });
@@ -1228,7 +1267,7 @@ public class RuntimeTurnApplicationService {
         String openingNarration = plan.narration();
         RuntimeTurn ready = stage(command.turnId(), "narration_safety_and_presentation", () -> safetyOrchestrator.resolveAndNarrate(requested,
                 turnResolution,
-                pending, proposal.completionProposal(), sessionOpening
+                pending, proposal.completionProposal(), hiddenMapFacts, sessionOpening
                         ? () -> openingNarration : () -> writerPort.write(visibleInput).prose()));
         if (ready.lifecycle() == RuntimeTurnLifecycle.DISCARDED) {
             runtimeTurnRepository.save(ready);

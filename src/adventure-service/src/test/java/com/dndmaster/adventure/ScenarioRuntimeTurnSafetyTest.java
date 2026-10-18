@@ -201,6 +201,34 @@ class ScenarioRuntimeTurnSafetyTest {
     }
 
     @Test
+    void ordinary_turn_safety_checks_hidden_map_facts_before_accepting_narration() {
+        AdventureContext context = new AdventureContext("stone room", null, "enter", null);
+        RuntimeTurn requested = new RuntimeTurn(UUID.randomUUID(), UUID.randomUUID(), AdventureId.generate(), UUID.randomUUID(),
+                UUID.randomUUID(), 1, "Enter the room", new EvidencePack(List.of(), List.of(), List.of()),
+                new RuntimePlan("stone room", null, "entered", "draft", null, List.of(), List.of()), null,
+                context, List.of(), 0, List.of(), List.of(), false, true,
+                com.dndmaster.adventure.application.runtime.RuntimeTurnOrigin.PLAYER, true);
+        PendingRuntimeState pending = new PendingRuntimeState(GameStateDelta.empty(), DisclosureState.empty(),
+                CurrentSituation.initial("stone room"), List.of());
+        RuntimeTurnResolution fixed = new RuntimeTurnResolution("entered", null, List.of());
+        java.util.concurrent.atomic.AtomicReference<List<String>> checkedFacts = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicInteger writes = new java.util.concurrent.atomic.AtomicInteger();
+        var policy = new com.dndmaster.adventure.application.runtime.DefaultNarrationSafetyPolicy();
+        RuntimeTurnSafetyOrchestrator orchestrator = new RuntimeTurnSafetyOrchestrator(requestWithFacts -> {
+            checkedFacts.set(requestWithFacts.hiddenFacts());
+            return policy.assess(requestWithFacts);
+        });
+
+        RuntimeTurn ready = orchestrator.resolveAndNarrate(requested, fixed, pending,
+                CompletionProposal.continueAdventure(), List.of("pressure plate", "4,3"),
+                () -> writes.incrementAndGet() == 1 ? "A pressure plate lies at 4,3." : "A stone room contains a table.");
+
+        assertEquals(List.of("pressure plate", "4,3"), checkedFacts.get());
+        assertEquals("A stone room contains a table.", ready.narration());
+        assertEquals(2, writes.get());
+    }
+
+    @Test
     void exhausted_narration_safety_attempts_discard_the_turn() {
         AdventureContext context = new AdventureContext("gate", "guard", "", "waiting");
         RuntimeTurn requested = new RuntimeTurn(UUID.randomUUID(), UUID.randomUUID(), AdventureId.generate(), UUID.randomUUID(),

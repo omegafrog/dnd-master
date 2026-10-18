@@ -95,8 +95,8 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
                 return deterministicFallback(request);
             }
             JsonNode root = mapper.readTree(response.body());
-            if (diagnosticsEnabled()) LOGGER.info("dev_map_agent outcome=response scenario={} status={} responseChars={} dimensions={}x{} boundaries={} obstacles={} doors={} playerStartPresent={} proposalStatus={} proposalPosition={} proposalConfidence={} proposalEvidenceCount={} proposalSourcePresent={} rationaleChars={}",
-                    request.selectedScenario(), response.statusCode(), response.body().length(),
+            if (diagnosticsEnabled()) LOGGER.info("dev_map_agent outcome=response scenarioChars={} scenarioFingerprint={} status={} responseChars={} dimensions={}x{} boundaries={} obstacles={} doors={} playerStartPresent={} proposalStatus={} proposalPosition={} proposalConfidence={} proposalEvidenceCount={} proposalSourcePresent={} rationaleChars={}",
+                    request.selectedScenario().length(), fingerprint(request.selectedScenario()), response.statusCode(), response.body().length(),
                     root.path("width").asInt(-1), root.path("height").asInt(-1), root.path("boundaries").size(), root.path("obstacles").size(),
                     root.path("doors").size(), !root.path("playerStart").asText("").isBlank(),
                     compactLogValue(root.path("playerStartProposal").path("status").asText("")),
@@ -447,6 +447,16 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
     private static boolean diagnosticsEnabled() {
         return Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
                 System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+    }
+
+    private static String fingerprint(String value) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest, 0, 8);
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
     }
 
     /** AI 제공자가 실패해도 사용자가 검수·저장할 수 있는 최소 초안. */

@@ -544,6 +544,9 @@ test('fresh database bootstraps an adventure, creates a character, and prepares 
     .toBe(destination!.situationId)
   await expect(page.getByLabel('대화 기록').getByText(playerAction, { exact: true })).toBeVisible()
   await expect(page.getByLabel('대화 기록').getByText(/문을 지나 준비된 목적지에 들어섰고/)).toBeVisible()
+  const destinationNarration = await page.getByLabel('대화 기록').textContent()
+  expect(destinationNarration).not.toMatch(/압력판|pressure plate|\btrap\b|함정/iu)
+  expect(destinationNarration).not.toMatch(/(?:\(\s*4\s*,\s*3\s*\)|\b4\s*,\s*3\b)/u)
 
   const mapResponse = await request.get(
     `${backend}/internal/v1/adventures/${adventureId}/combat-map/player-view?ownerId=${ownerPlayerId}`, { headers: internalHeaders },

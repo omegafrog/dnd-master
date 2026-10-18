@@ -25,15 +25,22 @@ public final class RuntimeTurnSafetyOrchestrator {
 
     public RuntimeTurn resolveAndNarrate(RuntimeTurn requested, RuntimeTurnResolution resolution,
             PendingRuntimeState pending, CompletionProposal completion, Supplier<String> narrationSupplier) {
+        return resolveAndNarrate(requested, resolution, pending, completion, java.util.List.of(), narrationSupplier);
+    }
+
+    public RuntimeTurn resolveAndNarrate(RuntimeTurn requested, RuntimeTurnResolution resolution,
+            PendingRuntimeState pending, CompletionProposal completion, java.util.List<String> hiddenFacts,
+            Supplier<String> narrationSupplier) {
         Objects.requireNonNull(requested, "requested turn must not be null");
         Objects.requireNonNull(narrationSupplier, "narration supplier must not be null");
+        hiddenFacts = java.util.List.copyOf(Objects.requireNonNull(hiddenFacts, "hidden facts must not be null"));
         RuntimeTurn turn = requested.lifecycle() == RuntimeTurnLifecycle.REQUESTED ? requested : requested.asRequested();
         turn = turn.beginResolving().fixResolution(resolution, pending, completion).beginNarration();
         for (int attempt = 0; attempt < maxNarrationAttempts; attempt++) {
             String narration = narrationSupplier.get();
             turn = turn.beginSafetyCheck();
             NarrationSafetyAssessment safety = safetyPort.assess(new NarrationSafetyRequest(
-                    narration, turn.evidencePack(), turn.context(), turn.action()));
+                    narration, turn.evidencePack(), turn.context(), turn.action(), hiddenFacts));
             LOGGER.info("dev_narration_safety turnId={} attempt={} outcome={} reason={}", turn.turnId(),
                     attempt + 1, safety.approved() ? "approved" : "rejected", safety.reason());
             if (safety.approved()) return turn.readyToCommit(narration);

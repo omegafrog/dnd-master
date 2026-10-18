@@ -41,6 +41,35 @@ class CombatMapApiConfigurationTest {
     }
 
     @Test
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    void mapGenerationDiagnosticsFingerprintScenarioWithoutLoggingItsText(
+            org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/gm/maps", exchange -> {
+            byte[] response = "{\"width\":1,\"height\":1,\"boundaries\":[],\"obstacles\":[],\"doors\":[],\"playerStart\":\"\"}".getBytes();
+            exchange.sendResponseHeaders(200, response.length);
+            try (var stream = exchange.getResponseBody()) { stream.write(response); }
+        });
+        server.start();
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        try {
+            var gateway = new HttpAiMapGenerationGateway(HttpClient.newHttpClient(),
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(5), new ObjectMapper(), "token");
+            gateway.generate(new MapGenerationRequest("private scenario marker", "context")
+                    .withSoloPlayerId(java.util.UUID.randomUUID()));
+
+            assertTrue(output.getOut().contains("scenarioChars=23 scenarioFingerprint=0852b55560a67af1"));
+            assertTrue(!output.getOut().contains("private scenario marker"));
+        } finally {
+            server.stop(0);
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
+        }
+    }
+
+    @Test
     void internalTokenIsRequiredAtConfigurationBoundary() {
         assertThrows(ApiRequestGuard.ApiContractException.class,
                 () -> new CombatMapApiConfiguration().combatMapApiRequestGuard(""));
