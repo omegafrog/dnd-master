@@ -40,6 +40,27 @@ class ExplorationCycleTest {
         assertTrue(cycle.groupTurnFinished(first));
     }
 
+    @Test void mapStopEventPausesAllGroupsUntilResolutionThenResumesAtNextInitiative() {
+        UUID first = UUID.randomUUID(), second = UUID.randomUUID(), operation = UUID.randomUUID();
+        ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(first, 12, second, 10));
+        UUID active = cycle.currentGroupId();
+        UUID next = cycle.groupOrder().stream().filter(group -> !group.equals(active)).findFirst().orElseThrow();
+        var event = new ExplorationCycle.MovementStopEvent(UUID.randomUUID(), active, operation,
+                "SPATIAL_FEATURE_DISCOVERED", java.util.List.of("TRAP_DISCOVERED:2,1"),
+                new ExplorationCycle.Position(2, 1), null);
+
+        cycle = cycle.interruptGroupTurn(active, event);
+        ExplorationCycle paused = cycle;
+        assertNull(cycle.currentGroupId());
+        assertSame(cycle, cycle.interruptGroupTurn(active, event));
+        assertThrows(IllegalStateException.class, () -> paused.finishGroupTurn(next, false));
+
+        cycle = cycle.resolveMovementEvent(event.id());
+        assertEquals(next, cycle.currentGroupId());
+        assertSame(cycle, cycle.resolveMovementEvent(event.id()));
+        assertTrue(cycle.groupTurnFinished(active));
+    }
+
     @Test void completedEnvironmentPhaseIsIdempotentAndUnknownGroupCannotFinishTurn() {
         UUID group = UUID.randomUUID();
         ExplorationCycle initial = ExplorationCycle.start(UUID.randomUUID(), Map.of(group, 12));
@@ -77,5 +98,29 @@ class ExplorationCycleTest {
         assertEquals(proposal, cycle.pendingEnvironmentProposal());
         assertThrows(IllegalStateException.class, () -> persisted.withEnvironmentProposal(
                 new ExplorationCycle.EnvironmentProposal("replacement", java.util.List.of())));
+    }
+
+    @Test void enemyRoutesAreRejectedOutsideTheEnemyAndPatrolPhase() {
+        UUID group = UUID.randomUUID();
+        ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(group, 12))
+                .finishGroupTurn(group, false);
+        var enemyMove = new ExplorationCycle.EnemyMove(UUID.randomUUID(), java.util.List.of(
+                new ExplorationCycle.Position(1, 1), new ExplorationCycle.Position(2, 1)));
+        assertEquals(ExplorationCycle.EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION, cycle.environmentPhase());
+        ExplorationCycle enemyPhase = cycle;
+        assertDoesNotThrow(() -> enemyPhase.withEnvironmentProposal(
+                new ExplorationCycle.EnvironmentProposal("valid phase", java.util.List.of(enemyMove))));
+
+        cycle = cycle.completeEnvironmentPhase(cycle.currentPhaseCommandId());
+
+        assertEquals(ExplorationCycle.EnvironmentPhase.HAZARDS_AND_ENVIRONMENT, cycle.environmentPhase());
+        ExplorationCycle hazardPhase = cycle;
+        assertThrows(IllegalArgumentException.class, () -> hazardPhase.withEnvironmentProposal(
+                new ExplorationCycle.EnvironmentProposal("wrong phase", java.util.List.of(enemyMove))));
+        cycle = cycle.completeEnvironmentPhase(cycle.currentPhaseCommandId());
+        ExplorationCycle durationPhase = cycle;
+        assertEquals(ExplorationCycle.EnvironmentPhase.DURATIONS_AND_DEADLINES, cycle.environmentPhase());
+        assertThrows(IllegalArgumentException.class, () -> durationPhase.withEnvironmentProposal(
+                new ExplorationCycle.EnvironmentProposal("wrong phase", java.util.List.of(enemyMove))));
     }
 }

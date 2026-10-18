@@ -80,14 +80,19 @@ public class RuntimeTurnApplicationService {
 
     /** Plans one environment phase without appending a player or GM conversation turn. */
     public com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal planExplorationEnvironmentPhase(
-            AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID phaseId, String mapStateJson) {
+            AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID phaseId,
+            com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentPhase environmentPhase, String mapStateJson) {
         Adventure adventure = adventureRepository.findById(adventureId).orElseThrow();
         if (!adventure.ownerPlayerId().equals(ownerPlayerId)) throw new SecurityException("adventure owner does not match");
         RuntimeBinding binding = bindingRepository.findCurrentByAdventureId(adventureId).orElseThrow();
         ScenarioPackage scenarioPackage = scenarioPackageRepository.findById(binding.scenarioPackageId())
                 .orElseThrow(() -> new IllegalStateException("scenario package is unavailable"));
-        String action = "환경 단계 판단: 한 모험 순환의 공통 6초 동안 주변 적의 이동과 기존 지도 환경 변화를 제안한다. 지도 변경은 적 토큰 이동 경로만 제안한다. "
-                + "PHASE_ID=" + phaseId + " GM_MAP_STATE=" + Objects.requireNonNull(mapStateJson);
+        Objects.requireNonNull(environmentPhase, "environment phase must not be null");
+        String action = "환경 하위 단계 판단: 한 모험 순환의 공통 6초 안에서 지정된 단계만 처리한다. "
+                + "ENEMIES_PATROLS_AND_DETECTION 단계에서만 적 토큰 이동 경로를 제안한다. 다른 단계에서는 적 이동 경로를 비워 둔다. "
+                + "PATROL_ROUTE_SOURCE=none; 저장된 순찰 경로 조회 기능이 없으므로 주변 적의 이동은 GM 판단으로 제안한다. "
+                + "PHASE_ID=" + phaseId + " ENVIRONMENT_PHASE=" + environmentPhase
+                + " GM_MAP_STATE=" + Objects.requireNonNull(mapStateJson);
         RuntimePlanningRequest request = new RuntimePlanningRequest(adventureId, ownerPlayerId,
                 adventure.sessionId().value(), phaseId, binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), action,
@@ -101,17 +106,22 @@ public class RuntimeTurnApplicationService {
                 scenarioPackage.scenarioModel());
         long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
                 "exploration_environment_plan", "adventureId=" + adventureId.value() + " phaseId=" + phaseId
+                        + " environmentPhase=" + environmentPhase + " patrolRouteCount=0 fallback=gm_judgment"
                         + " mapStateChars=" + mapStateJson.length() + " partyCount=" + adventure.party().size());
         try {
             var proposal = planningPort.planEnvironmentPhase(request);
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
                     "exploration_environment_plan", "adventureId=" + adventureId.value() + " phaseId=" + phaseId
-                            + " enemyMoveCount=" + proposal.enemyMoves().size(), started);
+                            + " environmentPhase=" + environmentPhase + " expectedEnemyMovePolicy="
+                            + (environmentPhase == com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION
+                                    ? "allowed" : "none")
+                            + " actualEnemyMoves=" + proposal.enemyMoves().size(), started);
             return proposal;
         } catch (RuntimeException | Error failure) {
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
                     "exploration_environment_plan", "adventureId=" + adventureId.value() + " phaseId=" + phaseId
-                            + " mapStateChars=" + mapStateJson.length(), started, failure);
+                            + " environmentPhase=" + environmentPhase + " mapStateChars=" + mapStateJson.length()
+                            + " recoveryAction=retry_same_phase_id", started, failure);
             throw failure;
         }
     }
