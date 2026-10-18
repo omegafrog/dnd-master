@@ -131,10 +131,16 @@ public final class AdventureAbilityDefinitionPreparationService {
             } catch (RuntimeException failure) {
                 String failureKind = failure instanceof AbilityDefinitionValidationException invalid
                         ? "validation_code=" + invalid.code() : failure.getClass().getSimpleName();
-                diagnostic("source_input_required", adventureId, sessionId, abilityId, evidence.size(),
+                if (requiresSourceInput(failure)) {
+                    diagnostic("source_input_required", adventureId, sessionId, abilityId, evidence.size(),
+                            "validated_definition", (System.nanoTime() - started) / 1_000_000, failureKind,
+                            "sourceInputRequired=true;actualEvidenceCount=" + evidence.size());
+                    throw new AbilityDefinitionSourceInputRequiredException(abilityId, failure);
+                }
+                diagnostic("failed", adventureId, sessionId, abilityId, evidence.size(),
                         "validated_definition", (System.nanoTime() - started) / 1_000_000, failureKind,
-                        "sourceInputRequired=true;actualEvidenceCount=" + evidence.size());
-                throw new AbilityDefinitionSourceInputRequiredException(abilityId, failure);
+                        "sourceInputRequired=false;actualEvidenceCount=" + evidence.size());
+                throw failure;
             }
             try {
                 definitions.prepare(adventureId.value(), abilityId, proposed);
@@ -208,7 +214,7 @@ public final class AdventureAbilityDefinitionPreparationService {
     private JsonNode selectSourceDefinition(String abilityId, JsonNode input) {
         if (input.isObject()) return input;
         for (JsonNode item : input) if (abilityId.equals(item.path("abilityId").asText())) return item;
-        throw new IllegalArgumentException("source definition for the requested ability ID is missing");
+        throw new SourceDefinitionInputException("source definition for the requested ability ID is missing");
     }
 
     private static void diagnostic(String outcome, AdventureId adventure, SessionId session, String abilityId,
@@ -239,6 +245,12 @@ public final class AdventureAbilityDefinitionPreparationService {
         };
     }
 
+    private static boolean requiresSourceInput(RuntimeException failure) {
+        return failure instanceof AbilityDefinitionValidationException
+                || failure instanceof AbilityEvidenceRecoveryExhaustedException
+                || failure instanceof SourceDefinitionInputException;
+    }
+
     private static String expectedFieldInventory() {
         return "abilityId,name,actionTiming,resourceCost,visibility,range,targeting,origin,effect,pathBlocking,effectSpread,check,duration,trigger,exceptions,actionKind,rangeForm,targetMode,originMode,effectShape,pathBlockingRule,propagationRule,verticalDirection,sourceLocations";
     }
@@ -265,6 +277,7 @@ public final class AdventureAbilityDefinitionPreparationService {
     }
 
     private SearchResult searchWithRecovery(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner, String abilityId) {
+        SelectedSources selected = selectedSources(adventureId, sessionId, owner);
         String searchableId = abilityId.replaceAll("[^\\p{Alnum}]+", " ").trim();
         List<String> queries = List.of(
                 "Prepare the ability " + abilityId + " from this source type",
@@ -276,7 +289,7 @@ public final class AdventureAbilityDefinitionPreparationService {
         for (String query : queries.stream().distinct().toList()) {
             long started = System.nanoTime();
             try {
-                SearchResult result = search(adventureId, sessionId, owner, abilityId, query);
+                SearchResult result = search(adventureId, sessionId, owner, abilityId, query, selected);
                 lastSuccessfulResult = result;
                 collectedEvidence.addAll(result.evidence());
                 diagnostic(collectedEvidence.isEmpty() ? "search_retry" : "evidence_query_complete", adventureId,
@@ -292,12 +305,11 @@ public final class AdventureAbilityDefinitionPreparationService {
         if (!collectedEvidence.isEmpty() && lastSuccessfulResult != null)
             return new SearchResult(List.copyOf(collectedEvidence), lastSuccessfulResult.authorizedSourceVersions(),
                     lastSuccessfulResult.sourceScope());
-        if (lastFailure != null) throw lastFailure;
-        throw new IllegalStateException("ability definition evidence was not found after distinct search queries were exhausted");
+        throw new AbilityEvidenceRecoveryExhaustedException(lastFailure);
     }
 
-    private SearchResult search(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner, String abilityId, String query) {
-        SelectedSources selectedSources = selectedSources(adventureId, sessionId, owner);
+    private SearchResult search(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner, String abilityId,
+            String query, SelectedSources selectedSources) {
         UUID packageId = selectedSources.packageId();
         var adventure = new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId.value());
         List<RuntimeEvidence> result = new ArrayList<>();
@@ -516,6 +528,16 @@ public final class AdventureAbilityDefinitionPreparationService {
         private final String code;
         private AbilityDefinitionValidationException(String code, String message) { super(message); this.code = code; }
         private String code() { return code; }
+    }
+
+    private static final class AbilityEvidenceRecoveryExhaustedException extends IllegalStateException {
+        private AbilityEvidenceRecoveryExhaustedException(Throwable cause) {
+            super("ability evidence search recovery was exhausted", cause);
+        }
+    }
+
+    private static final class SourceDefinitionInputException extends IllegalArgumentException {
+        private SourceDefinitionInputException(String message) { super(message); }
     }
 
     private record SearchResult(List<RuntimeEvidence> evidence, Map<UUID, Long> authorizedSourceVersions,

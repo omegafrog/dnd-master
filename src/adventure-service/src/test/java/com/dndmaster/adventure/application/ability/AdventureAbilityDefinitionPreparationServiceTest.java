@@ -342,6 +342,33 @@ class AdventureAbilityDefinitionPreparationServiceTest {
         verify(evidenceSearch, org.mockito.Mockito.atLeastOnce()).search(
                 org.mockito.ArgumentMatchers.argThat(request -> request.evidenceType() == RuntimeEvidenceType.STORYBOOK));
         verify(definitions).prepare(packageId, "ability:blink", validDefinition(storyDocumentId));
+
+        when(gm.generate(any())).thenThrow(new TransientInitialSituationGmFailureException(
+                new java.io.IOException("temporary provider failure")))
+                .thenThrow(new TransientInitialSituationGmFailureException(
+                        new java.io.IOException("temporary provider failure")));
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(
+                AdventureAbilityDefinitionPreparationService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        String previous = System.getProperty(DevelopmentDiagnostics.FLAG);
+        System.setProperty(DevelopmentDiagnostics.FLAG, "true");
+        try {
+            assertThatThrownBy(() -> service.prepare(new AdventureId(packageId), sessionKey,
+                    new OwnerPlayerId(ownerId), List.of("ability:blink")))
+                    .isInstanceOf(TransientInitialSituationGmFailureException.class)
+                    .isNotInstanceOf(AbilityDefinitionSourceInputRequiredException.class);
+            String logs = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            assertThat(logs).contains("outcome=generation_retry", "outcome=generation_failed", "outcome=failed",
+                    "sourceInputRequired=false", "recovery=resolve_failure_then_retry_operation");
+        } finally {
+            logger.detachAppender(appender);
+            if (previous == null) System.clearProperty(DevelopmentDiagnostics.FLAG);
+            else System.setProperty(DevelopmentDiagnostics.FLAG, previous);
+        }
+        verify(definitions, times(1)).prepare(packageId, "ability:blink", validDefinition(storyDocumentId));
     }
 
     private static ScenarioBundleDocumentSelection selectedDocument(UUID documentId, String type) {
