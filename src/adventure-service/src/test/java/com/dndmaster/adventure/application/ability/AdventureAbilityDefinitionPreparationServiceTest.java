@@ -87,6 +87,31 @@ class AdventureAbilityDefinitionPreparationServiceTest {
     }
 
     @Test
+    void retries_generation_once_for_a_new_failure_kind_before_requesting_source_input() throws Exception {
+        var bindings = mock(GmProviderBindingRepository.class);
+        var gm = mock(InitialSituationGmPort.class);
+        UUID sessionUuid = UUID.randomUUID();
+        UUID documentUuid = UUID.randomUUID();
+        when(bindings.current(sessionUuid)).thenReturn(Optional.of(new ProviderBinding(sessionUuid,
+                new GmProviderSelection(UUID.randomUUID(), "codex", "test-model", "medium"), 1)));
+        when(gm.generate(any())).thenThrow(new IllegalStateException("temporary provider failure"))
+                .thenReturn(validDefinition(documentUuid));
+        var service = new AdventureAbilityDefinitionPreparationService(mock(AdventureAbilityDefinitionRepository.class),
+                mock(ScenarioPackageRepository.class), mock(SessionKnowledgeSetRepository.class),
+                mock(AdventureSessionRepository.class), mock(RuntimeCharacterSheetReadPort.class),
+                mock(RuntimeEvidenceSearchPort.class), mock(RuntimeEvidenceLocationLookupPort.class), bindings, gm, JSON);
+        var evidence = List.of(new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
+                new KnowledgeDocumentId(documentUuid), 3, "page 12", "The ability moves the user.", "cite-1"));
+
+        JsonNode result = service.generateValidated(new AdventureId(UUID.randomUUID()), new SessionId(sessionUuid),
+                new OwnerPlayerId(UUID.randomUUID()), "ability:blink", evidence,
+                java.util.Map.of(documentUuid, 3L));
+
+        assertThat(result.path("abilityId").asText()).isEqualTo("ability:blink");
+        verify(gm, times(2)).generate(any());
+    }
+
+    @Test
     void rejects_user_input_that_does_not_match_the_fixed_definition_field_types() throws Exception {
         UUID documentId = UUID.randomUUID();
         JsonNode malformed = ((com.fasterxml.jackson.databind.node.ObjectNode) validDefinition(documentId)).put("range", 30);

@@ -94,7 +94,7 @@ public final class AdventureAbilityDefinitionPreparationService {
             Map<UUID, Long> authorizedSources = Map.of();
             EvidenceSearchScope sourceScope = null;
             try {
-                SearchResult searchResult = search(adventureId, sessionId, owner, abilityId);
+                SearchResult searchResult = searchWithRecovery(adventureId, sessionId, owner, abilityId);
                 evidence = searchResult.evidence();
                 authorizedSources = searchResult.authorizedSourceVersions();
                 sourceScope = searchResult.sourceScope();
@@ -122,7 +122,18 @@ public final class AdventureAbilityDefinitionPreparationService {
         List<String> corrections = new ArrayList<>();
         while (true) {
             long attemptStarted = System.nanoTime();
-            JsonNode proposed = generate(adventureId, sessionId, owner, abilityId, evidence, corrections);
+            JsonNode proposed;
+            try {
+                proposed = generate(adventureId, sessionId, owner, abilityId, evidence, corrections);
+            } catch (RuntimeException failure) {
+                String correction = "GENERATION_FAILURE:" + failure.getClass().getName();
+                if (corrections.contains(correction)) throw failure;
+                corrections.add(correction);
+                diagnostic("generation_retry", adventureId, sessionId, abilityId, evidence.size(),
+                        "new_generation_failure_kind", (System.nanoTime() - attemptStarted) / 1_000_000,
+                        failure.getClass().getSimpleName());
+                continue;
+            }
             try {
                 validate(abilityId, proposed, evidence, authorizedSources, false);
                 return proposed;
@@ -167,7 +178,39 @@ public final class AdventureAbilityDefinitionPreparationService {
         abilityIds.forEach(id -> definitions.activate(adventureId, id));
     }
 
-    private SearchResult search(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner, String abilityId) {
+    private SearchResult searchWithRecovery(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner, String abilityId) {
+        String searchableId = abilityId.replaceAll("[^\\p{Alnum}]+", " ").trim();
+        List<String> queries = List.of(
+                "Prepare the ability " + abilityId + " from this source type",
+                "Find rules and details for " + searchableId,
+                "Ability " + searchableId + " rules, effects, range, targets, and cost");
+        RuntimeException lastFailure = null;
+        SearchResult lastSuccessfulResult = null;
+        java.util.LinkedHashSet<RuntimeEvidence> collectedEvidence = new java.util.LinkedHashSet<>();
+        for (String query : queries.stream().distinct().toList()) {
+            long started = System.nanoTime();
+            try {
+                SearchResult result = search(adventureId, sessionId, owner, abilityId, query);
+                lastSuccessfulResult = result;
+                collectedEvidence.addAll(result.evidence());
+                diagnostic(collectedEvidence.isEmpty() ? "search_retry" : "evidence_query_complete", adventureId,
+                        sessionId, abilityId, collectedEvidence.size(), "evidence_candidates",
+                        (System.nanoTime() - started) / 1_000_000,
+                        "query_results=" + result.evidence().size());
+            } catch (RuntimeException failure) {
+                lastFailure = failure;
+                diagnostic("search_retry", adventureId, sessionId, abilityId, collectedEvidence.size(), "evidence_candidates",
+                        (System.nanoTime() - started) / 1_000_000, failure.getClass().getSimpleName());
+            }
+        }
+        if (!collectedEvidence.isEmpty() && lastSuccessfulResult != null)
+            return new SearchResult(List.copyOf(collectedEvidence), lastSuccessfulResult.authorizedSourceVersions(),
+                    lastSuccessfulResult.sourceScope());
+        if (lastFailure != null) throw lastFailure;
+        throw new IllegalStateException("ability definition evidence was not found after distinct search queries were exhausted");
+    }
+
+    private SearchResult search(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner, String abilityId, String query) {
         var adventure = new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId.value());
         var session = sessions.findById(sessionId).orElseThrow(() -> new IllegalStateException("adventure session not found"));
         UUID packageId = packages.findById(session.scenarioPackageId()).orElseThrow().packageId();
@@ -189,7 +232,7 @@ public final class AdventureAbilityDefinitionPreparationService {
                     doc -> doc.knowledgeDocumentId().value(), ScenarioBundleDocumentSelection::extractionVersion));
             var found = evidenceSearch.search(new RuntimeEvidenceSearchRequest(adventure, owner, sessionId, packageId,
                     documents.stream().map(doc -> doc.knowledgeDocumentId().value()).toList(), null,
-                    "Prepare the ability " + abilityId + " from this source type", type, 8, versions,
+                    query, type, 8, versions,
                     "ability:" + abilityId, "RULE_LOOKUP"));
             result.addAll(found);
         }
