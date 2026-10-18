@@ -138,6 +138,112 @@ class ExplorationEnvironmentControllerTest {
         verifyNoInteractions(runtime);
     }
 
+    @Test void movementInterruptionCycleStaysSuspendedForCombatAndResumesAfterThatEncounterEnds() {
+        UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID();
+        UUID sheetA = UUID.randomUUID(), sheetB = UUID.randomUUID();
+        UUID groupA = UUID.randomUUID(), groupB = UUID.randomUUID(), encounterId = UUID.randomUUID(), eventId = UUID.randomUUID();
+        var party = List.of(
+                new AdventurePartyMember(new CharacterSheetId(sheetA), ControlMode.DIRECT, true, true, true, true, true, true),
+                new AdventurePartyMember(new CharacterSheetId(sheetB), ControlMode.DIRECT, true, true, true, true, true, true));
+        Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), party,
+                new AdventureContext("복도", "", "", ""));
+        var groups = List.of(
+                new ExplorationGroup(groupA, UUID.randomUUID(), List.of(
+                        new ExplorationGroup.Member(sheetA, ExplorationGroup.Formation.FRONT, 30))),
+                new ExplorationGroup(groupB, UUID.randomUUID(), List.of(
+                        new ExplorationGroup.Member(sheetB, ExplorationGroup.Formation.FRONT, 30))));
+        var cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(groupA, 12, groupB, 10));
+        UUID interruptedGroup = cycle.currentGroupId();
+        UUID nextGroup = cycle.groupOrder().stream().filter(id -> !id.equals(interruptedGroup)).findFirst().orElseThrow();
+        var event = new ExplorationCycle.MovementStopEvent(eventId, interruptedGroup, UUID.randomUUID(),
+                "HOSTILE_OBSERVED", List.of("HOSTILE_OBSERVED"), new ExplorationCycle.Position(2, 1), UUID.randomUUID());
+        cycle = cycle.interruptGroupTurn(interruptedGroup, event);
+        adventure.updateExplorationState(new OwnerPlayerId(owner), 0, new ExplorationState(groups, cycle));
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findByIdForUpdate(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        when(players.playerId()).thenReturn(owner);
+        var lifecycle = mock(CombatLifecycleApplicationService.class);
+        AdventureController controller = controller(adventures, mock(RuntimeTurnApplicationService.class),
+                mock(CombatMapPort.class), mock(CombatMapViewPort.class), players,
+                mock(AppliedRuleSetApplicationService.class), lifecycle);
+        Logger logger = (Logger) LoggerFactory.getLogger(AdventureController.class);
+        var appender = new ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        String previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        try {
+            controller.linkExplorationCycleToCombat(adventureId, encounterId);
+            assertEquals(encounterId, storedCycle(adventure).linkedCombatEncounterId());
+            var active = mock(com.dndmaster.adventure.domain.combat.CombatEncounter.class);
+            when(active.encounterId()).thenReturn(encounterId);
+            when(lifecycle.findActiveEncounter(adventureId)).thenReturn(Optional.of(active));
+            var blocked = assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.resolveExplorationMovementEvent(
+                    adventureId, eventId, new AdventureController.ExplorationMovementEventResolveRequest(adventure.version())));
+            assertEquals("EXPLORATION_CYCLE_SUSPENDED_FOR_COMBAT", blocked.getMessage());
+            assertNull(storedCycle(adventure).currentGroupId());
+
+            when(lifecycle.findActiveEncounter(adventureId)).thenReturn(Optional.empty());
+            var resumed = controller.resolveExplorationMovementEvent(adventureId, eventId,
+                    new AdventureController.ExplorationMovementEventResolveRequest(adventure.version()));
+            assertNull(resumed.cycle().linkedCombatEncounterId());
+            assertEquals(nextGroup, resumed.cycle().currentGroupId());
+            assertTrue(resumed.cycle().movementEventResolved(eventId));
+            String logs = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .reduce("", (left, right) -> left + "\n" + right);
+            assertTrue(logs.contains("operation=exploration_combat_handoff_resume outcome=started"));
+            assertTrue(logs.contains("operation=exploration_combat_handoff_resume outcome=failed"));
+            assertTrue(logs.contains("operation=exploration_combat_handoff_resume outcome=completed"));
+            assertTrue(logs.contains("cycleId=" + cycle.id()));
+            assertTrue(logs.contains("encounterId=" + encounterId));
+            assertTrue(logs.contains("recovery=retry_after_combat_ends"));
+        } finally {
+            logger.detachAppender(appender);
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
+    }
+
+    @Test void generatedSpatialFeatureInteractionOutsideHazardsPhaseIsRejectedBeforePersistence() {
+        UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), sheetId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID(), mapId = UUID.randomUUID(), featureId = UUID.randomUUID();
+        var party = List.of(new AdventurePartyMember(new CharacterSheetId(sheetId), ControlMode.DIRECT,
+                true, true, true, true, true, true));
+        Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), party,
+                new AdventureContext("복도", "", "", ""));
+        ExplorationGroup group = new ExplorationGroup(groupId, UUID.randomUUID(),
+                List.of(new ExplorationGroup.Member(sheetId, ExplorationGroup.Formation.FRONT, 30)));
+        ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(groupId, 10), new Random(1))
+                .finishGroupTurn(groupId, false);
+        adventure.updateExplorationState(new OwnerPlayerId(owner), 0, new ExplorationState(List.of(group), cycle));
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findById(any())).thenReturn(Optional.of(adventure));
+        CombatMapViewPort views = mock(CombatMapViewPort.class);
+        when(views.playerView(eq(adventureId), eq(owner))).thenReturn(Optional.of(new CombatMapViewPort.View(
+                mapId, new CombatMapViewPort.Grid(10, 10, 70, 5), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), 0)));
+        RuntimeTurnApplicationService runtime = mock(RuntimeTurnApplicationService.class);
+        when(runtime.planExplorationEnvironmentPhase(any(), any(), any(), any(), any())).thenReturn(
+                new ExplorationCycle.EnvironmentProposal("지원되지 않는 환경 단계", List.of(),
+                        List.of(new ExplorationCycle.FeatureInteraction(featureId)), 0, false, null));
+        AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        when(players.playerId()).thenReturn(owner);
+        CombatMapPort mapPort = mock(CombatMapPort.class);
+        AdventureController controller = controller(adventures, runtime, mapPort, views, players,
+                mock(AppliedRuleSetApplicationService.class));
+
+        var failure = assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.advanceExplorationEnvironmentPhase(
+                adventureId, new AdventureController.ExplorationCycleFinishRequest(adventure.version(),
+                        cycle.currentPhaseCommandId(), false)));
+
+        assertEquals("FEATURE_INTERACTION_OUTSIDE_HAZARDS_PHASE", failure.getMessage());
+        assertNull(storedCycle(adventure).pendingEnvironmentProposal());
+        verify(mapPort, never()).validateSpatialFeatureInteractionForEnvironment(any(), any(), any(), anyLong(), any());
+    }
+
     @Test void callerCannotMarkGroupTurnInterruptedWithoutMapMovementResult() {
         UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), sheetId = UUID.randomUUID();
         UUID groupId = UUID.randomUUID();

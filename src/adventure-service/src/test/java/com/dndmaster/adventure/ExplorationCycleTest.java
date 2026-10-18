@@ -61,6 +61,29 @@ class ExplorationCycleTest {
         assertTrue(cycle.groupTurnFinished(active));
     }
 
+    @Test void linkedCombatPausesMovementCycleAndMatchingEndedEncounterResumesIt() {
+        UUID first = UUID.randomUUID(), second = UUID.randomUUID(), encounterId = UUID.randomUUID();
+        ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(first, 12, second, 10));
+        UUID interruptedGroup = cycle.currentGroupId();
+        UUID nextGroup = cycle.groupOrder().stream().filter(id -> !id.equals(interruptedGroup)).findFirst().orElseThrow();
+        var event = new ExplorationCycle.MovementStopEvent(UUID.randomUUID(), interruptedGroup, UUID.randomUUID(),
+                "HOSTILE_OBSERVED", java.util.List.of("HOSTILE_OBSERVED"), new ExplorationCycle.Position(2, 1), UUID.randomUUID());
+
+        cycle = cycle.interruptGroupTurn(interruptedGroup, event).linkCombatEncounter(encounterId);
+        ExplorationCycle suspended = cycle;
+        assertNull(cycle.currentGroupId());
+        assertEquals(encounterId, cycle.linkedCombatEncounterId());
+        assertThrows(IllegalStateException.class, () -> suspended.resolveMovementEvent(event.id()));
+        assertThrows(IllegalStateException.class, () -> suspended.finishGroupTurn(nextGroup, false));
+
+        cycle = cycle.resumeAfterCombat(encounterId);
+        assertNull(cycle.linkedCombatEncounterId());
+        assertNull(cycle.currentGroupId());
+        cycle = cycle.resolveMovementEvent(event.id());
+        assertEquals(nextGroup, cycle.currentGroupId());
+        assertThrows(IllegalArgumentException.class, () -> suspended.resumeAfterCombat(UUID.randomUUID()));
+    }
+
     @Test void completedEnvironmentPhaseIsIdempotentAndUnknownGroupCannotFinishTurn() {
         UUID group = UUID.randomUUID();
         ExplorationCycle initial = ExplorationCycle.start(UUID.randomUUID(), Map.of(group, 12));
@@ -137,5 +160,24 @@ class ExplorationCycleTest {
         assertEquals(ExplorationCycle.EnvironmentPhase.DURATIONS_AND_DEADLINES, cycle.environmentPhase());
         assertThrows(IllegalArgumentException.class, () -> durationPhase.withEnvironmentProposal(
                 new ExplorationCycle.EnvironmentProposal("wrong phase", java.util.List.of(enemyMove))));
+    }
+
+    @Test void spatialFeatureInteractionsAreAcceptedOnlyDuringHazardsAndEnvironmentPhase() {
+        UUID group = UUID.randomUUID(), featureId = UUID.randomUUID();
+        ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(group, 12)).finishGroupTurn(group, false);
+        var interaction = java.util.List.of(new ExplorationCycle.FeatureInteraction(featureId));
+
+        ExplorationCycle enemyPhase = cycle;
+        assertThrows(IllegalArgumentException.class, () -> enemyPhase.withEnvironmentProposal(
+                new ExplorationCycle.EnvironmentProposal("wrong phase", java.util.List.of(), interaction, -1, false, null)));
+        cycle = cycle.completeEnvironmentPhase(cycle.currentPhaseCommandId());
+        assertEquals(ExplorationCycle.EnvironmentPhase.HAZARDS_AND_ENVIRONMENT, cycle.environmentPhase());
+        ExplorationCycle hazards = cycle;
+        assertDoesNotThrow(() -> hazards.withEnvironmentProposal(
+                new ExplorationCycle.EnvironmentProposal("allowed phase", java.util.List.of(), interaction, -1, false, null)));
+        cycle = cycle.completeEnvironmentPhase(cycle.currentPhaseCommandId());
+        ExplorationCycle durations = cycle;
+        assertThrows(IllegalArgumentException.class, () -> durations.withEnvironmentProposal(
+                new ExplorationCycle.EnvironmentProposal("wrong phase", java.util.List.of(), interaction, -1, false, null)));
     }
 }

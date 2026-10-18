@@ -24,7 +24,8 @@ public record ExplorationCycle(
         EnvironmentProposal pendingEnvironmentProposal,
         Set<UUID> completedEnvironmentActions,
         MovementStopEvent pendingMovementEvent,
-        Set<UUID> resolvedMovementEventIds) {
+        Set<UUID> resolvedMovementEventIds,
+        UUID linkedCombatEncounterId) {
 
     public enum Phase { GROUP_TURNS, ENVIRONMENT }
     public enum EnvironmentPhase { ENEMIES_PATROLS_AND_DETECTION, HAZARDS_AND_ENVIRONMENT, DURATIONS_AND_DEADLINES }
@@ -42,7 +43,8 @@ public record ExplorationCycle(
             @JsonProperty("pendingEnvironmentProposal") EnvironmentProposal pendingEnvironmentProposal,
             @JsonProperty("completedEnvironmentActions") Set<UUID> completedEnvironmentActions,
             @JsonProperty("pendingMovementEvent") MovementStopEvent pendingMovementEvent,
-            @JsonProperty("resolvedMovementEventIds") Set<UUID> resolvedMovementEventIds) {
+            @JsonProperty("resolvedMovementEventIds") Set<UUID> resolvedMovementEventIds,
+            @JsonProperty("linkedCombatEncounterId") UUID linkedCombatEncounterId) {
         this.id = Objects.requireNonNull(id, "cycle id must not be null");
         if (cycleNumber < 1 || elapsedSeconds < 0 || elapsedSeconds % 6 != 0)
             throw new IllegalArgumentException("cycle number and elapsed time are invalid");
@@ -58,6 +60,7 @@ public record ExplorationCycle(
         this.completedEnvironmentActions = Set.copyOf(Objects.requireNonNullElse(completedEnvironmentActions, Set.of()));
         this.pendingMovementEvent = pendingMovementEvent;
         this.resolvedMovementEventIds = Set.copyOf(Objects.requireNonNullElse(resolvedMovementEventIds, Set.of()));
+        this.linkedCombatEncounterId = linkedCombatEncounterId;
         if (this.groupOrder.isEmpty() || this.groupOrder.size() != this.initiativeByGroup.size()
                 || !new HashSet<>(this.groupOrder).equals(this.initiativeByGroup.keySet())
                 || this.groupOrder.stream().anyMatch(Objects::isNull)
@@ -88,7 +91,16 @@ public record ExplorationCycle(
             Set<UUID> completedEnvironmentActions, MovementStopEvent pendingMovementEvent) {
         this(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase, environmentPhase,
                 completedEnvironmentCommands, elapsedSeconds, pendingEnvironmentProposal, completedEnvironmentActions,
-                pendingMovementEvent, Set.of());
+                pendingMovementEvent, Set.of(), null);
+    }
+
+    public ExplorationCycle(UUID id, long cycleNumber, Map<UUID, Integer> initiativeByGroup, List<UUID> groupOrder,
+            Set<UUID> completedGroups, Phase phase, EnvironmentPhase environmentPhase,
+            Set<UUID> completedEnvironmentCommands, long elapsedSeconds, EnvironmentProposal pendingEnvironmentProposal,
+            Set<UUID> completedEnvironmentActions, MovementStopEvent pendingMovementEvent, Set<UUID> resolvedMovementEventIds) {
+        this(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase, environmentPhase,
+                completedEnvironmentCommands, elapsedSeconds, pendingEnvironmentProposal, completedEnvironmentActions,
+                pendingMovementEvent, resolvedMovementEventIds, null);
     }
 
     public record MovementStopEvent(UUID id, UUID groupId, UUID movementOperationId, String cause,
@@ -157,9 +169,11 @@ public record ExplorationCycle(
     }
 
     public UUID currentGroupId() {
-        if (phase != Phase.GROUP_TURNS || pendingMovementEvent != null) return null;
+        if (phase != Phase.GROUP_TURNS || pendingMovementEvent != null || linkedCombatEncounterId != null) return null;
         return groupOrder.stream().filter(id -> !completedGroups.contains(id)).findFirst().orElse(null);
     }
+
+    public UUID linkedCombatEncounterId() { return linkedCombatEncounterId; }
 
     @com.fasterxml.jackson.annotation.JsonProperty(value = "currentPhaseCommandId",
             access = com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)
@@ -176,20 +190,34 @@ public record ExplorationCycle(
         Objects.requireNonNull(proposal);
         if (environmentPhase != EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION && !proposal.enemyMoves().isEmpty())
             throw new IllegalArgumentException("enemy movement is allowed only during the enemy and patrol phase");
+        if (environmentPhase != EnvironmentPhase.HAZARDS_AND_ENVIRONMENT && !proposal.featureInteractions().isEmpty())
+            throw new IllegalArgumentException("spatial feature interactions are allowed only during the hazards and environment phase");
         if (pendingEnvironmentProposal != null && !pendingEnvironmentProposal.equals(proposal))
             throw new IllegalStateException("environment proposal is already persisted");
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
                 environmentPhase, completedEnvironmentCommands, elapsedSeconds, proposal, completedEnvironmentActions,
-                pendingMovementEvent, resolvedMovementEventIds);
+                pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId);
     }
 
     public ExplorationCycle linkCombatEncounter(UUID encounterId) {
-        if (phase != Phase.ENVIRONMENT || pendingEnvironmentProposal == null)
-            throw new IllegalStateException("environment encounter handoff is not pending");
-        EnvironmentProposal linked = pendingEnvironmentProposal.linkCombatEncounter(encounterId);
+        Objects.requireNonNull(encounterId);
+        if (linkedCombatEncounterId != null && !linkedCombatEncounterId.equals(encounterId))
+            throw new IllegalStateException("exploration cycle is already linked to another combat encounter");
+        EnvironmentProposal linked = pendingEnvironmentProposal;
+        if (linked != null && (linked.encounterRequested() || linked.linkedCombatEncounterId() != null))
+            linked = linked.linkCombatEncounter(encounterId);
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
                 environmentPhase, completedEnvironmentCommands, elapsedSeconds, linked, completedEnvironmentActions,
-                pendingMovementEvent, resolvedMovementEventIds);
+                pendingMovementEvent, resolvedMovementEventIds, encounterId);
+    }
+
+    public ExplorationCycle resumeAfterCombat(UUID encounterId) {
+        Objects.requireNonNull(encounterId);
+        if (!encounterId.equals(linkedCombatEncounterId))
+            throw new IllegalArgumentException("combat encounter does not match the suspended exploration cycle");
+        return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
+                environmentPhase, completedEnvironmentCommands, elapsedSeconds, pendingEnvironmentProposal,
+                completedEnvironmentActions, pendingMovementEvent, resolvedMovementEventIds, null);
     }
 
     public ExplorationCycle completeEnvironmentAction(UUID actionId) {
@@ -201,13 +229,14 @@ public record ExplorationCycle(
         completed.add(actionId);
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
                 environmentPhase, completedEnvironmentCommands, elapsedSeconds, pendingEnvironmentProposal, completed,
-                pendingMovementEvent, resolvedMovementEventIds);
+                pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId);
     }
 
     /** A stopping event closes this group's movement turn; no remaining route is replayed. */
     public ExplorationCycle finishGroupTurn(UUID groupId, boolean interrupted) {
         Objects.requireNonNull(groupId);
         if (!initiativeByGroup.containsKey(groupId)) throw new IllegalArgumentException("group is not in this cycle");
+        if (linkedCombatEncounterId != null) throw new IllegalStateException("exploration cycle is suspended for combat");
         if (phase != Phase.GROUP_TURNS) throw new IllegalStateException("group turns are not active");
         if (pendingMovementEvent != null) throw new IllegalStateException("movement event must be resolved before another group moves");
         if (completedGroups.contains(groupId)) return this;
@@ -216,11 +245,13 @@ public record ExplorationCycle(
         completed.add(groupId);
         Phase nextPhase = completed.size() == groupOrder.size() ? Phase.ENVIRONMENT : Phase.GROUP_TURNS;
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completed, nextPhase,
-                environmentPhase, completedEnvironmentCommands, elapsedSeconds, null, Set.of(), null, resolvedMovementEventIds);
+                environmentPhase, completedEnvironmentCommands, elapsedSeconds, null, Set.of(), null,
+                resolvedMovementEventIds, linkedCombatEncounterId);
     }
 
     public ExplorationCycle interruptGroupTurn(UUID groupId, MovementStopEvent event) {
         Objects.requireNonNull(event);
+        if (linkedCombatEncounterId != null) throw new IllegalStateException("exploration cycle is suspended for combat");
         if (!initiativeByGroup.containsKey(groupId) || !groupId.equals(event.groupId()))
             throw new IllegalArgumentException("movement event group is not in this cycle");
         if (resolvedMovementEventIds.contains(event.id())) return this;
@@ -234,11 +265,12 @@ public record ExplorationCycle(
         completed.add(groupId);
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completed, Phase.GROUP_TURNS,
                 environmentPhase, completedEnvironmentCommands, elapsedSeconds, pendingEnvironmentProposal,
-                completedEnvironmentActions, event, resolvedMovementEventIds);
+                completedEnvironmentActions, event, resolvedMovementEventIds, linkedCombatEncounterId);
     }
 
     public ExplorationCycle resolveMovementEvent(UUID eventId) {
         Objects.requireNonNull(eventId);
+        if (linkedCombatEncounterId != null) throw new IllegalStateException("exploration cycle is suspended for combat");
         if (resolvedMovementEventIds.contains(eventId)) return this;
         if (pendingMovementEvent == null || !pendingMovementEvent.id().equals(eventId))
             throw new IllegalArgumentException("movement event id is not pending");
@@ -246,7 +278,8 @@ public record ExplorationCycle(
         Set<UUID> resolved = new HashSet<>(resolvedMovementEventIds);
         resolved.add(eventId);
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, nextPhase,
-                environmentPhase, completedEnvironmentCommands, elapsedSeconds, null, Set.of(), null, resolved);
+                environmentPhase, completedEnvironmentCommands, elapsedSeconds, null, Set.of(), null, resolved,
+                linkedCombatEncounterId);
     }
 
     public boolean movementEventResolved(UUID eventId) { return resolvedMovementEventIds.contains(eventId); }
@@ -255,6 +288,7 @@ public record ExplorationCycle(
     public ExplorationCycle completeEnvironmentPhase(UUID commandId) {
         Objects.requireNonNull(commandId);
         if (phase != Phase.ENVIRONMENT) throw new IllegalStateException("environment phase is not active");
+        if (linkedCombatEncounterId != null) throw new IllegalStateException("exploration cycle is suspended for combat");
         if (pendingEnvironmentProposal != null && pendingEnvironmentProposal.encounterRequested())
             throw new IllegalStateException("environment encounter handoff must be linked to combat before the phase can continue");
         if (completedEnvironmentCommands.contains(commandId)) return this;
@@ -265,7 +299,8 @@ public record ExplorationCycle(
         int nextIndex = environmentPhase.ordinal() + 1;
         if (nextIndex < phases.length) {
             return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, Phase.ENVIRONMENT,
-                    phases[nextIndex], completed, elapsedSeconds, null, Set.of(), null, resolvedMovementEventIds);
+                    phases[nextIndex], completed, elapsedSeconds, null, Set.of(), null, resolvedMovementEventIds,
+                    linkedCombatEncounterId);
         }
         return new ExplorationCycle(id, cycleNumber + 1, initiativeByGroup, groupOrder, Set.of(), Phase.GROUP_TURNS,
                 EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION, completed, elapsedSeconds + 6, null, Set.of());
