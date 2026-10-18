@@ -873,7 +873,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
               const identity = createMapCommandIdentity().commandId
               void saveGroups([...explorationGroups.filter(candidate => candidate.id !== group.id),
                 { ...group, members: group.members.filter(member => member.characterSheetId !== moved.characterSheetId) },
-                { id: identity, mapTokenId: identity, speed: moved.speed, members: [{ ...moved, formation: 'FRONT' }] }])
+                { id: identity, mapTokenId: identity, speed: moved.speed, members: [moved] }])
             }}>현재 위치에서 분리</button>
             </label>}
           </fieldset>
