@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.application.combat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -146,6 +147,91 @@ class PreparedMapEntryCommitGateTest {
                         && message.contains("situationId=cellar-entry")
                         && message.contains("mapDefinitionId=" + mapId)
                         && message.contains("entryEvidenceChars=")));
+    }
+
+    @Test
+    void rejects_an_unresolved_destination_instead_of_activating_a_previously_prepared_map() {
+        Adventure adventure = adventureAt("cellar");
+        UUID packageId = UUID.randomUUID();
+        when(adventure.lockedScenarioPackageId()).thenReturn(packageId);
+        var story = mock(com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState.class);
+        when(adventure.storyRuntimeState()).thenReturn(story);
+        when(story.activeSituationId()).thenReturn("current-entry");
+        when(story.stageId()).thenReturn("stage-1");
+        when(story.backboneRevision()).thenReturn(1L);
+        when(story.detailedStageRevision()).thenReturn(1L);
+        var current = mock(SituationDefinition.class);
+        when(current.situationId()).thenReturn("current-entry");
+        var stage = mock(com.dndmaster.adventure.domain.scenario.DetailedStage.class);
+        when(stage.situations()).thenReturn(List.of(current));
+        StageArtifactRepository artifacts = mock(StageArtifactRepository.class);
+        when(artifacts.findDetailedStage(any(), eq(packageId), eq("stage-1"), eq(1L), eq(1L)))
+                .thenReturn(java.util.Optional.of(stage));
+        ScenarioPackageRepository packages = mock(ScenarioPackageRepository.class);
+        CombatMapViewPort mapView = mock(CombatMapViewPort.class);
+        when(mapView.hasPreparedMap(adventure.id().value(), adventure.ownerPlayerId().value())).thenReturn(true);
+        CombatMapPreparationPort mapPreparation = mock(CombatMapPreparationPort.class);
+        RuntimeTurn turn = turnFrom("cellar", true, false);
+        PendingRuntimeState pending = mock(PendingRuntimeState.class);
+        when(pending.selectedSituationId()).thenReturn("missing-destination");
+        when(turn.pendingState()).thenReturn(pending);
+
+        assertThrows(IllegalStateException.class, () -> new PreparedMapEntryCommitGate(
+                mapView, mapPreparation, packages, artifacts).beforeCommit(adventure, turn));
+
+        verify(mapPreparation, never()).activatePrepared(any(), any(), any(), any(int.class), any());
+        assertTrue(diagnostics.list.stream().map(ILoggingEvent::getFormattedMessage)
+                .anyMatch(message -> message.contains("operation=situation_map_entry")
+                        && message.contains("outcome=failed")
+                        && message.contains("expectedSituationId=missing-destination")
+                        && message.contains("actualSituationId=null")
+                        && message.contains("recoveryAction=reject_turn")));
+    }
+
+    @Test
+    void reports_expected_map_identity_when_a_map_needed_situation_has_no_usable_map() {
+        Adventure adventure = adventureAt("cellar");
+        UUID packageId = UUID.randomUUID();
+        UUID mapId = UUID.randomUUID();
+        when(adventure.lockedScenarioPackageId()).thenReturn(packageId);
+        var story = mock(com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState.class);
+        when(adventure.storyRuntimeState()).thenReturn(story);
+        when(story.activeSituationId()).thenReturn("cellar-entry");
+        when(story.stageId()).thenReturn("stage-1");
+        when(story.backboneRevision()).thenReturn(1L);
+        when(story.detailedStageRevision()).thenReturn(1L);
+        var situation = mock(SituationDefinition.class);
+        when(situation.situationId()).thenReturn("cellar-entry");
+        when(situation.mapNeeded()).thenReturn(true);
+        when(situation.mapDefinitionId()).thenReturn(mapId);
+        var stage = mock(com.dndmaster.adventure.domain.scenario.DetailedStage.class);
+        when(stage.situations()).thenReturn(List.of(situation));
+        StageArtifactRepository artifacts = mock(StageArtifactRepository.class);
+        when(artifacts.findDetailedStage(any(), eq(packageId), eq("stage-1"), eq(1L), eq(1L)))
+                .thenReturn(java.util.Optional.of(stage));
+        MapDefinition unusableMap = mock(MapDefinition.class);
+        when(unusableMap.id()).thenReturn(mapId);
+        when(unusableMap.autoActivatable()).thenReturn(false);
+        ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);
+        when(scenarioPackage.mapDefinitions()).thenReturn(List.of(unusableMap));
+        ScenarioPackageRepository packages = mock(ScenarioPackageRepository.class);
+        when(packages.findById(packageId)).thenReturn(java.util.Optional.of(scenarioPackage));
+        RuntimeTurn turn = turnFrom("cellar", false, false);
+        PendingRuntimeState pending = mock(PendingRuntimeState.class);
+        when(pending.selectedSituationId()).thenReturn("cellar-entry");
+        when(turn.pendingState()).thenReturn(pending);
+
+        assertThrows(IllegalStateException.class, () -> new PreparedMapEntryCommitGate(
+                mock(CombatMapViewPort.class), mock(CombatMapPreparationPort.class), packages, artifacts)
+                .beforeCommit(adventure, turn));
+
+        assertTrue(diagnostics.list.stream().map(ILoggingEvent::getFormattedMessage)
+                .anyMatch(message -> message.contains("operation=situation_map_entry")
+                        && message.contains("outcome=failed")
+                        && message.contains("situationId=cellar-entry")
+                        && message.contains("expectedMapDefinitionId=" + mapId)
+                        && message.contains("failureClass=usable_map_unavailable")
+                        && message.contains("recoveryAction=reject_turn")));
     }
 
     @Test

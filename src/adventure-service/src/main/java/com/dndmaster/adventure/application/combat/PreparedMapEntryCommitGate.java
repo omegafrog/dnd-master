@@ -50,6 +50,24 @@ public final class PreparedMapEntryCommitGate implements RuntimeTurnCommitGate {
                         .filter(candidate -> candidate.situationId().equals(storyState.activeSituationId()))
                         .filter(candidate -> selectedSituationId == null || candidate.situationId().equals(selectedSituationId))
                         .findFirst().orElse(null);
+        boolean situationDriven = storyState != null && packageRepository != null && stageArtifactRepository != null;
+        if (situationDriven && target == null) {
+            if (selectedSituationId != null || storyState.activeSituationId() != null || openingSituation) {
+                String expectedSituationId = selectedSituationId != null ? selectedSituationId
+                        : openingSituation ? "opening" : storyState.activeSituationId();
+                if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                    org.slf4j.LoggerFactory.getLogger(getClass()).error(
+                            "dev_flow operation=situation_map_entry outcome=failed adventureId={} stageId={} expectedSituationId={} actualSituationId=null expectedMapDefinitionId=unknown actualMapDefinitionId=null recoveryAction=reject_turn failureClass=MissingSituationDefinition",
+                            adventure.id().value(), storyState.stageId(), expectedSituationId);
+                }
+                throw new IllegalStateException("destination situation is unavailable for map entry: " + expectedSituationId);
+            }
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                    org.slf4j.LoggerFactory.getLogger(getClass()), "situation_map_entry_deactivate",
+                    "adventureId=" + adventure.id().value() + " situationId=null mapNeeded=false",
+                    () -> mapPreparation.deactivateForMaplessSituation(adventure.id(), adventure.ownerPlayerId().value()));
+            return;
+        }
         if (target != null && !target.mapNeeded()) {
             String context = "adventureId=" + adventure.id().value() + " situationId=" + target.situationId()
                     + " mapNeeded=false sceneChars=" + blank(destinationScene).length();
@@ -64,11 +82,14 @@ public final class PreparedMapEntryCommitGate implements RuntimeTurnCommitGate {
             return;
         }
         if (target != null) {
-            ScenarioPackage scenarioPackage = packageRepository.findById(adventure.lockedScenarioPackageId())
-                    .orElseThrow(() -> new IllegalStateException("scenario package unavailable for situation map entry"));
+            ScenarioPackage scenarioPackage = packageRepository.findById(adventure.lockedScenarioPackageId()).orElse(null);
+            if (scenarioPackage == null) throw mapEntryFailure(adventure, target.situationId(), target.mapDefinitionId(),
+                    "scenario_package_unavailable", "scenario package unavailable for situation map entry");
             var map = scenarioPackage.mapDefinitions().stream().filter(candidate -> candidate.id().equals(target.mapDefinitionId()))
                     .filter(com.dndmaster.adventure.domain.scenario.MapDefinition::autoActivatable).findFirst()
-                    .orElseThrow(() -> new IllegalStateException("map-needed situation has no usable map definition"));
+                    .orElse(null);
+            if (map == null) throw mapEntryFailure(adventure, target.situationId(), target.mapDefinitionId(),
+                    "usable_map_unavailable", "map-needed situation has no usable map definition");
             var draftContext = entryContext(adventure, turn, destinationScene);
             String context = "adventureId=" + adventure.id().value() + " situationId=" + target.situationId()
                     + " mapDefinitionId=" + map.id() + " entryEvidenceChars=" + draftContext.entryEvidence().length();
@@ -108,6 +129,16 @@ public final class PreparedMapEntryCommitGate implements RuntimeTurnCommitGate {
         return new CombatMapPreparationPort.ActivationContext(null, adventure.currentSituation().situationId(),
                 adventure.currentSituation().revision(), adventure.turnIndex(), adventure.currentContext().currentScene(),
                 location, null, null, "FIRST_NARRATION=" + narration);
+    }
+
+    private IllegalStateException mapEntryFailure(Adventure adventure, String situationId, UUID mapDefinitionId,
+            String failureClass, String message) {
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            org.slf4j.LoggerFactory.getLogger(getClass()).error(
+                    "dev_flow operation=situation_map_entry outcome=failed adventureId={} situationId={} expectedMapDefinitionId={} actualMapDefinitionId=null failureClass={} recoveryAction=reject_turn",
+                    adventure.id().value(), situationId, mapDefinitionId, failureClass);
+        }
+        return new IllegalStateException(message);
     }
 
     private static String blank(String value) { return value == null ? "" : value; }
