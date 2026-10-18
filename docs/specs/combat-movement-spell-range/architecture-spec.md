@@ -41,6 +41,7 @@
 | 정의 검토·수정·승인 | Scenario Preparation / 사용자 | 출처 추적 가능한 모험별 승인 정의; 모험 시작 전에 Bundle Lock |
 | Spell Preview | Adventure Runtime | 공개된 범위·대상·비용·요구 선택; 어떠한 상태·자원 변경도 없음 |
 | Spell Execute | Adventure Runtime / `CombatEncounter` | 멱등 명령 결과, 기본 효과·비용 한 번 반영 |
+| Recovery adjudication | Adventure Runtime / Character Management | 인증된 Runtime은 성공한 GM 회복 판정 뒤 판정 참조와 `CONFIRMED`를 전달하며, Character Management는 이 내부 호출을 신뢰해 저장된 회복 조건·명령 멱등성을 검증한다. 별도 판정 저장소 조회는 하지 않음 |
 | 환경 작업 요청/오류 | `GmAgentRuntimePlanningAdapter`, 기존 GM 도구 게이트웨이 | 권한·지원·스키마 검사 후 명령 결과; 실패한 호출·구조화 오류·현재 허용 목록과 제약은 수정 정보로 GM에 반환 |
 | 이동 Preview/Operation | Combat Map + Adventure Runtime | 지도 경로·비용 미리보기; 실제 도달 단계만 이동량으로 반영 |
 ## 2.3 Hotspots

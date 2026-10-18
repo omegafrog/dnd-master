@@ -195,24 +195,42 @@ public final class CharacterSheetApplicationService {
         String fingerprint = resourceCommandFingerprint(id, sessionId, ownerPlayerId,
                 "SET|" + idKey + "|" + abilities + "|" + current + "|" + maximum + "|" + recoveryCondition
                         + (sourceDefinition == null || sourceDefinition.isNull() ? "" : "|SOURCE=" + sourceDefinition));
-        CharacterSheet existingSheet = load(id);
-        if (!existingSheet.sessionId().equals(sessionId) || !Objects.equals(existingSheet.ownerPlayerId(), ownerPlayerId))
-            throw new IllegalStateException("character sheet belongs to another session or owner");
-        if (!sessionPolicyPort.policyFor(existingSheet.adventureId(), existingSheet.id()).runtimeMutationsAllowed())
-            throw new IllegalStateException("runtime character mutations are not allowed");
-        CharacterSheet replay = repository.findByCommandId(commandId).orElse(null);
+        final CharacterSheet existingSheet;
+        final CharacterSheet replay;
+        long actualVersion = -1;
+        try {
+            existingSheet = load(id);
+            actualVersion = existingSheet.version();
+            if (!existingSheet.sessionId().equals(sessionId) || !Objects.equals(existingSheet.ownerPlayerId(), ownerPlayerId))
+                throw new IllegalStateException("character sheet belongs to another session or owner");
+            if (!sessionPolicyPort.policyFor(existingSheet.adventureId(), existingSheet.id()).runtimeMutationsAllowed())
+                throw new IllegalStateException("runtime character mutations are not allowed");
+            replay = repository.findByCommandId(commandId).orElse(null);
+            if (replay != null && !fingerprint.equals(replay.operationFingerprint()))
+                throw new IllegalStateException("character sheet command id reused with different payload");
+            if (replay == null && existingSheet.version() != expectedVersion) throw new IllegalStateException("character sheet version does not match");
+        } catch (RuntimeException failure) {
+            CharacterResourceDiagnostics.fail(LOGGER, started, String.valueOf(commandId), expectedVersion, actualVersion, failure);
+            throw failure;
+        }
         if (replay != null) {
-            if (!fingerprint.equals(replay.operationFingerprint())) throw new IllegalStateException("character sheet command id reused with different payload");
-            abilityLearningPreparationPort.activate(existingSheet.adventureId().value(), sessionId, ownerPlayerId, id, abilities);
+            try {
+                abilityLearningPreparationPort.activate(existingSheet.adventureId().value(), sessionId, ownerPlayerId, id, abilities);
+            } catch (RuntimeException failure) {
+                CharacterResourceDiagnostics.fail(LOGGER, started, String.valueOf(commandId), expectedVersion, actualVersion, failure);
+                throw failure;
+            }
+            CharacterResourceDiagnostics.complete(LOGGER, started, commandId.toString(), "replay", expectedVersion, replay.version());
             return replay;
         }
-        if (existingSheet.version() != expectedVersion) throw new IllegalStateException("character sheet version does not match");
         java.util.Set<String> learnedBefore = new java.util.HashSet<>();
         try {
             JsonNode previous = JSON.readTree(existingSheet.data().characterState()).path("learnedAbilityIds");
             if (previous.isArray()) previous.forEach(value -> { if (value.isTextual()) learnedBefore.add(value.asText()); });
         } catch (java.io.IOException failure) {
-            throw new IllegalArgumentException("saved learned ability IDs are invalid", failure);
+            IllegalArgumentException wrapped = new IllegalArgumentException("saved learned ability IDs are invalid", failure);
+            CharacterResourceDiagnostics.fail(LOGGER, started, String.valueOf(commandId), expectedVersion, actualVersion, wrapped);
+            throw wrapped;
         }
         List<String> newlyLearned = abilities.stream().filter(value -> !learnedBefore.contains(value)).toList();
         if (!newlyLearned.isEmpty()) {
@@ -256,7 +274,8 @@ public final class CharacterSheetApplicationService {
     }
 
     public CharacterSheet changeAbilityResource(CharacterSheetId id, SessionId sessionId, UUID ownerPlayerId,
-            String resourceId, int amount, String recoveryCondition, boolean recover, UUID commandId, long expectedVersion) {
+            String resourceId, int amount, String recoveryCondition, boolean recover, String recoveryAdjudicationId,
+            boolean recoveryConfirmed, UUID commandId, long expectedVersion) {
         long started = CharacterResourceDiagnostics.begin(LOGGER, String.valueOf(commandId), safeResourceId(resourceId),
                 amount, expectedVersion);
         if (resourceId == null || resourceId.isBlank() || amount < 1 || recover && (recoveryCondition == null || recoveryCondition.isBlank())) {
@@ -270,8 +289,13 @@ public final class CharacterSheetApplicationService {
             CharacterResourceDiagnostics.fail(LOGGER, started, "null", expectedVersion, -1, failure);
             throw failure;
         }
+        if (recover && (recoveryAdjudicationId == null || recoveryAdjudicationId.isBlank() || !recoveryConfirmed)) {
+            IllegalArgumentException failure = new IllegalArgumentException("회복에는 확인된 모험 진행 판정 참조가 필요합니다.");
+            CharacterResourceDiagnostics.fail(LOGGER, started, String.valueOf(commandId), expectedVersion, -1, failure);
+            throw failure;
+        }
         String fingerprint = resourceCommandFingerprint(id, sessionId, ownerPlayerId,
-                (recover ? "RECOVER|" + recoveryCondition : "CONSUME") + "|" + idKey + "|" + amount);
+                (recover ? "RECOVER|" + recoveryCondition + "|" + recoveryAdjudicationId.trim() + "|confirmed=" + recoveryConfirmed : "CONSUME") + "|" + idKey + "|" + amount);
         return applyResourceChange(id, sessionId, ownerPlayerId, commandId, expectedVersion, fingerprint, started, state -> {
             JsonNode resources = state.get("resources");
             JsonNode found = resources == null ? null : resources.get(idKey);

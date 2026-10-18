@@ -79,7 +79,8 @@ class CharacterSheetControllerTest {
         when(service.updateAbilityResource(any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyInt(),
                 org.mockito.ArgumentMatchers.anyInt(), any(), any(), org.mockito.ArgumentMatchers.anyLong())).thenReturn(sheet);
         when(service.changeAbilityResource(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyInt(), any(),
-                org.mockito.ArgumentMatchers.anyBoolean(), any(), org.mockito.ArgumentMatchers.anyLong())).thenReturn(sheet);
+                org.mockito.ArgumentMatchers.anyBoolean(), any(), org.mockito.ArgumentMatchers.anyBoolean(), any(),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(sheet);
 
         mockMvc.perform(put("/internal/v1/character-sheets/{sheetId}/resources/{resourceId}", sheetId, "arcane-charge")
                         .header("X-Internal-Token", "internal").header("X-Session-ID", sessionId).header("X-Owner-Player-ID", ownerId)
@@ -89,14 +90,33 @@ class CharacterSheetControllerTest {
         mockMvc.perform(post("/internal/v1/character-sheets/{sheetId}/resources/{resourceId}/recover", sheetId, "arcane-charge")
                         .header("X-Internal-Token", "internal").header("X-Session-ID", sessionId).header("X-Owner-Player-ID", ownerId)
                         .header("Idempotency-Key", commandId).header("If-Match-Version", "2").contentType("application/json")
-                        .content("{\"amount\":1,\"recoveryCondition\":\"LONG_REST\"}"))
+                        .content("{\"amount\":1,\"recoveryCondition\":\"LONG_REST\",\"recoveryAdjudicationId\":\"runtime-adjudication-1\",\"recoveryConfirmed\":true}"))
                 .andExpect(status().isOk());
 
         verify(requestGuard, org.mockito.Mockito.times(2)).internal("internal");
         verify(service).updateAbilityResource(new CharacterSheetId(sheetId), new SessionId(sessionId), ownerId,
                 "arcane-charge", java.util.List.of("ability:blink"), 2, 3, "LONG_REST", commandId, 2);
         verify(service).changeAbilityResource(new CharacterSheetId(sheetId), new SessionId(sessionId), ownerId,
-                "arcane-charge", 1, "LONG_REST", true, commandId, 2);
+                "arcane-charge", 1, "LONG_REST", true, "runtime-adjudication-1", true, commandId, 2);
+    }
+
+    @Test
+    void rejects_recovery_without_confirmed_runtime_adjudication() throws Exception {
+        UUID sheetId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        when(service.changeAbilityResource(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyInt(), any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any(), org.mockito.ArgumentMatchers.anyBoolean(), any(),
+                org.mockito.ArgumentMatchers.anyLong())).thenThrow(new IllegalArgumentException("recovery adjudication required"));
+        mockMvc.perform(post("/internal/v1/character-sheets/{sheetId}/resources/{resourceId}/recover", sheetId, "arcane-charge")
+                        .header("X-Internal-Token", "internal").header("X-Session-ID", sessionId)
+                        .header("X-Owner-Player-ID", ownerId).header("Idempotency-Key", commandId)
+                        .header("If-Match-Version", "1").contentType("application/json")
+                        .content("{\"amount\":1,\"recoveryCondition\":\"LONG_REST\"}"))
+                .andExpect(status().isBadRequest());
+        verify(service).changeAbilityResource(new CharacterSheetId(sheetId), new SessionId(sessionId), ownerId,
+                "arcane-charge", 1, "LONG_REST", true, null, false, commandId, 1);
     }
 
     @Test

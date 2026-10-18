@@ -307,12 +307,18 @@ class CharacterSheetApplicationServiceTest {
         assertEquals(0, repository.findById(otherSheet.id()).orElseThrow().version());
         UUID consumeCommand = UUID.randomUUID();
         CharacterSheet consumed = service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
-                "arcane-charge", 1, null, false, consumeCommand, 1);
+                "arcane-charge", 1, null, false, null, false, consumeCommand, 1);
         CharacterSheet replay = service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
-                "arcane-charge", 1, null, false, consumeCommand, 1);
+                "arcane-charge", 1, null, false, null, false, consumeCommand, 1);
         assertEquals(consumed.version(), replay.version());
+        UUID recoveryCommand = UUID.randomUUID();
         CharacterSheet recovered = service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
-                "arcane-charge", 5, "LONG_REST", true, UUID.randomUUID(), 2);
+                "arcane-charge", 5, "LONG_REST", true, "runtime-adjudication-1", true, recoveryCommand, 2);
+        CharacterSheet recoveryReplay = service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
+                "arcane-charge", 5, "LONG_REST", true, "runtime-adjudication-1", true, recoveryCommand, 2);
+        assertEquals(recovered.version(), recoveryReplay.version());
+        assertThrows(IllegalStateException.class, () -> service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
+                "arcane-charge", 5, "LONG_REST", true, "runtime-adjudication-2", true, recoveryCommand, 2));
         var state = new com.fasterxml.jackson.databind.ObjectMapper().readTree(recovered.data().characterState());
         assertEquals(3, state.path("resources").path("arcane-charge").path("current").intValue());
         assertEquals("ability:blink", state.path("learnedAbilityIds").get(0).asText());
@@ -336,9 +342,13 @@ class CharacterSheetApplicationServiceTest {
         repository.save(sheet);
         service.updateAbilityResource(sheet.id(), sheet.sessionId(), owner, "charge", List.of(), 0, 2, "LONG_REST", UUID.randomUUID(), 0);
         assertThrows(IllegalArgumentException.class, () -> service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
-                "charge", 1, null, false, UUID.randomUUID(), 1));
+                "charge", 1, null, false, null, false, UUID.randomUUID(), 1));
         assertThrows(IllegalArgumentException.class, () -> service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
-                "charge", 1, "SHORT_REST", true, UUID.randomUUID(), 1));
+                "charge", 1, "SHORT_REST", true, "runtime-adjudication-2", true, UUID.randomUUID(), 1));
+        assertThrows(IllegalArgumentException.class, () -> service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
+                "charge", 1, "LONG_REST", true, null, false, UUID.randomUUID(), 1));
+        assertThrows(IllegalArgumentException.class, () -> service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
+                "charge", 1, "LONG_REST", true, "runtime-adjudication-3", false, UUID.randomUUID(), 1));
         assertEquals(1, repository.findById(sheet.id()).orElseThrow().version());
     }
 
@@ -373,13 +383,33 @@ class CharacterSheetApplicationServiceTest {
                     1, 2, "LONG_REST", commandId, 0);
             UUID failedCommandId = UUID.randomUUID();
             assertThrows(IllegalArgumentException.class, () -> service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
-                    "charge", 0, null, false, failedCommandId, 1));
+                    "charge", 0, null, false, null, false, failedCommandId, 1));
             String output = String.join("\n", records);
             assertTrue(output.contains(commandId.toString()));
             assertTrue(output.contains("branch=updated"));
             assertTrue(output.contains("outcome=started"));
             assertTrue(output.contains("expectedVersion=0"));
             assertTrue(output.contains("actualVersion=1"));
+
+            UUID unauthorizedUpdate = UUID.randomUUID();
+            assertThrows(IllegalStateException.class, () -> service.updateAbilityResource(sheet.id(), sheet.sessionId(),
+                    UUID.randomUUID(), "charge", List.of("ability:test"), 1, 2, "LONG_REST", unauthorizedUpdate, 1));
+            String preflightRecord = records.stream()
+                    .filter(line -> line.contains(unauthorizedUpdate.toString()) && line.contains("outcome=failed"))
+                    .findFirst().orElseThrow();
+            assertTrue(preflightRecord.contains("expectedVersion=1"));
+            assertTrue(preflightRecord.contains("actualVersion=1"));
+            assertTrue(preflightRecord.contains("failureClass=IllegalStateException"));
+            UUID unconfirmedRecovery = UUID.randomUUID();
+            assertThrows(IllegalArgumentException.class, () -> service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
+                    "charge", 1, "LONG_REST", true, null, false, unconfirmedRecovery, 1));
+            String recoveryRecord = records.stream()
+                    .filter(line -> line.contains(unconfirmedRecovery.toString()) && line.contains("outcome=failed"))
+                    .findFirst().orElseThrow();
+            assertTrue(records.stream().anyMatch(line -> line.contains(unconfirmedRecovery.toString())
+                    && line.contains("outcome=started") && line.contains("resourceId=charge")));
+            assertTrue(recoveryRecord.contains("expectedVersion=1"));
+            assertTrue(recoveryRecord.contains("failureClass=IllegalArgumentException"));
             String failedRecord = records.stream()
                     .filter(line -> line.contains(failedCommandId.toString()) && line.contains("outcome=failed"))
                     .findFirst().orElseThrow();

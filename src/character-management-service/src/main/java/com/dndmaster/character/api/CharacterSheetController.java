@@ -202,9 +202,16 @@ public class CharacterSheetController {
         if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
         requestGuard.internal(internalToken);
         if (!action.equals("consume") && !action.equals("recover")) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        return CharacterSheetResponse.from(characterSheetService.changeAbilityResource(new CharacterSheetId(sheetId),
-                new SessionId(sessionId), ownerPlayerId, resourceId, request.amount(), request.recoveryCondition(),
-                action.equals("recover"), commandId, expectedVersion));
+        try {
+            return CharacterSheetResponse.from(characterSheetService.changeAbilityResource(new CharacterSheetId(sheetId),
+                    new SessionId(sessionId), ownerPlayerId, resourceId, request.amount(), request.recoveryCondition(),
+                    action.equals("recover"), request.recoveryAdjudicationId(), request.recoveryConfirmed(), commandId, expectedVersion));
+        } catch (IllegalArgumentException failure) {
+            if (action.equals("recover") && (!request.recoveryConfirmed() || request.recoveryAdjudicationId() == null || request.recoveryAdjudicationId().isBlank())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, failure.getMessage(), failure);
+            }
+            throw failure;
+        }
     }
 
     @GetMapping("/internal/v1/character-sheets")
@@ -331,7 +338,9 @@ public class CharacterSheetController {
             this(abilityIds, current, maximum, recoveryCondition, null);
         }
     }
-    public record AbilityResourceChangeRequest(int amount, String recoveryCondition) {}
+    /** Runtime must supply its successful recovery decision before the sheet applies the saved condition. */
+    public record AbilityResourceChangeRequest(int amount, String recoveryCondition,
+                                               String recoveryAdjudicationId, boolean recoveryConfirmed) {}
     public record RuntimeCharacterMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems,
             List<String> removeItems, int consumeSpellSlotLevel, Integer deathSavingThrowRoll) {
         public RuntimeCharacterMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems, List<String> removeItems) {
