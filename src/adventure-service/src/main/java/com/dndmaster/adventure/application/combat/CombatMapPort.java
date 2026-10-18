@@ -42,6 +42,17 @@ public interface CombatMapPort {
         throw new UnsupportedOperationException("spatial duration advance is unavailable");
     }
 
+    default void advanceGameTime(CombatMapGameTimeCommand command) {
+        throw new UnsupportedOperationException("game time advance is unavailable");
+    }
+
+    default long moveEnemyForEnvironment(CombatMapEnemyMovementCommand command) {
+        throw new UnsupportedOperationException("environment enemy movement is unavailable");
+    }
+    default void validateEnemyForEnvironment(CombatMapEnemyMovementCommand command) {
+        throw new UnsupportedOperationException("environment enemy movement validation is unavailable");
+    }
+
     /** Player-owned spatial checks are rolled by the typed dice gateway before map resume. */
     default int rollSpatialCheck(SpatialCheckRollCommand command) {
         throw new UnsupportedOperationException("spatial check dice roll is unavailable");

@@ -1644,6 +1644,28 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertEquals("", response.combatEnemies().get(0).scenarioId());
     }
 
+    @Test
+    void exploration_environment_requires_typed_enemy_routes_and_rejects_duplicate_tokens() {
+        String valid = "{\"narration\":\"순찰병이 복도를 따라 이동합니다.\",\"enemyMoves\":[{\"tokenId\":\""
+                + UUID.randomUUID() + "\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}]}";
+        TypedAgentContractController controller = new TypedAgentContractController(
+                selectedAdapter((operation, prompt, requested) -> valid), new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        var request = new TypedAgentContractController.ExplorationEnvironmentRequest(SOLO_PLAYER_ID, "phase-1",
+                SELECTED_ENDPOINT_ID, "openai", "gpt-5", "low", SELECTED_ENDPOINT_ID,
+                "1970-01-01T00:00:00Z", "openai", "gpt-5", "phase input");
+        var result = controller.explorationEnvironment("service-secret", request);
+        org.junit.jupiter.api.Assertions.assertEquals(1, result.enemyMoves().size());
+        org.junit.jupiter.api.Assertions.assertEquals(2, result.enemyMoves().getFirst().path().size());
+
+        String duplicate = "{\"narration\":\"순찰병이 이동합니다.\",\"enemyMoves\":["
+                + "{\"tokenId\":\"00000000-0000-0000-0000-000000000001\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]},"
+                + "{\"tokenId\":\"00000000-0000-0000-0000-000000000001\",\"path\":[{\"x\":1,\"y\":1},{\"x\":1,\"y\":2}]}]}";
+        TypedAgentContractController invalid = new TypedAgentContractController(
+                selectedAdapter((operation, prompt, requested) -> duplicate), new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> invalid.explorationEnvironment("service-secret", request));
+    }
+
     private static GmCompletionAdapter emptyAdapter() {
         return new GmCompletionAdapter() {
             @Override

@@ -5,11 +5,57 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.combatmap.application.movement.*;
+import com.dndmaster.combatmap.application.view.MapOwnerId;
 import com.dndmaster.combatmap.domain.*;
 import java.util.*;
 import org.junit.jupiter.api.Test;
 
 class CombatMapMovementTest {
+    @Test
+    void environment_enemy_route_is_validated_and_replayed_once() {
+        Fixture fixture = new Fixture();
+        var command = new MoveEnemyTokenCommand(fixture.map.id(), new MapOwnerId(fixture.player.value()),
+                fixture.enemyToken.id(), new MovementPath(List.of(new GridPosition(4, 4),
+                        new GridPosition(3, 4), new GridPosition(2, 4)), 10), "5E", fixture.commandId, 0);
+
+        CombatMap first = fixture.service(10).moveEnemyToken(command);
+        CombatMap replay = fixture.service(10).moveEnemyToken(command);
+
+        assertEquals(new GridPosition(2, 4), replay.token(fixture.enemyToken.id()).orElseThrow().position());
+        assertEquals(1, fixture.saves);
+        assertThrows(MovementCommandConflictException.class, () -> fixture.service(10).moveEnemyToken(
+                new MoveEnemyTokenCommand(fixture.map.id(), new MapOwnerId(fixture.player.value()), fixture.enemyToken.id(),
+                        new MovementPath(List.of(new GridPosition(4, 4), new GridPosition(4, 3), new GridPosition(3, 3)), 10),
+                        "5E", fixture.commandId, 0)));
+    }
+
+    @Test
+    void environment_enemy_route_rejects_wall_crossing_and_player_tokens() {
+        Fixture fixture = new Fixture();
+        var crossesWall = new MoveEnemyTokenCommand(fixture.map.id(), new MapOwnerId(fixture.player.value()),
+                fixture.enemyToken.id(), new MovementPath(List.of(new GridPosition(4, 4), new GridPosition(3, 4),
+                        new GridPosition(3, 3), new GridPosition(2, 3), new GridPosition(1, 3),
+                        new GridPosition(1, 2)), 25), "5E", UUID.randomUUID(), 0);
+        assertThrows(CombatMapMovementDeniedException.class, () -> fixture.service(30).moveEnemyToken(crossesWall));
+        var playerMove = new MoveEnemyTokenCommand(fixture.map.id(), new MapOwnerId(fixture.player.value()),
+                fixture.playerToken.id(), new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), 5),
+                "5E", UUID.randomUUID(), 0);
+        assertThrows(CombatMapMovementDeniedException.class, () -> fixture.service(30).moveEnemyToken(playerMove));
+    }
+
+    @Test
+    void environment_routes_can_all_be_validated_before_any_route_changes_map_state() {
+        Fixture fixture = new Fixture();
+        var command = new MoveEnemyTokenCommand(fixture.map.id(), new MapOwnerId(fixture.player.value()),
+                fixture.enemyToken.id(), new MovementPath(List.of(new GridPosition(4, 4),
+                        new GridPosition(3, 4)), 5), "5E", UUID.randomUUID(), 0);
+
+        fixture.service(10).validateEnemyTokenMovement(command);
+
+        assertEquals(new GridPosition(4, 4), fixture.map.token(fixture.enemyToken.id()).orElseThrow().position());
+        assertEquals(0, fixture.saves);
+    }
+
     @Test
     void moves_only_owned_player_token_within_applied_edition_allowance() {
         Fixture fixture = new Fixture();
@@ -229,11 +275,11 @@ class CombatMapMovementTest {
                 new MapId(UUID.randomUUID()),
                 new AdventureId(UUID.randomUUID()),
                 new RuleSetId(UUID.randomUUID()),
-                new GridSpec(10, 10, 50, 5),
+                new GridSpec(10, 10, 50, 5), player,
                 List.of(playerToken, enemyToken),
                 List.of(new GridPosition(1, 2)),
                 List.of(new MapLayer("LIGHT", "bright", LayerVisibility.PLAYER_VISIBLE),
-                        new MapLayer("FOG", "hidden", LayerVisibility.AI_ONLY)));
+                        new MapLayer("FOG", "hidden", LayerVisibility.AI_ONLY)), 0, null);
         int saves;
         final Map<UUID, CombatMap> history = new HashMap<>();
 

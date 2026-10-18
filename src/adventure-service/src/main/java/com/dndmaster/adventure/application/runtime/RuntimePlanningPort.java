@@ -3,6 +3,11 @@ package com.dndmaster.adventure.application.runtime;
 public interface RuntimePlanningPort {
     RuntimePlan plan(RuntimePlanningRequest request);
 
+    default com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal planEnvironmentPhase(
+            RuntimePlanningRequest request) {
+        throw new UnsupportedOperationException("typed environment phase planning is not configured");
+    }
+
     /** Produces source-cited enemy sheet candidates without executing tools or committing story changes. */
     default RuntimePlan prepareEnemySheets(RuntimePlanningRequest request) { return plan(request); }
 

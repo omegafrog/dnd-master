@@ -42,6 +42,12 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     }
 
     @Override
+    public com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal planEnvironmentPhase(
+            RuntimePlanningRequest request) {
+        return agentPort.planEnvironmentPhase(buildContext(request, ""));
+    }
+
+    @Override
     public RuntimePlan prepareEnemySheets(RuntimePlanningRequest request) {
         CandidateGeneration generated = generateCandidate(request, false);
         return planInternal(request, false, generated).plan();
@@ -162,11 +168,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     }
 
     private CandidateGeneration generateCandidate(RuntimePlanningRequest request, boolean issueCapability, String validationFeedback) {
-        GmContextEnvelope context = new GmContextEnvelope(request.adventureId(), request.ownerPlayerId(), request.sessionId(), request.turnId(), request.scenarioPackageId(),
-                request.bindingVersion(), request.currentContext(), request.activeSourceContext(), request.action(), request.evidencePack(),
-                request.recentTurns(), request.characterSnapshots(), request.scenarioContext(), request.provider(), request.model(), request.reasoning(),
-                requestedSelection(request), request.narrativeContext(), request.runtimeFacts(), request.factLookupResults(),
-                request.currentSituation(), request.longTermFacts(), validationFeedback, request.ragSearchContext());
+        GmContextEnvelope context = buildContext(request, validationFeedback);
         java.util.Set<String> hiddenData = java.util.Set.copyOf(request.hiddenFacts());
         TurnCapability capability = issueCapability ? issueCapability(request) : null;
         List<GmToolSpec> modelTools = gateway == null ? List.of() : gateway.modelTools().stream()
@@ -175,6 +177,14 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         LOGGER.info("gm_tool_plan_received turnId={} toolCount={} tools={}", request.turnId(), result.toolCalls().size(),
                 result.toolCalls().stream().map(call -> call.toolName()).toList());
         return new CandidateGeneration(UUID.nameUUIDFromBytes((request.turnId() + ":candidate:direct").getBytes(StandardCharsets.UTF_8)), context, hiddenData, capability, result);
+    }
+
+    private GmContextEnvelope buildContext(RuntimePlanningRequest request, String validationFeedback) {
+        return new GmContextEnvelope(request.adventureId(), request.ownerPlayerId(), request.sessionId(), request.turnId(), request.scenarioPackageId(),
+                request.bindingVersion(), request.currentContext(), request.activeSourceContext(), request.action(), request.evidencePack(),
+                request.recentTurns(), request.characterSnapshots(), request.scenarioContext(), request.provider(), request.model(), request.reasoning(),
+                requestedSelection(request), request.narrativeContext(), request.runtimeFacts(), request.factLookupResults(),
+                request.currentSituation(), request.longTermFacts(), validationFeedback, request.ragSearchContext());
     }
 
     private TurnCapability issueCapability(RuntimePlanningRequest request) {

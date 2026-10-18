@@ -42,6 +42,8 @@ public final class TypedAgentContractController {
     private static final JsonNode SCENARIO_COMPILATION_OUTPUT_SCHEMA = loadScenarioCompilationOutputSchema();
     private static final JsonNode TABLE_EXTRACTION_OUTPUT_SCHEMA = loadTableExtractionOutputSchema();
     private static final JsonNode TABLE_CANDIDATE_OUTPUT_SCHEMA = loadTableCandidateOutputSchema();
+    private static final JsonNode EXPLORATION_ENVIRONMENT_OUTPUT_SCHEMA = loadOutputSchema(
+            "/ai-game-master/schemas/exploration-environment-response.json", "exploration environment");
     private static final String ACTION_LOOKUP_OUTPUT_SCHEMA = """
             {"type":"object","additionalProperties":false,"required":["status","answer","supportingElementIds"],"properties":{"status":{"enum":["FOUND","NOT_FOUND"]},"answer":{"type":"string"},"supportingElementIds":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}}}}
             """.trim();
@@ -872,6 +874,82 @@ public final class TypedAgentContractController {
         return new RuntimeEndpointResponse(effective.endpointId(), effective.endpointVersion().toString(),
                 effective.provider(), effective.model(), effective.reasoning());
     }
+
+    @PostMapping("/internal/gm/exploration-environment")
+    ExplorationEnvironmentResponse explorationEnvironment(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody ExplorationEnvironmentRequest request) {
+        requestGuard.internal(token);
+        if (request == null || request.soloPlayerId() == null || request.operationKey() == null
+                || request.operationKey().isBlank() || request.prompt() == null || request.prompt().isBlank())
+            throw new IllegalArgumentException("exploration environment request is incomplete");
+        RequestedGmProviderSelection requested = new RequestedGmProviderSelection(request.endpointId(), request.provider(), request.model(), request.reasoning());
+        var resolution = selectionResolver.apply(requested);
+        var effective = resolution.effectiveSelection();
+        if (!effective.endpointId().equals(request.effectiveEndpointId())
+                || !effective.endpointVersion().toString().equals(request.effectiveEndpointVersion())
+                || !effective.provider().equals(request.effectiveProvider())
+                || !effective.model().equals(request.effectiveModel()))
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "selected GM endpoint changed before environment phase");
+        long started = System.nanoTime();
+        if (runtimeDiagnosticsEnabled()) log.info("dev_gm_environment_phase outcome=started operationKey={} promptChars={} schemaChars={} model={}",
+                request.operationKey(), request.prompt().length(), EXPLORATION_ENVIRONMENT_OUTPUT_SCHEMA.toString().length(), effective.model());
+        try {
+            ExplorationEnvironmentResponse response = adapter.completeWithResolution(request.soloPlayerId(),
+                    request.operationKey(), request.prompt(), json -> parseExplorationEnvironment(json), requested,
+                    resolution, null, EXPLORATION_ENVIRONMENT_OUTPUT_SCHEMA).response();
+            if (runtimeDiagnosticsEnabled()) log.info("dev_gm_environment_phase outcome=completed operationKey={} enemyMoveCount={} elapsedMs={}",
+                    request.operationKey(), response.enemyMoves().size(), java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+            return response;
+        } catch (RuntimeException failure) {
+            if (runtimeDiagnosticsEnabled()) log.warn("dev_gm_environment_phase outcome=failed operationKey={} promptChars={} schemaChars={} failureClass={} recoveryAction=retry_same_phase_id elapsedMs={}",
+                    request.operationKey(), request.prompt().length(), EXPLORATION_ENVIRONMENT_OUTPUT_SCHEMA.toString().length(),
+                    failure.getClass().getSimpleName(), java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+            throw failure;
+        }
+    }
+
+    private ExplorationEnvironmentResponse parseExplorationEnvironment(String json) {
+        JsonNode root = readObject(json);
+        requireOnlyFields(root, Set.of("narration", "enemyMoves"), Set.of("narration", "enemyMoves"), "exploration environment");
+        String narration = required(root, "narration");
+        JsonNode movesNode = root.path("enemyMoves");
+        if (!movesNode.isArray() || movesNode.size() > 100) throw new IllegalArgumentException("enemyMoves must be an array of at most 100 routes");
+        var moves = new ArrayList<EnvironmentEnemyMove>();
+        var tokenIds = new java.util.HashSet<java.util.UUID>();
+        for (JsonNode move : movesNode) {
+            requireOnlyFields(move, Set.of("tokenId", "path"), Set.of("tokenId", "path"), "environment enemy move");
+            java.util.UUID tokenId;
+            try { tokenId = java.util.UUID.fromString(required(move, "tokenId")); }
+            catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("enemy tokenId must be a UUID", invalid); }
+            if (!tokenIds.add(tokenId)) throw new IllegalArgumentException("enemyMoves tokenId must be unique");
+            JsonNode path = move.path("path");
+            if (!path.isArray() || path.size() < 2 || path.size() > 100) throw new IllegalArgumentException("enemy movement path length is invalid");
+            var positions = new ArrayList<EnvironmentPosition>();
+            for (JsonNode cell : path) {
+                requireOnlyFields(cell, Set.of("x", "y"), Set.of("x", "y"), "environment movement cell");
+                if (!cell.path("x").canConvertToInt() || !cell.path("y").canConvertToInt()
+                        || cell.path("x").intValue() < 0 || cell.path("y").intValue() < 0)
+                    throw new IllegalArgumentException("environment movement coordinates must be non-negative integers");
+                positions.add(new EnvironmentPosition(cell.path("x").intValue(), cell.path("y").intValue()));
+            }
+            moves.add(new EnvironmentEnemyMove(tokenId, positions));
+        }
+        return new ExplorationEnvironmentResponse(narration, moves);
+    }
+
+    public record ExplorationEnvironmentRequest(java.util.UUID soloPlayerId, String operationKey,
+            java.util.UUID endpointId, String provider, String model, String reasoning,
+            java.util.UUID effectiveEndpointId, String effectiveEndpointVersion, String effectiveProvider,
+            String effectiveModel, String prompt) { }
+    public record ExplorationEnvironmentResponse(String narration, List<EnvironmentEnemyMove> enemyMoves) {
+        public ExplorationEnvironmentResponse { enemyMoves = List.copyOf(enemyMoves); }
+    }
+    public record EnvironmentEnemyMove(java.util.UUID tokenId, List<EnvironmentPosition> path) {
+        public EnvironmentEnemyMove { path = List.copyOf(path); }
+    }
+    public record EnvironmentPosition(int x, int y) { }
 
     @PostMapping("/internal/gm/runtime-turn")
     RuntimeTurnResponse runtimeTurn(

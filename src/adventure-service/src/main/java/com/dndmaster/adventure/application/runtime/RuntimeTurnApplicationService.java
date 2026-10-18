@@ -78,6 +78,44 @@ public class RuntimeTurnApplicationService {
     private final ResolutionPort resolutionPort = new DefaultResolutionPort();
     private final NarrativeVerificationPolicy verificationPolicy = new NarrativeVerificationPolicy();
 
+    /** Plans one environment phase without appending a player or GM conversation turn. */
+    public com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal planExplorationEnvironmentPhase(
+            AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID phaseId, String mapStateJson) {
+        Adventure adventure = adventureRepository.findById(adventureId).orElseThrow();
+        if (!adventure.ownerPlayerId().equals(ownerPlayerId)) throw new SecurityException("adventure owner does not match");
+        RuntimeBinding binding = bindingRepository.findCurrentByAdventureId(adventureId).orElseThrow();
+        ScenarioPackage scenarioPackage = scenarioPackageRepository.findById(binding.scenarioPackageId())
+                .orElseThrow(() -> new IllegalStateException("scenario package is unavailable"));
+        String action = "환경 단계 판단: 한 모험 순환의 공통 6초 동안 주변 적의 이동과 기존 지도 환경 변화를 제안한다. 지도 변경은 적 토큰 이동 경로만 제안한다. "
+                + "PHASE_ID=" + phaseId + " GM_MAP_STATE=" + Objects.requireNonNull(mapStateJson);
+        RuntimePlanningRequest request = new RuntimePlanningRequest(adventureId, ownerPlayerId,
+                adventure.sessionId().value(), phaseId, binding.scenarioPackageId(), binding.bindingVersion(),
+                adventure.currentContext(), binding.activeSourceContext(), action,
+                new EvidencePack(List.of(), List.of(), List.of()), List.of(),
+                adventure.party().stream().map(member -> currentCharacterSheet(member.characterSheetId().value())).toList(),
+                lockedScenarioContext(scenarioPackage, scenarioPackage.scenarioModel()), providerEndpointId(adventure.sessionId().value()),
+                providerSelection(adventure.sessionId().value(), "provider"), providerSelection(adventure.sessionId().value(), "model"),
+                providerSelection(adventure.sessionId().value(), "reasoning"), null, adventure.ruleSetId().value(),
+                adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), List.of(),
+                adventure.currentSituation() == null ? "" : adventure.currentSituation().toString(), List.of(), List.of(),
+                scenarioPackage.scenarioModel());
+        long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "exploration_environment_plan", "adventureId=" + adventureId.value() + " phaseId=" + phaseId
+                        + " mapStateChars=" + mapStateJson.length() + " partyCount=" + adventure.party().size());
+        try {
+            var proposal = planningPort.planEnvironmentPhase(request);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "exploration_environment_plan", "adventureId=" + adventureId.value() + " phaseId=" + phaseId
+                            + " enemyMoveCount=" + proposal.enemyMoves().size(), started);
+            return proposal;
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "exploration_environment_plan", "adventureId=" + adventureId.value() + " phaseId=" + phaseId
+                            + " mapStateChars=" + mapStateJson.length(), started, failure);
+            throw failure;
+        }
+    }
+
     public RuntimeTurnApplicationService(
             AdventureRepository adventureRepository,
             RuntimeBindingRepository bindingRepository,

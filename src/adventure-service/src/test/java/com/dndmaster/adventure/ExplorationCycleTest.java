@@ -1,0 +1,81 @@
+package com.dndmaster.adventure;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import com.dndmaster.adventure.domain.runtime.ExplorationCycle;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+
+class ExplorationCycleTest {
+    @Test void groupTurnsPauseWorldTimeAndThenAdvanceThroughSixSecondEnvironmentPhases() {
+        UUID first = UUID.randomUUID(), second = UUID.randomUUID();
+        ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(first, 18, second, 7));
+
+        assertEquals(0, cycle.elapsedSeconds());
+        assertEquals(first, cycle.currentGroupId());
+        cycle = cycle.finishGroupTurn(first, false);
+        assertEquals(second, cycle.currentGroupId());
+        assertEquals(0, cycle.elapsedSeconds());
+        cycle = cycle.finishGroupTurn(second, false);
+        assertEquals(ExplorationCycle.Phase.ENVIRONMENT, cycle.phase());
+
+        UUID enemyPhase = cycle.currentPhaseCommandId();
+        cycle = cycle.completeEnvironmentPhase(enemyPhase);
+        assertEquals(ExplorationCycle.EnvironmentPhase.HAZARDS_AND_ENVIRONMENT, cycle.environmentPhase());
+        cycle = cycle.completeEnvironmentPhase(cycle.currentPhaseCommandId());
+        cycle = cycle.completeEnvironmentPhase(cycle.currentPhaseCommandId());
+        assertEquals(6, cycle.elapsedSeconds());
+        assertEquals(ExplorationCycle.Phase.GROUP_TURNS, cycle.phase());
+        assertEquals(first, cycle.currentGroupId());
+    }
+
+    @Test void interruptionEndsCurrentGroupTurnAndResumesAtNextUnfinishedPhase() {
+        UUID first = UUID.randomUUID(), second = UUID.randomUUID();
+        ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(first, 12, second, 10))
+                .finishGroupTurn(first, true);
+
+        assertEquals(second, cycle.currentGroupId());
+        assertTrue(cycle.groupTurnFinished(first));
+    }
+
+    @Test void completedEnvironmentPhaseIsIdempotentAndUnknownGroupCannotFinishTurn() {
+        UUID group = UUID.randomUUID();
+        ExplorationCycle initial = ExplorationCycle.start(UUID.randomUUID(), Map.of(group, 12));
+        assertThrows(IllegalArgumentException.class, () -> initial.finishGroupTurn(UUID.randomUUID(), false));
+        ExplorationCycle cycle = initial.finishGroupTurn(group, false);
+        UUID commandId = cycle.currentPhaseCommandId();
+        ExplorationCycle advanced = cycle.completeEnvironmentPhase(commandId);
+        assertSame(advanced, advanced.completeEnvironmentPhase(commandId));
+    }
+
+    @Test void tiedInitiativesAreRandomizedOnceAndSavedInCycleOrder() {
+        UUID a = UUID.randomUUID(), b = UUID.randomUUID();
+        Map<UUID, Integer> scores = new LinkedHashMap<>();
+        scores.put(a, 10);
+        scores.put(b, 10);
+        var deterministicRandom = new java.util.Random() {
+            @Override public int nextInt(int bound) { return 0; }
+        };
+        var order = com.dndmaster.adventure.domain.runtime.ExplorationInitiativePolicy.order(scores, deterministicRandom);
+        assertEquals(order, ExplorationCycle.start(UUID.randomUUID(), scores, deterministicRandom).groupOrder());
+    }
+
+    @Test void environmentProposalAndAppliedActionsSurviveRetryWithoutBeingReplaced() {
+        UUID group = UUID.randomUUID();
+        ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(group, 12)).finishGroupTurn(group, false);
+        var proposal = new ExplorationCycle.EnvironmentProposal("순찰병이 복도를 따라 이동합니다.", java.util.List.of(
+                new ExplorationCycle.EnemyMove(UUID.randomUUID(), java.util.List.of(
+                        new com.dndmaster.adventure.domain.runtime.ExplorationCycle.Position(2, 1)))));
+        cycle = cycle.withEnvironmentProposal(proposal);
+        UUID actionId = UUID.randomUUID();
+        cycle = cycle.completeEnvironmentAction(actionId);
+        ExplorationCycle persisted = cycle;
+
+        assertSame(cycle, cycle.completeEnvironmentAction(actionId));
+        assertEquals(proposal, cycle.pendingEnvironmentProposal());
+        assertThrows(IllegalStateException.class, () -> persisted.withEnvironmentProposal(
+                new ExplorationCycle.EnvironmentProposal("replacement", java.util.List.of())));
+    }
+}

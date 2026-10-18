@@ -10,9 +10,13 @@ import java.util.Set;
 import java.util.UUID;
 
 /** Group membership and formation stored in Adventure's durable world state. */
-public record ExplorationState(List<ExplorationGroup> groups) {
-    @JsonCreator public ExplorationState(@JsonProperty("groups") List<ExplorationGroup> groups) {
+public record ExplorationState(List<ExplorationGroup> groups, ExplorationCycle cycle) {
+    public ExplorationState(List<ExplorationGroup> groups) { this(groups, null); }
+
+    @JsonCreator public ExplorationState(@JsonProperty("groups") List<ExplorationGroup> groups,
+            @JsonProperty("cycle") ExplorationCycle cycle) {
         this.groups = List.copyOf(Objects.requireNonNull(groups, "groups must not be null"));
+        this.cycle = cycle;
         Set<UUID> groupIds = new HashSet<>(), members = new HashSet<>(), tokens = new HashSet<>();
         for (ExplorationGroup group : this.groups) {
             if (!groupIds.add(group.id()) || !tokens.add(group.mapTokenId()))
@@ -21,6 +25,8 @@ public record ExplorationState(List<ExplorationGroup> groups) {
                 throw new IllegalArgumentException("a character may belong to only one exploration group");
         }
     }
+
+    public ExplorationState withCycle(ExplorationCycle cycle) { return new ExplorationState(groups, cycle); }
 
     public ExplorationState split(UUID groupId, UUID newGroupId, UUID newMapTokenId,
             List<ExplorationGroup.Member> movedMembers) {

@@ -446,6 +446,57 @@ public final class CrossContextHttpCombatGateway
                 command.expectedVersion(), command.commandId()));
     }
 
+    @Override public void advanceGameTime(CombatMapGameTimeCommand command) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + command.mapId() + "/game-time"))
+                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                    .header("Idempotency-Key", command.commandId().toString())
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(new GameTimeRequest(
+                            command.ownerPlayerId(), command.adventureId(), command.ruleTurn(), command.commandId(),
+                            command.expectedVersion())))).build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                log.warn("Combat map game time request failed: adventureId={}, mapId={}, ruleTurn={}, commandId={}, expectedVersion={}, status={}",
+                        command.adventureId(), command.mapId(), command.ruleTurn(), command.commandId(),
+                        command.expectedVersion(), response.statusCode());
+                throw new CrossContextCallException("combat map game time failed with status " + response.statusCode());
+            }
+        } catch (IOException exception) {
+            throw new CrossContextCallException("combat map game time transport failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("combat map game time interrupted", exception);
+        }
+    }
+
+    @Override public long moveEnemyForEnvironment(CombatMapEnemyMovementCommand command) {
+        return environmentEnemyMove(command, false);
+    }
+    @Override public void validateEnemyForEnvironment(CombatMapEnemyMovementCommand command) {
+        environmentEnemyMove(command, true);
+    }
+    private long environmentEnemyMove(CombatMapEnemyMovementCommand command, boolean validateOnly) {
+        try {
+            String body = objectMapper.writeValueAsString(new EnvironmentEnemyMovementRequest(command.ownerPlayerId(),
+                    command.tokenId(), command.path(), command.distance(), command.appliedEdition(), command.commandId(),
+                    command.expectedVersion()));
+            String suffix = validateOnly ? "/environment/enemy-movements/validate" : "/environment/enemy-movements";
+            HttpRequest.Builder builder = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + command.mapId() + suffix))
+                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(body));
+            if (!validateOnly) builder.header("Idempotency-Key", command.commandId().toString());
+            HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300)
+                throw new CrossContextCallException("environment enemy movement failed with status " + response.statusCode());
+            return validateOnly ? command.expectedVersion() : objectMapper.readTree(response.body()).path("version").asLong();
+        } catch (IOException exception) {
+            throw new CrossContextCallException("environment enemy movement transport failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("environment enemy movement interrupted", exception);
+        }
+    }
+
     private CombatMapSpatialResult spatialRequest(java.util.UUID mapId, String action, java.util.UUID commandId, Object body) {
         try {
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/spatial/" + action))
@@ -764,10 +815,15 @@ public final class CrossContextHttpCombatGateway
             List<PositionRequest> waypoints, String appliedEdition, long expectedVersion) {}
     private record PreviewResponse(List<PositionRequest> orderedPositions, int distance, long baseMapVersion, String fingerprint) {}
     private record PositionRequest(int x, int y) {}
+    private record EnvironmentEnemyMovementRequest(java.util.UUID ownerId, java.util.UUID tokenId,
+            List<CombatMapEnemyMovementCommand.Position> positions, int distance, String appliedEdition,
+            java.util.UUID commandId, long expectedVersion) { }
     private record SpatialActionRequest(java.util.UUID ownerId, java.util.UUID tokenId, int x, int y,
             long expectedVersion, java.util.UUID commandId) {}
     private record MovementCancelRequest(java.util.UUID operationId, java.util.UUID commandId) {}
     private record SpatialTurnRequest(java.util.UUID ownerId, long expectedVersion, java.util.UUID commandId) {}
+    private record GameTimeRequest(java.util.UUID ownerId, java.util.UUID adventureId, long ruleTurn,
+            java.util.UUID causeId, long expectedVersion) {}
     private record AiStateRequest(
             java.util.UUID ownerId, java.util.UUID tokenId, int x, int y, java.util.UUID commandId,
             long expectedVersion, List<LayerRequest> layers) {}

@@ -133,6 +133,46 @@ public class CombatMapController {
     public record ExplorationToken(UUID id, int x, int y) { }
     public record ExplorationTokensResponse(UUID mapId, long version, List<ExplorationToken> tokens) { }
 
+    @PostMapping("/internal/v1/combat-maps/{mapId}/environment/enemy-movements")
+    public EnvironmentEnemyMovementResponse moveEnemyForEnvironment(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestBody(required = false) EnvironmentEnemyMovementRequest request) {
+        requestGuard.internal(token);
+        if (request == null || request.ownerId() == null || request.tokenId() == null || request.positions() == null
+                || request.positions().size() < 2 || request.positions().size() > 100 || request.distance() == null
+                || request.appliedEdition() == null || request.appliedEdition().isBlank() || request.commandId() == null
+                || request.expectedVersion() == null || request.expectedVersion() < 0
+                || !idempotencyKey.equals(request.commandId().toString())
+                || request.positions().stream().anyMatch(CombatMapController::invalid))
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "environment enemy movement request is invalid");
+        var map = movementService.moveEnemyToken(new com.dndmaster.combatmap.application.movement.MoveEnemyTokenCommand(
+                new MapId(mapId), new MapOwnerId(request.ownerId()), new TokenId(request.tokenId()),
+                movementPath(request.positions(), request.distance()), request.appliedEdition(), request.commandId(), request.expectedVersion()));
+        return new EnvironmentEnemyMovementResponse(map.id().value(), map.version(), request.commandId());
+    }
+
+    public record EnvironmentEnemyMovementRequest(UUID ownerId, UUID tokenId, List<PositionRequest> positions,
+            Integer distance, String appliedEdition, UUID commandId, Long expectedVersion) { }
+    public record EnvironmentEnemyMovementResponse(UUID mapId, long version, UUID commandId) { }
+
+    @PostMapping("/internal/v1/combat-maps/{mapId}/environment/enemy-movements/validate")
+    public org.springframework.http.ResponseEntity<Void> validateEnemyForEnvironment(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) EnvironmentEnemyMovementRequest request) {
+        requestGuard.internal(token);
+        if (request == null || request.ownerId() == null || request.tokenId() == null || request.positions() == null
+                || request.positions().size() < 2 || request.distance() == null || request.appliedEdition() == null
+                || request.commandId() == null || request.expectedVersion() == null)
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "environment enemy movement validation request is invalid");
+        movementService.validateEnemyTokenMovement(new com.dndmaster.combatmap.application.movement.MoveEnemyTokenCommand(
+                new MapId(mapId), new MapOwnerId(request.ownerId()), new TokenId(request.tokenId()),
+                movementPath(request.positions(), request.distance()), request.appliedEdition(), request.commandId(), request.expectedVersion()));
+        return org.springframework.http.ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/internal/v1/combat-maps/{mapId}/gm-view")
     GmCombatMapResponse gmView(@PathVariable UUID mapId, @RequestParam UUID ownerId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token) {
@@ -346,6 +386,7 @@ public class CombatMapController {
                 .orElseThrow(CombatMapAccessDeniedException::new);
         return PlayerCombatMapResponse.from(view);
     }
+
 
     @GetMapping("/internal/v1/adventures/{adventureId}/combat-map/preparation-view")
     public PlayerCombatMapResponse preparationAdventureView(@PathVariable UUID adventureId, @RequestParam UUID ownerId,

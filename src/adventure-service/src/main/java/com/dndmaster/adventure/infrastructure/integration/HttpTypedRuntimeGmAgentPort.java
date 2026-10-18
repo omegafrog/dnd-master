@@ -144,6 +144,46 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
     }
 
     @Override
+    public com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal planEnvironmentPhase(
+            GmContextEnvelope context) {
+        String operationKey = context.operationKey();
+        long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "exploration_environment_agent_request", "operationKey=" + operationKey + " mapContextChars=" + context.action().length());
+        try {
+            var selection = context.requestedSelection();
+            String selectionBody = mapper.writeValueAsString(new RuntimeEndpointRequest(
+                    selection.endpointId(), selection.provider(), selection.model(), selection.reasoning()));
+            HttpRequest selectionRequest = HttpRequest.newBuilder(baseUri.resolve("internal/gm/runtime-endpoint"))
+                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(selectionBody)).build();
+            HttpResponse<String> selected = client.send(selectionRequest, HttpResponse.BodyHandlers.ofString());
+            if (selected.statusCode() / 100 != 2) throw new IllegalStateException("selected GM model is unavailable");
+            RuntimeEndpointResponse endpoint = mapper.readValue(selected.body(), RuntimeEndpointResponse.class);
+            String prompt = "ROLE=EXPLORATION_ENVIRONMENT_PHASE\nTASK=Judge nearby enemy movement and supported environment changes for one six-second phase. Return only the fixed schema. Do not invent map positions or change unsupported state.\n"
+                    + "CURRENT_SITUATION=" + context.currentSituation() + "\nESTABLISHED_SCENE="
+                    + context.currentContext().currentScene() + "\nPHASE_INPUT=" + context.action();
+            String body = mapper.writeValueAsString(new ExplorationEnvironmentRequest(context.ownerPlayerId().value(),
+                    context.operationKey(), selection.endpointId(), selection.provider(), selection.model(), selection.reasoning(),
+                    endpoint.endpointId(), endpoint.endpointVersion(), endpoint.provider(), endpoint.model(), prompt));
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/gm/exploration-environment"))
+                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(body)).build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() / 100 != 2) throw new IllegalStateException("typed exploration environment request failed with status " + response.statusCode());
+            var proposal = mapper.readValue(response.body(), com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal.class);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "exploration_environment_agent_request", "operationKey=" + operationKey + " enemyMoveCount=" + proposal.enemyMoves().size(), started);
+            return proposal;
+        } catch (Exception failure) {
+            devLog("dev_agent_environment_phase outcome=failed operationKey={} failureClass={} recoveryAction=retry_same_phase_id",
+                    operationKey, failure.getClass().getSimpleName());
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "exploration_environment_agent_request", "operationKey=" + operationKey + " mapContextChars=" + context.action().length(), started, failure);
+            throw new IllegalStateException("typed exploration environment request failed", failure);
+        }
+    }
+
+    @Override
     public GmPlanResult plan(GmContextEnvelope context, List<GmToolSpec> ignoredTools) {
         return plan(context);
     }
@@ -283,6 +323,10 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
     record RuntimeEndpointRequest(java.util.UUID endpointId, String provider, String model, String reasoning) { }
     record RuntimeEndpointResponse(java.util.UUID endpointId, String endpointVersion,
                                    String provider, String model, String reasoning) { }
+    record ExplorationEnvironmentRequest(java.util.UUID soloPlayerId, String operationKey,
+            java.util.UUID endpointId, String provider, String model, String reasoning,
+            java.util.UUID effectiveEndpointId, String effectiveEndpointVersion, String effectiveProvider,
+            String effectiveModel, String prompt) { }
     record RuntimeRequest(java.util.UUID soloPlayerId, String operationKey, String action,
                           java.util.UUID endpointId, String provider, String model, String reasoning,
                           java.util.UUID effectiveEndpointId, String effectiveEndpointVersion,

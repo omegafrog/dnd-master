@@ -68,6 +68,25 @@ class ExplorationGroupTest {
         assertEquals(2, merged.groups().get(0).members().size());
     }
 
+    @Test void explorationInitiativeOrdersHighGroupsFirstAndRandomizesTies() {
+        UUID fast = UUID.randomUUID(), tieA = UUID.randomUUID(), tieB = UUID.randomUUID();
+        var initiatives = new java.util.LinkedHashMap<UUID, Integer>();
+        initiatives.put(tieA, 11);
+        initiatives.put(tieB, 11);
+        initiatives.put(fast, 16);
+        var zeroChoice = new java.util.Random() {
+            @Override public int nextInt(int bound) { return 0; }
+        };
+
+        assertEquals(List.of(fast, tieB, tieA),
+                com.dndmaster.adventure.domain.runtime.ExplorationInitiativePolicy.order(initiatives, zeroChoice));
+    }
+
+    @Test void explorationInitiativeRequiresAtLeastOneCompleteGroupScore() {
+        assertThrows(IllegalArgumentException.class, () ->
+                com.dndmaster.adventure.domain.runtime.ExplorationInitiativePolicy.order(java.util.Map.of(), new java.util.Random(1)));
+    }
+
     private static ExplorationGroup group(ExplorationGroup.Member... members) {
         return new ExplorationGroup(UUID.randomUUID(), UUID.randomUUID(), List.of(members));
     }

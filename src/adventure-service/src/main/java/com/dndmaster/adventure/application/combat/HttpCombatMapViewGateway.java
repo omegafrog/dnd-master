@@ -72,6 +72,19 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     }
 
     @Override
+    public String gmEnvironmentView(UUID mapId, UUID ownerId) {
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId
+                + "/gm-view?ownerId=" + URLEncoder.encode(ownerId.toString(), java.nio.charset.StandardCharsets.UTF_8)))
+                .timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map GM view failed");
+            return mapper.readTree(response.body()).toString();
+        } catch (IOException exception) { throw new IllegalStateException("combat map GM view transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map GM view interrupted", exception); }
+    }
+
+    @Override
     public List<ExplorationToken> ensureExplorationTokens(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId,
             List<UUID> preferredTokenIds, UUID originTokenId, int count) {
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/exploration-tokens"))

@@ -1272,6 +1272,18 @@ public class AdventureApiConfiguration {
             public CombatMapSpatialResult advanceDurations(CombatMapSpatialTurnCommand command) {
                 return gateway.advanceDurations(command);
             }
+
+            @Override
+            public void advanceGameTime(CombatMapGameTimeCommand command) {
+                gateway.advanceGameTime(command);
+            }
+
+            @Override public long moveEnemyForEnvironment(com.dndmaster.adventure.application.combat.CombatMapEnemyMovementCommand command) {
+                return gateway.moveEnemyForEnvironment(command);
+            }
+            @Override public void validateEnemyForEnvironment(com.dndmaster.adventure.application.combat.CombatMapEnemyMovementCommand command) {
+                gateway.validateEnemyForEnvironment(command);
+            }
         };
     }
 

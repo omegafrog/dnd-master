@@ -66,6 +66,52 @@ public final class CombatMapMovementService {
         return map;
     }
 
+    /** Applies one GM-proposed enemy route after owner, map version, path, walls and movement checks. */
+    public CombatMap moveEnemyToken(MoveEnemyTokenCommand command) {
+        Objects.requireNonNull(command);
+        long started = diagnosticsEnabled() ? System.nanoTime() : 0L;
+        if (diagnosticsEnabled()) LOGGER.info("dev_environment_enemy_move outcome=started mapId={} tokenId={} commandId={} pathCellCount={} distance={} expectedVersion={}",
+                command.mapId().value(), command.tokenId().value(), command.commandId(), command.path().orderedPositions().size(),
+                command.path().distance(), command.expectedVersion());
+        try {
+            CombatMap replay = repository.findByCommandId(command.commandId()).orElse(null);
+            if (replay != null) {
+                if (!command.fingerprint().equals(replay.operationFingerprint())) throw new MovementCommandConflictException();
+                return replay;
+            }
+            CombatMap map = repository.findById(command.mapId())
+                    .orElseThrow(() -> new CombatMapMovementDeniedException("map not found"));
+            if (map.version() != command.expectedVersion()) throw new CombatMapMovementStaleException();
+            int maximum = movementPort.maximumMovement(map.ruleSetId(), command.appliedEdition());
+            if (map.ownerPlayerId() == null || !map.ownerPlayerId().value().equals(command.owner().value()))
+                throw new CombatMapMovementDeniedException("map owner does not match environment movement owner");
+            map.moveEnemyToken(command.tokenId(), command.path(), maximum);
+            map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
+            repository.save(map, command.expectedVersion() + 1, command.commandId(), command.fingerprint());
+            map.markPersisted(command.expectedVersion() + 1, command.commandId(), command.fingerprint());
+            if (diagnosticsEnabled()) LOGGER.info("dev_environment_enemy_move outcome=completed mapId={} tokenId={} commandId={} pathCellCount={} distance={} expectedVersion={} actualVersion={} elapsedMs={}",
+                    command.mapId().value(), command.tokenId().value(), command.commandId(), command.path().orderedPositions().size(),
+                    command.path().distance(), command.expectedVersion(), map.version(), elapsedMs(started));
+            return map;
+        } catch (RuntimeException | Error failure) {
+            if (diagnosticsEnabled()) LOGGER.error("dev_environment_enemy_move outcome=failed mapId={} tokenId={} commandId={} pathCellCount={} distance={} expectedVersion={} failureClass={} recoveryAction=retry_same_phase_command_id elapsedMs={}",
+                    command.mapId().value(), command.tokenId().value(), command.commandId(), command.path().orderedPositions().size(),
+                    command.path().distance(), command.expectedVersion(), failure.getClass().getSimpleName(), elapsedMs(started), failure);
+            throw failure;
+        }
+    }
+
+    public void validateEnemyTokenMovement(MoveEnemyTokenCommand command) {
+        Objects.requireNonNull(command);
+        CombatMap map = repository.findById(command.mapId())
+                .orElseThrow(() -> new CombatMapMovementDeniedException("map not found"));
+        if (map.version() != command.expectedVersion()) throw new CombatMapMovementStaleException();
+        if (map.ownerPlayerId() == null || !map.ownerPlayerId().value().equals(command.owner().value()))
+            throw new CombatMapMovementDeniedException("map owner does not match environment movement owner");
+        int maximum = movementPort.maximumMovement(map.ruleSetId(), command.appliedEdition());
+        map.validateEnemyMovement(command.tokenId(), command.path(), maximum);
+    }
+
     /** Starts or replays a durable movement reservation. Public map state changes only at the final save. */
     public MovementOperationResponse start(MovementStartRequest request) {
         Objects.requireNonNull(request);
@@ -176,6 +222,15 @@ public final class CombatMapMovementService {
                     failure.getClass().getSimpleName());
             return List.of();
         }
+    }
+
+    private static boolean diagnosticsEnabled() {
+        return Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+    }
+
+    private static long elapsedMs(long startedAt) {
+        return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
     }
 
     private List<MovementOperationResponse> recover(List<MovementResolutionOperation> operationsToRecover) {

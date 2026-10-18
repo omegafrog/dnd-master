@@ -66,6 +66,30 @@ public final class CombatMap {
         }
         token.moveTo(nextPosition);
     }
+    public void moveEnemyToken(TokenId tokenId, MovementPath path, int maximumDistance) {
+        validateEnemyMovement(tokenId, path, maximumDistance);
+        CombatToken token = tokens.stream().filter(candidate -> candidate.id().equals(tokenId)).findFirst().orElseThrow();
+        for (int index = 1; index < path.orderedPositions().size(); index++) token.moveTo(path.orderedPositions().get(index));
+    }
+    public void validateEnemyMovement(TokenId tokenId, MovementPath path, int maximumDistance) {
+        CombatToken token = tokens.stream().filter(candidate -> candidate.id().equals(tokenId))
+                .findFirst().orElseThrow(() -> new CombatMapMovementDeniedException("token not found"));
+        if ((token.type() != TokenType.ENEMY && token.type() != TokenType.BOSS)
+                || token.controller() != TokenController.AI_GAME_MASTER)
+            throw new CombatMapMovementDeniedException("environment may move only an enemy token");
+        if (maximumDistance < 0 || path.distance() > maximumDistance)
+            throw new CombatMapMovementDeniedException("path exceeds movement allowance");
+        if (!path.orderedPositions().getFirst().equals(token.position()))
+            throw new CombatMapMovementDeniedException("path must start at enemy token position");
+        if (path.distance() != (path.orderedPositions().size() - 1) * grid.distanceUnit())
+            throw new CombatMapMovementDeniedException("path distance does not match grid");
+        for (int index = 0; index < path.orderedPositions().size(); index++) {
+            GridPosition position = path.orderedPositions().get(index);
+            if (!isPublicTraversable(position) || index > 0
+                    && !publiclyTraversableBetween(path.orderedPositions().get(index - 1), position))
+                throw new CombatMapMovementDeniedException("path crosses blocked position or wall");
+        }
+    }
     public GridPosition playerTokenPosition(PlayerId playerId, TokenId tokenId) {
         CombatToken token = tokens.stream().filter(candidate -> candidate.id().equals(tokenId)).findFirst()
                 .orElseThrow(() -> new CombatMapMovementDeniedException("token not found"));

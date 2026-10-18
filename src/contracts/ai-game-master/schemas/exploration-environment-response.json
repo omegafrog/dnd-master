@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["narration", "enemyMoves"],
+  "properties": {
+    "narration": { "type": "string", "minLength": 1 },
+    "enemyMoves": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tokenId", "path"],
+        "properties": {
+          "tokenId": { "type": "string", "format": "uuid" },
+          "path": {
+            "type": "array", "minItems": 2, "maxItems": 100,
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["x", "y"],
+              "properties": { "x": { "type": "integer", "minimum": 0 }, "y": { "type": "integer", "minimum": 0 } }
+            }
+          }
+        }
+      }
+    }
+  }
+}
