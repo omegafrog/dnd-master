@@ -1354,7 +1354,7 @@ public class RuntimeTurnApplicationService {
         if (commitResult.status() != RuntimeTurnCommitOrchestrator.Status.COMMITTED) {
             if (commitResult.status() == RuntimeTurnCommitOrchestrator.Status.RETRY_REQUIRED) {
                 return new RuntimeTurnResult(commitResult.turn(), adventure.currentContext(), adventure.conversation(),
-                        adventure.version(), visibleInput, commitResult.movementResult());
+                        adventure.version(), visibleInput.withNarration(ready.narration()), commitResult.movementResult());
             }
             throw new IllegalStateException("runtime turn commit requires repair: " + commitResult.status());
         }

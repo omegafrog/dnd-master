@@ -22,4 +22,8 @@ public record PlayerVisibleTurn(String narrationSeed, String currentScene, List<
     public PlayerVisibleTurn(String narrationSeed, String currentScene, List<String> visibleFacts, StateDelta stateDelta) {
         this(narrationSeed, currentScene, visibleFacts, stateDelta, null);
     }
+
+    public PlayerVisibleTurn withNarration(String approvedNarration) {
+        return new PlayerVisibleTurn(approvedNarration, currentScene, visibleFacts, stateDelta, narrativeContext, rollRequest);
+    }
 }
