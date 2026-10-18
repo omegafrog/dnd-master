@@ -10,9 +10,10 @@ test('storybook extraction warnings are terminal when the indexed content remain
   expect(isStorybookReady('PROCESSING')).toBe(false)
 })
 
-test('group-flow session creation omits package-wide ability review', () => {
-  expect(sessionCreationPayload('package-1', 3, 2)).toEqual({
+test('group-flow session creation binds an empty action-preparation record', () => {
+  expect(sessionCreationPayload('package-1', 3, 2, 'empty-preparation')).toEqual({
     scenarioPackageId: 'package-1', blueprintId: 'package-1', blueprintRevision: 3, partySize: 2,
+    preparationId: 'empty-preparation',
   })
 })
 

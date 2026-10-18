@@ -41,8 +41,8 @@ export function isStorybookReady(status: string) {
   return ['EXTRACTED', 'INDEXED', 'INDEXED_WITH_WARNINGS', 'PARTIAL_CONFIRMED'].includes(status)
 }
 
-export function sessionCreationPayload(packageId: string, blueprintRevision: number, partySize: number) {
-  return { scenarioPackageId: packageId, blueprintId: packageId, blueprintRevision, partySize }
+export function sessionCreationPayload(packageId: string, blueprintRevision: number, partySize: number, preparationId: string) {
+  return { scenarioPackageId: packageId, blueprintId: packageId, blueprintRevision, partySize, preparationId }
 }
 
 export async function bootstrapStartedAdventure(request: APIRequestContext, partyMemberCount = 1, sources = storybooks) {
@@ -129,7 +129,12 @@ async function login(request: APIRequestContext): Promise<Auth> {
 }
 
 async function createPreparedPackage(request: APIRequestContext, auth: Auth, sources: ReadonlyArray<{ path: string, role: string }>): Promise<PreparedPackage> {
-  const documents: Array<{ knowledgeDocumentId: string, role: string }> = []
+  const catalog = await request.get(`${backend}/api/v1/rulebook-catalog`)
+  expect(catalog.ok(), await catalog.text()).toBeTruthy()
+  const rulebook = (await catalog.json() as Array<{ edition: string, rulebookId: string | null, status: string }>)
+    .find(entry => entry.edition === 'DND_5E_2014' && entry.status === 'READY' && entry.rulebookId)
+  expect(rulebook).toBeTruthy()
+  const documents: Array<{ knowledgeDocumentId: string, role: string }> = [{ knowledgeDocumentId: rulebook!.rulebookId!, role: 'RULEBOOK' }]
   for (const source of sources) {
     const contents = await readFile(source.path)
     const multipart = new FormData()
@@ -160,8 +165,14 @@ async function createPreparedPackage(request: APIRequestContext, auth: Auth, sou
 }
 
 async function createSession(request: APIRequestContext, auth: Auth, prepared: PreparedPackage, partyMemberCount: number) {
+  const preparationResponse = await request.post(`${backend}/api/v1/scenario-packages/${prepared.packageId}/play-preparations`, {
+    headers: { ...auth.headers, 'Idempotency-Key': crypto.randomUUID() },
+  })
+  expect(preparationResponse.ok(), await preparationResponse.text()).toBeTruthy()
+  const preparation = await preparationResponse.json() as { preparationId: string, spellDefinitions: unknown[] }
+  expect(preparation.spellDefinitions, 'the group-flow preparation record must contain no unrelated package definitions').toEqual([])
   const response = await request.post(`${backend}/api/v1/adventure-sessions`, { headers: auth.headers,
-    data: sessionCreationPayload(prepared.packageId, prepared.blueprintRevision, partyMemberCount) })
+    data: sessionCreationPayload(prepared.packageId, prepared.blueprintRevision, partyMemberCount, preparation.preparationId) })
   expect(response.ok(), await response.text()).toBeTruthy()
   return response.json() as Promise<{ sessionId: string, version: number }>
 }
