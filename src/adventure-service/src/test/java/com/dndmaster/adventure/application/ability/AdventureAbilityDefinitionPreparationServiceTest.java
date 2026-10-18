@@ -23,7 +23,14 @@ import com.dndmaster.adventure.application.session.AdventureSessionRepository;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
+import com.dndmaster.adventure.domain.adventure.AdventureSession;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
+import com.dndmaster.adventure.domain.knowledge.SessionKnowledgeSet;
+import com.dndmaster.adventure.domain.scenario.KnowledgeDocumentStatus;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
+import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.evidence.EvidenceSearchScope;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -157,6 +164,44 @@ class AdventureAbilityDefinitionPreparationServiceTest {
                 "ability-definition", "RULE_LOOKUP", List.of(new EvidenceSearchScope.Document(documentId, 3, "RULEBOOK")), List.of());
         org.assertj.core.api.Assertions.assertThatCode(() -> sourceService.validateSourceLocators(sourceDefinition,
                 List.of(), scope)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void prepare_saves_valid_source_input_after_search_recovery_would_have_been_exhausted() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID packageId = UUID.randomUUID();
+        UUID documentId = UUID.randomUUID();
+        SessionId sessionKey = new SessionId(sessionId);
+        var definitions = mock(AdventureAbilityDefinitionRepository.class);
+        var packages = mock(ScenarioPackageRepository.class);
+        var knowledgeSets = mock(SessionKnowledgeSetRepository.class);
+        var sessions = mock(AdventureSessionRepository.class);
+        var evidenceSearch = mock(RuntimeEvidenceSearchPort.class);
+        var locations = mock(RuntimeEvidenceLocationLookupPort.class);
+        when(definitions.find(packageId, "ability:blink")).thenReturn(Optional.empty());
+        when(sessions.findById(sessionKey)).thenReturn(Optional.of(AdventureSession.rehydrate(sessionKey,
+                new OwnerPlayerId(ownerId), packageId, 1, 1, List.of(), 0)));
+        var document = new ScenarioBundleDocumentSelection(new KnowledgeDocumentId(documentId),
+                ScenarioBundleDocumentRole.RULEBOOK, mock(KnowledgeDocumentStatus.class), "rules.pdf", "RULEBOOK", 3);
+        ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);
+        when(scenarioPackage.packageId()).thenReturn(packageId);
+        when(scenarioPackage.documents()).thenReturn(List.of(document));
+        when(packages.findById(packageId)).thenReturn(Optional.of(scenarioPackage));
+        when(knowledgeSets.findBySessionId(sessionKey)).thenReturn(Optional.of(new SessionKnowledgeSet(sessionKey,
+                List.of(new KnowledgeDocumentId(documentId)))));
+        when(locations.findOnSamePages(any(), any(), org.mockito.ArgumentMatchers.eq(1))).thenReturn(List.of(
+                new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK, new KnowledgeDocumentId(documentId), 3,
+                        "page 12", "indexed source location", "source-anchor")));
+        var service = new AdventureAbilityDefinitionPreparationService(definitions, packages, knowledgeSets,
+                sessions, mock(RuntimeCharacterSheetReadPort.class), evidenceSearch, locations,
+                mock(GmProviderBindingRepository.class), mock(InitialSituationGmPort.class), JSON);
+
+        service.prepare(new AdventureId(packageId), sessionKey, new OwnerPlayerId(ownerId),
+                List.of("ability:blink"), validDefinition(documentId));
+
+        verify(evidenceSearch, org.mockito.Mockito.never()).search(any());
+        verify(definitions).prepare(packageId, "ability:blink", validDefinition(documentId));
     }
 
     private static JsonNode validDefinition(UUID documentId) throws Exception {

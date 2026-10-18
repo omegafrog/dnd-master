@@ -94,16 +94,19 @@ public final class AdventureAbilityDefinitionPreparationService {
             Map<UUID, Long> authorizedSources = Map.of();
             EvidenceSearchScope sourceScope = null;
             try {
-                SearchResult searchResult = searchWithRecovery(adventureId, sessionId, owner, abilityId);
-                evidence = searchResult.evidence();
-                authorizedSources = searchResult.authorizedSourceVersions();
-                sourceScope = searchResult.sourceScope();
                 JsonNode proposed;
                 if (sourceDefinition != null && !sourceDefinition.isNull()) {
+                    SelectedSources selected = selectedSources(adventureId, sessionId, owner);
+                    authorizedSources = selected.authorizedSourceVersions();
+                    sourceScope = selected.sourceScope();
                     proposed = selectSourceDefinition(abilityId, sourceDefinition);
                     validate(abilityId, proposed, evidence, authorizedSources, true);
                     validateSourceLocators(proposed, evidence, sourceScope);
                 } else {
+                    SearchResult searchResult = searchWithRecovery(adventureId, sessionId, owner, abilityId);
+                    evidence = searchResult.evidence();
+                    authorizedSources = searchResult.authorizedSourceVersions();
+                    sourceScope = searchResult.sourceScope();
                     proposed = generateValidated(adventureId, sessionId, owner, abilityId, evidence, authorizedSources);
                 }
                 definitions.prepare(adventureId.value(), abilityId, proposed);
@@ -120,17 +123,18 @@ public final class AdventureAbilityDefinitionPreparationService {
     JsonNode generateValidated(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner, String abilityId,
             List<RuntimeEvidence> evidence, Map<UUID, Long> authorizedSources) {
         List<String> corrections = new ArrayList<>();
+        boolean providerFailureRetried = false;
         while (true) {
             long attemptStarted = System.nanoTime();
             JsonNode proposed;
             try {
                 proposed = generate(adventureId, sessionId, owner, abilityId, evidence, corrections);
             } catch (RuntimeException failure) {
-                String correction = "GENERATION_FAILURE:" + failure.getClass().getName();
-                if (corrections.contains(correction)) throw failure;
-                corrections.add(correction);
+                if (providerFailureRetried) throw failure;
+                providerFailureRetried = true;
+                corrections.add("GENERATION_FAILURE_RETRY");
                 diagnostic("generation_retry", adventureId, sessionId, abilityId, evidence.size(),
-                        "new_generation_failure_kind", (System.nanoTime() - attemptStarted) / 1_000_000,
+                        "single_provider_failure_retry", (System.nanoTime() - attemptStarted) / 1_000_000,
                         failure.getClass().getSimpleName());
                 continue;
             }
@@ -211,7 +215,26 @@ public final class AdventureAbilityDefinitionPreparationService {
     }
 
     private SearchResult search(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner, String abilityId, String query) {
+        SelectedSources selectedSources = selectedSources(adventureId, sessionId, owner);
+        UUID packageId = selectedSources.packageId();
         var adventure = new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId.value());
+        List<RuntimeEvidence> result = new ArrayList<>();
+        for (RuntimeEvidenceType type : List.of(RuntimeEvidenceType.RULEBOOK, RuntimeEvidenceType.STORYBOOK)) {
+            List<ScenarioBundleDocumentSelection> documents = selectedSources.documents().stream()
+                    .filter(doc -> type.name().equalsIgnoreCase(doc.documentType())).toList();
+            if (documents.isEmpty()) continue;
+            Map<UUID, Long> versions = documents.stream().collect(java.util.stream.Collectors.toMap(
+                    doc -> doc.knowledgeDocumentId().value(), ScenarioBundleDocumentSelection::extractionVersion));
+            var found = evidenceSearch.search(new RuntimeEvidenceSearchRequest(adventure, owner, sessionId, packageId,
+                    documents.stream().map(doc -> doc.knowledgeDocumentId().value()).toList(), null,
+                    query, type, 8, versions,
+                    "ability:" + abilityId, "RULE_LOOKUP"));
+            result.addAll(found);
+        }
+        return new SearchResult(List.copyOf(result), selectedSources.authorizedSourceVersions(), selectedSources.sourceScope());
+    }
+
+    private SelectedSources selectedSources(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner) {
         var session = sessions.findById(sessionId).orElseThrow(() -> new IllegalStateException("adventure session not found"));
         UUID packageId = packages.findById(session.scenarioPackageId()).orElseThrow().packageId();
         var knowledgeSet = knowledgeSets.findBySessionId(sessionId).orElseThrow(() -> new IllegalStateException("session knowledge set not found"));
@@ -224,25 +247,13 @@ public final class AdventureAbilityDefinitionPreparationService {
                         || RuntimeEvidenceType.STORYBOOK.name().equalsIgnoreCase(doc.documentType()))
                 .collect(java.util.stream.Collectors.toMap(doc -> doc.knowledgeDocumentId().value(),
                         ScenarioBundleDocumentSelection::extractionVersion, (first, ignored) -> first));
-        List<RuntimeEvidence> result = new ArrayList<>();
-        for (RuntimeEvidenceType type : List.of(RuntimeEvidenceType.RULEBOOK, RuntimeEvidenceType.STORYBOOK)) {
-            List<ScenarioBundleDocumentSelection> documents = selected.stream().filter(doc -> type.name().equalsIgnoreCase(doc.documentType())).toList();
-            if (documents.isEmpty()) continue;
-            Map<UUID, Long> versions = documents.stream().collect(java.util.stream.Collectors.toMap(
-                    doc -> doc.knowledgeDocumentId().value(), ScenarioBundleDocumentSelection::extractionVersion));
-            var found = evidenceSearch.search(new RuntimeEvidenceSearchRequest(adventure, owner, sessionId, packageId,
-                    documents.stream().map(doc -> doc.knowledgeDocumentId().value()).toList(), null,
-                    query, type, 8, versions,
-                    "ability:" + abilityId, "RULE_LOOKUP"));
-            result.addAll(found);
-        }
         var sourceDocuments = selected.stream()
                 .filter(doc -> authorizedSources.containsKey(doc.knowledgeDocumentId().value()))
                 .map(doc -> new EvidenceSearchScope.Document(doc.knowledgeDocumentId().value(), doc.extractionVersion(),
                         doc.documentType().toUpperCase(java.util.Locale.ROOT))).toList();
         EvidenceSearchScope sourceScope = sourceDocuments.isEmpty() ? null : new EvidenceSearchScope(owner.value(),
                 sessionId.value(), packageId, "ability-definition", "RULE_LOOKUP", sourceDocuments, List.of());
-        return new SearchResult(List.copyOf(result), Map.copyOf(authorizedSources), sourceScope);
+        return new SelectedSources(packageId, selected, Map.copyOf(authorizedSources), sourceScope);
     }
 
     private JsonNode generate(AdventureId adventureId, SessionId sessionId, OwnerPlayerId owner,
@@ -414,4 +425,6 @@ public final class AdventureAbilityDefinitionPreparationService {
 
     private record SearchResult(List<RuntimeEvidence> evidence, Map<UUID, Long> authorizedSourceVersions,
             EvidenceSearchScope sourceScope) {}
+    private record SelectedSources(UUID packageId, List<ScenarioBundleDocumentSelection> documents,
+            Map<UUID, Long> authorizedSourceVersions, EvidenceSearchScope sourceScope) {}
 }
