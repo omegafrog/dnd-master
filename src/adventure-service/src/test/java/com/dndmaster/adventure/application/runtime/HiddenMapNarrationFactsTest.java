@@ -11,6 +11,10 @@ import com.dndmaster.adventure.application.combat.CombatMapViewPort;
 import com.dndmaster.adventure.domain.scenario.MapDefinition;
 import com.dndmaster.adventure.domain.scenario.MapSafetyStatus;
 import com.dndmaster.adventure.domain.scenario.MapSourceReference;
+import com.dndmaster.adventure.domain.scenario.ScenarioModel;
+import com.dndmaster.adventure.domain.scenario.ScenarioModelElement;
+import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import java.util.Map;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -49,6 +53,25 @@ class HiddenMapNarrationFactsTest {
         assertThat(policy.assess(new NarrationSafetyRequest("A pressure plate is at (8, 5).",
                 evidence, context, "enter", hiddenFacts)).approved()).isFalse();
         assertThat(policy.assess(new NarrationSafetyRequest("A stone tile is at (2, 1).",
+                evidence, context, "enter", hiddenFacts)).approved()).isTrue();
+    }
+
+    @Test
+    void hiddenEnemyNameAndPositionFromInternalMapAreBlockedFromNarration() {
+        UUID documentId = UUID.randomUUID();
+        var enemy = new ScenarioModelElement("ambush", "combat-scenario",
+                Map.of("enemyKey", "goblin-scout", "displayName", "고블린 정찰병"),
+                List.of(new ScenarioSourceReference(new KnowledgeDocumentId(documentId), 1, "encounter:1")));
+        var model = new ScenarioModel(1, List.of(), List.of(), List.of(), List.of(), List.of(enemy), List.of(), List.of(), "");
+        String gmMap = "{\"tokens\":[{\"id\":\"hidden-token\",\"type\":\"ENEMY\",\"x\":3,\"y\":4,\"discovery\":\"HIDDEN\"}]}";
+        List<String> hiddenFacts = HiddenMapNarrationFacts.forHiddenEnemyTokens(gmMap, model, "ambush");
+        var context = new AdventureContext("stone room", null, "enter", null);
+        var evidence = new EvidencePack(List.of(), List.of(), List.of());
+
+        assertThat(hiddenFacts).contains("고블린 정찰병", "goblin-scout", "3,4", "적");
+        assertThat(policy.assess(new NarrationSafetyRequest("고블린 정찰병이 3,4에 숨어 있습니다.",
+                evidence, context, "enter", hiddenFacts)).approved()).isFalse();
+        assertThat(policy.assess(new NarrationSafetyRequest("A stone room contains an old table.",
                 evidence, context, "enter", hiddenFacts)).approved()).isTrue();
     }
 

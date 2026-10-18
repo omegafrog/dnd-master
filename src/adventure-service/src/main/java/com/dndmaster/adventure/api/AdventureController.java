@@ -964,7 +964,12 @@ public class AdventureController {
     }
 
     public record ExplorationEnvironmentPhaseResponse(long adventureVersion,
-            com.dndmaster.adventure.domain.runtime.ExplorationCycle cycle, String narration) { }
+            ExplorationCycleView cycle, String narration) {
+        ExplorationEnvironmentPhaseResponse(long adventureVersion,
+                com.dndmaster.adventure.domain.runtime.ExplorationCycle cycle, String narration) {
+            this(adventureVersion, ExplorationCycleView.from(cycle), narration);
+        }
+    }
 
     @PutMapping("/api/v1/adventures/{adventureId}/exploration-groups")
     @org.springframework.transaction.annotation.Transactional
@@ -1062,11 +1067,49 @@ public class AdventureController {
     record ExplorationGroupsRequest(Long expectedVersion, List<ExplorationGroupInput> groups) { }
     record ExplorationGroupsResponse(long version,
             List<com.dndmaster.adventure.domain.runtime.ExplorationGroup> groups,
-            com.dndmaster.adventure.domain.runtime.ExplorationCycle cycle) {
+            ExplorationCycleView cycle) {
         ExplorationGroupsResponse(long version, List<com.dndmaster.adventure.domain.runtime.ExplorationGroup> groups) {
-            this(version, groups, null);
+            this(version, groups, (ExplorationCycleView) null);
+        }
+        ExplorationGroupsResponse(long version, List<com.dndmaster.adventure.domain.runtime.ExplorationGroup> groups,
+                com.dndmaster.adventure.domain.runtime.ExplorationCycle cycle) {
+            this(version, groups, ExplorationCycleView.from(cycle));
         }
     }
+    record ExplorationCycleView(UUID id, long cycleNumber, List<UUID> groupOrder, java.util.Set<UUID> completedGroups,
+            com.dndmaster.adventure.domain.runtime.ExplorationCycle.Phase phase,
+            com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentPhase environmentPhase,
+            UUID currentGroupId, UUID currentPhaseCommandId, long elapsedSeconds,
+            PendingEnvironmentProposalView pendingEnvironmentProposal, MovementStopEventView pendingMovementEvent,
+            boolean combatLinked) {
+        static ExplorationCycleView from(com.dndmaster.adventure.domain.runtime.ExplorationCycle cycle) {
+            if (cycle == null) return null;
+            var proposal = cycle.pendingEnvironmentProposal();
+            var event = cycle.pendingMovementEvent();
+            return new ExplorationCycleView(cycle.id(), cycle.cycleNumber(), cycle.groupOrder(), cycle.completedGroups(),
+                    cycle.phase(), cycle.environmentPhase(), cycle.currentGroupId(), cycle.currentPhaseCommandId(),
+                    cycle.elapsedSeconds(), proposal == null ? null : new PendingEnvironmentProposalView(
+                            proposal.narration(), proposal.encounterRequested(), proposal.linkedCombatEncounterId() != null),
+                    event == null ? null : new MovementStopEventView(event.id(), event.groupId(),
+                            publicMovementEventLabel(event.cause()), publicMovementEventLabels(event.publicEvents()),
+                            event.finalPosition()), cycle.linkedCombatEncounterId() != null);
+        }
+
+        private static String publicMovementEventLabel(String label) {
+            return switch (label == null ? "" : label) {
+                case "HOSTILE_OBSERVED", "SPATIAL_FEATURE_REQUIRES_DECISION" -> label;
+                default -> "MOVEMENT_INTERRUPTED";
+            };
+        }
+
+        private static List<String> publicMovementEventLabels(List<String> labels) {
+            if (labels == null) return List.of();
+            return labels.stream().map(ExplorationCycleView::publicMovementEventLabel).distinct().toList();
+        }
+    }
+    record PendingEnvironmentProposalView(String narration, boolean encounterRequested, boolean combatLinked) { }
+    record MovementStopEventView(UUID id, UUID groupId, String cause, List<String> publicEvents,
+            com.dndmaster.adventure.domain.runtime.ExplorationCycle.Position finalPosition) { }
     record ExplorationCycleStartRequest(Long expectedVersion, UUID commandId) { }
     record ExplorationCycleFinishRequest(Long expectedVersion, UUID commandId, Boolean interrupted) { }
     record ExplorationMovementEventResolveRequest(Long expectedVersion) { }

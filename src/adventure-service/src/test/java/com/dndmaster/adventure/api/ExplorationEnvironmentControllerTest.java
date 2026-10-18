@@ -27,6 +27,60 @@ import ch.qos.logback.core.read.ListAppender;
 import org.slf4j.LoggerFactory;
 
 class ExplorationEnvironmentControllerTest {
+    @Test void playerExplorationCycleJsonOmitsInternalRoutesAndMapIdentifiers() throws Exception {
+        UUID groupId = UUID.randomUUID(), playerTokenId = UUID.randomUUID(), enemyTokenId = UUID.randomUUID();
+        UUID featureId = UUID.randomUUID(), hostileTokenId = UUID.randomUUID(), movementOperationId = UUID.randomUUID();
+        UUID combatId = UUID.randomUUID();
+        var group = new ExplorationGroup(groupId, playerTokenId, List.of(
+                new ExplorationGroup.Member(UUID.randomUUID(), ExplorationGroup.Formation.FRONT, 30)));
+        var cycle = new ExplorationCycle(UUID.randomUUID(), 1, Map.of(groupId, 13), List.of(groupId), Set.of(groupId),
+                ExplorationCycle.Phase.ENVIRONMENT, ExplorationCycle.EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION,
+                Set.of(), 6, new ExplorationCycle.EnvironmentProposal("안전한 상황 서술", List.of(
+                        new ExplorationCycle.EnemyMove(enemyTokenId, List.of(new ExplorationCycle.Position(3, 4)))),
+                        List.of(new ExplorationCycle.FeatureInteraction(featureId)), 27, false, null), Set.of(),
+                new ExplorationCycle.MovementStopEvent(UUID.randomUUID(), groupId, movementOperationId,
+                        "HOSTILE_OBSERVED", List.of("HOSTILE_OBSERVED"), new ExplorationCycle.Position(2, 1), hostileTokenId),
+                Set.of(), combatId);
+
+        String json = new ObjectMapper().writeValueAsString(
+                new AdventureController.ExplorationGroupsResponse(4, List.of(group), cycle));
+        String environmentJson = new ObjectMapper().writeValueAsString(
+                new AdventureController.ExplorationEnvironmentPhaseResponse(4, cycle, "안전한 상황 서술"));
+
+        assertTrue(json.contains("안전한 상황 서술"));
+        assertTrue(environmentJson.contains("안전한 상황 서술"));
+        assertTrue(json.contains("currentPhaseCommandId"));
+        for (String privateField : List.of("initiativeByGroup", "completedEnvironmentCommands", "enemyMoves", "path",
+                "tokenId", "featureInteractions", "featureId", "expectedMapVersion", "movementOperationId",
+                "hostileTokenId", "linkedCombatEncounterId", "resolvedMovementEventIds")) {
+            assertFalse(json.contains("\"" + privateField + "\""), privateField);
+            assertFalse(environmentJson.contains("\"" + privateField + "\""), privateField);
+        }
+        for (UUID privateId : List.of(enemyTokenId, featureId, hostileTokenId, movementOperationId, combatId)) {
+            assertFalse(json.contains(privateId.toString()), privateId.toString());
+            assertFalse(environmentJson.contains(privateId.toString()), privateId.toString());
+        }
+        assertTrue(json.contains(groupId.toString()));
+        assertTrue(json.contains("\"combatLinked\":true"));
+    }
+
+    @Test void playerExplorationCycleSanitizesPublicEventLabels() throws Exception {
+        UUID groupId = UUID.randomUUID();
+        var event = new ExplorationCycle.MovementStopEvent(UUID.randomUUID(), groupId, UUID.randomUUID(),
+                "hidden-enemy-token-identifier", List.of("HOSTILE_OBSERVED", "private-map-feature-identifier"),
+                new ExplorationCycle.Position(1, 2), UUID.randomUUID());
+        var cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(groupId, 10), new Random(1))
+                .interruptGroupTurn(groupId, event);
+
+        String json = new ObjectMapper().writeValueAsString(
+                new AdventureController.ExplorationGroupsResponse(4, List.of(), cycle));
+
+        assertTrue(json.contains("HOSTILE_OBSERVED"));
+        assertFalse(json.contains("hidden-enemy-token-identifier"));
+        assertFalse(json.contains("private-map-feature-identifier"));
+        assertFalse(json.contains(event.hostileTokenId().toString()));
+    }
+
     @Test void hiddenMapFactInEnvironmentNarrationIsRejectedBeforeProposalPersistence() {
         var fixture = narrationSafetyFixture("숨겨진 함정은 4,5에 있습니다.");
         Logger logger = (Logger) LoggerFactory.getLogger(RuntimeTurnApplicationService.class);
@@ -69,7 +123,32 @@ class ExplorationEnvironmentControllerTest {
         verify(fixture.adventures()).save(fixture.adventure());
     }
 
+    @Test void hiddenEnemyNameAndPositionAreRejectedBeforeEnvironmentProposalPersistence() {
+        UUID documentId = UUID.randomUUID();
+        var enemy = new com.dndmaster.adventure.domain.scenario.ScenarioModelElement("ambush", "combat-scenario",
+                Map.of("enemyKey", "goblin-scout", "displayName", "고블린 정찰병"),
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(
+                        new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(documentId), 1, "encounter:1")));
+        var model = new com.dndmaster.adventure.domain.scenario.ScenarioModel(1, List.of(), List.of(), List.of(),
+                List.of(), List.of(enemy), List.of(), List.of(), "");
+        var fixture = narrationSafetyFixture("고블린 정찰병이 3,4에 숨어 있습니다.",
+                "{\"tokens\":[{\"id\":\"hidden-enemy-token-id\",\"type\":\"ENEMY\",\"x\":3,\"y\":4,\"discovery\":\"HIDDEN\"}]}",
+                model);
+
+        assertThrows(IllegalStateException.class, () -> fixture.controller().advanceExplorationEnvironmentPhase(
+                fixture.adventureId(), new AdventureController.ExplorationCycleFinishRequest(
+                        fixture.adventure().version(), fixture.phaseId(), false)));
+
+        assertNull(storedCycle(fixture.adventure()).pendingEnvironmentProposal());
+        verify(fixture.adventures(), never()).save(any());
+    }
+
     private static EnvironmentNarrationSafetyFixture narrationSafetyFixture(String narration) {
+        return narrationSafetyFixture(narration, "{\"tokens\":[]}", null);
+    }
+
+    private static EnvironmentNarrationSafetyFixture narrationSafetyFixture(String narration, String gmMap,
+            com.dndmaster.adventure.domain.scenario.ScenarioModel scenarioModel) {
         UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), sheetId = UUID.randomUUID();
         UUID groupId = UUID.randomUUID(), mapId = UUID.randomUUID(), packageId = UUID.randomUUID();
         var party = List.of(new AdventurePartyMember(new CharacterSheetId(sheetId), ControlMode.DIRECT,
@@ -94,6 +173,7 @@ class ExplorationEnvironmentControllerTest {
         var scenarioPackage = mock(com.dndmaster.adventure.domain.scenario.ScenarioPackage.class);
         when(scenarioPackage.mapDefinitions()).thenReturn(List.of());
         when(scenarioPackage.storyMapBindings()).thenReturn(List.of());
+        when(scenarioPackage.scenarioModel()).thenReturn(scenarioModel);
         ScenarioPackageRepository packages = mock(ScenarioPackageRepository.class);
         when(packages.findById(packageId)).thenReturn(Optional.of(scenarioPackage));
         RuntimePlanningPort planning = mock(RuntimePlanningPort.class);
@@ -109,7 +189,7 @@ class ExplorationEnvironmentControllerTest {
                 List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 0);
         when(views.playerView(eq(adventureId), eq(owner))).thenReturn(Optional.of(mapView));
         when(views.preparationView(eq(adventureId), eq(owner))).thenReturn(Optional.of(mapView));
-        when(views.gmEnvironmentView(eq(mapId), eq(owner))).thenReturn("{\"tokens\":[]}");
+        when(views.gmEnvironmentView(eq(mapId), eq(owner))).thenReturn(gmMap);
         when(views.gmSpatialFeatures(eq(mapId), eq(owner))).thenReturn(List.of(new CombatMapViewPort.SpatialFeature(
                 UUID.randomUUID(), "TRAP", List.of(new CombatMapViewPort.Position(4, 5)), "HIDDEN", "ARMED", true)));
         runtime.setCombatMapViewPort(views);
@@ -198,7 +278,7 @@ class ExplorationEnvironmentControllerTest {
         assertEquals(cycle.currentPhaseCommandId(), linked.currentPhaseCommandId());
         assertEquals(0, linked.elapsedSeconds());
         assertFalse(linked.pendingEnvironmentProposal().encounterRequested());
-        assertEquals(encounterId, linked.pendingEnvironmentProposal().linkedCombatEncounterId());
+        assertTrue(AdventureController.ExplorationCycleView.from(linked).pendingEnvironmentProposal().combatLinked());
         controller.linkExplorationCycleToCombat(adventureId, encounterId);
         assertEquals(linked, storedCycle(adventure));
         assertThrows(ApiRequestGuard.ApiContractException.class,
@@ -290,9 +370,9 @@ class ExplorationEnvironmentControllerTest {
             when(lifecycle.findActiveEncounter(adventureId)).thenReturn(Optional.empty());
             var resumed = controller.resolveExplorationMovementEvent(adventureId, eventId,
                     new AdventureController.ExplorationMovementEventResolveRequest(adventure.version()));
-            assertNull(resumed.cycle().linkedCombatEncounterId());
+            assertFalse(resumed.cycle().combatLinked());
             assertEquals(nextGroup, resumed.cycle().currentGroupId());
-            assertTrue(resumed.cycle().movementEventResolved(eventId));
+            assertNull(resumed.cycle().pendingMovementEvent());
             String logs = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
                     .reduce("", (left, right) -> left + "\n" + right);
             assertTrue(logs.contains("operation=exploration_combat_handoff_resume outcome=started"));
@@ -413,7 +493,7 @@ class ExplorationEnvironmentControllerTest {
 
         assertEquals(nextGroup, response.cycle().currentGroupId());
         assertEquals(nextGroup, retry.cycle().currentGroupId());
-        assertTrue(retry.cycle().movementEventResolved(eventId));
+        assertNull(retry.cycle().pendingMovementEvent());
         assertEquals(response.version(), retry.version());
     }
 
@@ -479,7 +559,7 @@ class ExplorationEnvironmentControllerTest {
                                 new com.dndmaster.adventure.domain.ruleset.RulebookId(UUID.randomUUID()))))));
         AdventureController controller = controller(adventures, runtime, mapPort, views, players, rules);
 
-        ExplorationCycle current = cycle;
+        AdventureController.ExplorationCycleView current = AdventureController.ExplorationCycleView.from(cycle);
         AdventureController.ExplorationCycleFinishRequest retryRequest = null;
         for (int index = 0; index < 3; index++) {
             UUID commandId = current.currentPhaseCommandId();

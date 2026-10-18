@@ -98,7 +98,7 @@ it('starts an exploration cycle and advances group then environment through the 
   api.startExplorationCycle = vi.fn(async () => {
     version++
     cycle = { id: 'cycle-1', cycleNumber: 1, currentPhaseCommandId: 'phase-1', groupOrder: ['g1'], completedGroups: [], phase: 'GROUP_TURNS',
-      environmentPhase: 'ENEMIES_PATROLS_AND_DETECTION', elapsedSeconds: 0 }
+      environmentPhase: 'ENEMIES_PATROLS_AND_DETECTION', elapsedSeconds: 0, combatLinked: false }
     return { version, groups: [group], cycle }
   })
   api.finishExplorationGroupTurn = vi.fn(async () => {

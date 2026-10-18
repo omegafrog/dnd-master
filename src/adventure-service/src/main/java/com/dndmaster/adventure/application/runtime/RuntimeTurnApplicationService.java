@@ -922,7 +922,7 @@ public class RuntimeTurnApplicationService {
                 : stageArtifactRepository.findDetailedStage(adventure.id(), storyState.scenarioPackageId(),
                         storyState.stageId(), storyState.backboneRevision(), storyState.detailedStageRevision()).orElse(null);
         List<String> facts = new ArrayList<>(HiddenMapNarrationFacts.forSituation(scenarioPackage, stage, situationId));
-        facts.addAll(runtimeHiddenMapFacts(adventure));
+        facts.addAll(runtimeHiddenMapFacts(adventure, scenarioPackage));
         facts = facts.stream().distinct().toList();
         logHiddenMapFacts(turn.turnId(), situationId, facts.size());
         return facts;
@@ -935,13 +935,13 @@ public class RuntimeTurnApplicationService {
                         state.stageId(), state.backboneRevision(), state.detailedStageRevision()).orElse(null);
         List<String> facts = new ArrayList<>(HiddenMapNarrationFacts.forSituation(
                 scenarioPackage, stage, state == null ? null : state.activeSituationId()));
-        facts.addAll(runtimeHiddenMapFacts(adventure));
+        facts.addAll(runtimeHiddenMapFacts(adventure, scenarioPackage));
         facts = facts.stream().distinct().toList();
         logHiddenMapFacts(null, state == null ? null : state.activeSituationId(), facts.size());
         return facts;
     }
 
-    private List<String> runtimeHiddenMapFacts(Adventure adventure) {
+    private List<String> runtimeHiddenMapFacts(Adventure adventure, ScenarioPackage scenarioPackage) {
         if (combatMapViewPort == null) return List.of();
         long startedAt = System.nanoTime();
         UUID mapId = null;
@@ -962,9 +962,15 @@ public class RuntimeTurnApplicationService {
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.SpatialFeature> features =
                     combatMapViewPort.gmSpatialFeatures(mapId, adventure.ownerPlayerId().value());
             List<String> facts = HiddenMapNarrationFacts.forRuntimeFeatures(features);
+            String gmMap = combatMapViewPort.gmEnvironmentView(mapId, adventure.ownerPlayerId().value());
+            String activeCombatScenarioId = adventure.currentSituation() == null ? null
+                    : adventure.currentSituation().activeCombatScenarioId();
+            List<String> enemyFacts = HiddenMapNarrationFacts.forHiddenEnemyTokens(
+                    gmMap, scenarioPackage.scenarioModel(), activeCombatScenarioId);
+            facts = java.util.stream.Stream.concat(facts.stream(), enemyFacts.stream()).distinct().toList();
             if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
-                LOGGER.info("dev_narration_hidden_map_runtime outcome=loaded adventureId={} mapId={} featureCount={} hiddenTermCount={} elapsedMs={}",
-                        adventure.id().value(), mapId, features.size(), facts.size(),
+                LOGGER.info("dev_narration_hidden_map_runtime outcome=loaded adventureId={} mapId={} featureCount={} hiddenEnemyFactCount={} hiddenTermCount={} elapsedMs={}",
+                        adventure.id().value(), mapId, features.size(), enemyFacts.size(), facts.size(),
                         java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
             }
             return facts;
@@ -1240,7 +1246,7 @@ public class RuntimeTurnApplicationService {
         String narrationSituationId = selectedSituationId == null ? activeSituationId : selectedSituationId;
         List<String> hiddenMapFacts = new ArrayList<>(HiddenMapNarrationFacts.forSituation(
                 scenarioPackage, activeStage, narrationSituationId));
-        hiddenMapFacts.addAll(runtimeHiddenMapFacts(adventure));
+        hiddenMapFacts.addAll(runtimeHiddenMapFacts(adventure, scenarioPackage));
         logHiddenMapFacts(command.turnId(), narrationSituationId, hiddenMapFacts.size());
         boolean storySituationTransition = turnStoryState != null && activeStage != null
                 && proposal.situationProposal() != null

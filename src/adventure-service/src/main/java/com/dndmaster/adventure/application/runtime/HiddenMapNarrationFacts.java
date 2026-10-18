@@ -1,7 +1,9 @@
 package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.domain.scenario.DetailedStage;
+import com.dndmaster.adventure.domain.scenario.CombatScenarioDefinition;
 import com.dndmaster.adventure.domain.scenario.MapDefinition;
+import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.SituationDefinition;
 import com.dndmaster.adventure.application.combat.CombatMapViewPort;
@@ -47,6 +49,40 @@ final class HiddenMapNarrationFacts {
             feature.cells().forEach(cell -> facts.add(cell.x() + "," + cell.y()));
         }
         return facts.stream().filter(value -> value != null && !value.isBlank()).distinct().toList();
+    }
+
+    static List<String> forHiddenEnemyTokens(String gmMapJson, ScenarioModel scenarioModel, String activeCombatScenarioId) {
+        if (gmMapJson == null || gmMapJson.isBlank()) return List.of();
+        try {
+            var root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(gmMapJson);
+            var tokens = root.path("tokens");
+            if (!tokens.isArray()) throw new IllegalStateException("GM map view has no token list");
+            List<CombatScenarioDefinition> scenarioEnemies = scenarioModel == null ? List.of()
+                    : scenarioModel.combatScenarios().stream()
+                            .filter(enemy -> activeCombatScenarioId == null || enemy.scenarioId().equals(activeCombatScenarioId))
+                            .toList();
+            List<String> facts = new ArrayList<>();
+            for (var token : tokens) {
+                String type = token.path("type").asText("");
+                if (!("ENEMY".equalsIgnoreCase(type) || "BOSS".equalsIgnoreCase(type))
+                        || !"HIDDEN".equalsIgnoreCase(token.path("discovery").asText(""))) continue;
+                int x = token.path("x").asInt();
+                int y = token.path("y").asInt();
+                String cell = x + "," + y;
+                facts.addAll(List.of(type, type.toLowerCase(Locale.ROOT), "적", "위협", "enemy", "hostile", cell));
+                for (String nameField : List.of("name", "displayName", "label", "enemyName")) {
+                    String name = token.path(nameField).asText("").trim();
+                    if (!name.isBlank()) facts.add(name);
+                }
+                for (CombatScenarioDefinition enemy : scenarioEnemies) {
+                    facts.add(enemy.displayName());
+                    facts.add(enemy.enemyKey());
+                }
+            }
+            return facts.stream().filter(value -> value != null && !value.isBlank()).distinct().toList();
+        } catch (java.io.IOException failure) {
+            throw new IllegalStateException("GM map view could not be parsed for hidden-enemy narration checks", failure);
+        }
     }
 
     private static void addTypeFacts(List<String> facts, String type) {
