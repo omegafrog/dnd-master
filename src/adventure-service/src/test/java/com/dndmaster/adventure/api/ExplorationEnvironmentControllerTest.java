@@ -6,6 +6,9 @@ import static org.mockito.Mockito.*;
 
 import com.dndmaster.adventure.application.combat.*;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.*;
+import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
+import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.domain.adventure.*;
@@ -24,6 +27,103 @@ import ch.qos.logback.core.read.ListAppender;
 import org.slf4j.LoggerFactory;
 
 class ExplorationEnvironmentControllerTest {
+    @Test void hiddenMapFactInEnvironmentNarrationIsRejectedBeforeProposalPersistence() {
+        var fixture = narrationSafetyFixture("숨겨진 함정은 4,5에 있습니다.");
+        Logger logger = (Logger) LoggerFactory.getLogger(RuntimeTurnApplicationService.class);
+        var appender = new ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        String previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        try {
+            assertThrows(IllegalStateException.class, () -> fixture.controller().advanceExplorationEnvironmentPhase(
+                    fixture.adventureId(), new AdventureController.ExplorationCycleFinishRequest(
+                            fixture.adventure().version(), fixture.phaseId(), false)));
+        } finally {
+            logger.detachAppender(appender);
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
+
+        assertNull(storedCycle(fixture.adventure()).pendingEnvironmentProposal());
+        verify(fixture.adventures(), never()).save(any());
+        String logs = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                .reduce("", (left, right) -> left + "\n" + right);
+        assertTrue(logs.contains("outcome=failed"));
+        assertTrue(logs.contains("phaseId=" + fixture.phaseId()));
+        assertTrue(logs.contains("narrationChars="));
+        assertTrue(logs.contains("hiddenFactCount="));
+        assertTrue(logs.contains("recoveryAction=discard_proposal_retry_same_phase_id"));
+        assertFalse(logs.contains("숨겨진 함정은 4,5에 있습니다."));
+    }
+
+    @Test void safeEnvironmentNarrationRemainsAvailableAndCanBePersisted() {
+        var fixture = narrationSafetyFixture("복도에 먼지가 쌓여 있습니다.");
+
+        var response = fixture.controller().advanceExplorationEnvironmentPhase(fixture.adventureId(),
+                new AdventureController.ExplorationCycleFinishRequest(
+                        fixture.adventure().version(), fixture.phaseId(), false));
+
+        assertEquals("복도에 먼지가 쌓여 있습니다.", response.narration());
+        assertEquals(response.narration(), storedCycle(fixture.adventure()).pendingEnvironmentProposal().narration());
+        verify(fixture.adventures()).save(fixture.adventure());
+    }
+
+    private static EnvironmentNarrationSafetyFixture narrationSafetyFixture(String narration) {
+        UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), sheetId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID(), mapId = UUID.randomUUID(), packageId = UUID.randomUUID();
+        var party = List.of(new AdventurePartyMember(new CharacterSheetId(sheetId), ControlMode.DIRECT,
+                true, true, true, true, true, true));
+        Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), party,
+                new AdventureContext("복도", "", "", ""));
+        ExplorationGroup group = new ExplorationGroup(groupId, UUID.randomUUID(),
+                List.of(new ExplorationGroup.Member(sheetId, ExplorationGroup.Formation.FRONT, 30)));
+        ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(groupId, 10), new Random(1))
+                .finishGroupTurn(groupId, false);
+        adventure.updateExplorationState(new OwnerPlayerId(owner), 0, new ExplorationState(List.of(group), cycle));
+
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findById(any())).thenReturn(Optional.of(adventure));
+        RuntimeBinding binding = mock(RuntimeBinding.class);
+        when(binding.scenarioPackageId()).thenReturn(packageId);
+        when(binding.bindingVersion()).thenReturn(1L);
+        when(binding.activeSourceContext()).thenReturn(null);
+        RuntimeBindingRepository bindings = mock(RuntimeBindingRepository.class);
+        when(bindings.findCurrentByAdventureId(any())).thenReturn(Optional.of(binding));
+        var scenarioPackage = mock(com.dndmaster.adventure.domain.scenario.ScenarioPackage.class);
+        when(scenarioPackage.mapDefinitions()).thenReturn(List.of());
+        when(scenarioPackage.storyMapBindings()).thenReturn(List.of());
+        ScenarioPackageRepository packages = mock(ScenarioPackageRepository.class);
+        when(packages.findById(packageId)).thenReturn(Optional.of(scenarioPackage));
+        RuntimePlanningPort planning = mock(RuntimePlanningPort.class);
+        when(planning.planEnvironmentPhase(any())).thenReturn(
+                new ExplorationCycle.EnvironmentProposal(narration, List.of(), 0, true, null));
+        RuntimeTurnApplicationService runtime = new RuntimeTurnApplicationService(adventures, bindings, packages,
+                mock(RuntimeTurnRepository.class), mock(RuntimeEvidenceSearchPort.class), planning,
+                new DefaultNarrationSafetyPolicy(), mock(SessionKnowledgeSetRepository.class));
+        runtime.setCharacterSheetReadPort(ignored -> "현재 캐릭터 시트");
+
+        CombatMapViewPort views = mock(CombatMapViewPort.class);
+        var mapView = new CombatMapViewPort.View(mapId, new CombatMapViewPort.Grid(10, 10, 70, 5),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 0);
+        when(views.playerView(eq(adventureId), eq(owner))).thenReturn(Optional.of(mapView));
+        when(views.preparationView(eq(adventureId), eq(owner))).thenReturn(Optional.of(mapView));
+        when(views.gmEnvironmentView(eq(mapId), eq(owner))).thenReturn("{\"tokens\":[]}");
+        when(views.gmSpatialFeatures(eq(mapId), eq(owner))).thenReturn(List.of(new CombatMapViewPort.SpatialFeature(
+                UUID.randomUUID(), "TRAP", List.of(new CombatMapViewPort.Position(4, 5)), "HIDDEN", "ARMED", true)));
+        runtime.setCombatMapViewPort(views);
+        AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        when(players.playerId()).thenReturn(owner);
+        AdventureController controller = controller(adventures, runtime, mock(CombatMapPort.class), views, players,
+                mock(AppliedRuleSetApplicationService.class));
+        return new EnvironmentNarrationSafetyFixture(adventureId, adventure, adventures, controller,
+                cycle.currentPhaseCommandId());
+    }
+
+    private record EnvironmentNarrationSafetyFixture(UUID adventureId, Adventure adventure,
+            AdventureRepository adventures, AdventureController controller, UUID phaseId) { }
+
     @Test void environmentEncounterStopsAndPersistsCycleUntilCombatHandoff() {
         UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), sheetId = UUID.randomUUID();
         UUID groupId = UUID.randomUUID(), mapId = UUID.randomUUID();

@@ -110,21 +110,32 @@ public class RuntimeTurnApplicationService {
                 "exploration_environment_plan", "adventureId=" + adventureId.value() + " phaseId=" + phaseId
                         + " environmentPhase=" + environmentPhase + " patrolRouteCount=0 fallback=gm_judgment"
                         + " mapStateChars=" + mapStateJson.length() + " partyCount=" + adventure.party().size());
+        int hiddenFactCount = -1;
+        int narrationChars = 0;
         try {
             var proposal = planningPort.planEnvironmentPhase(request);
+            narrationChars = proposal.narration().length();
+            List<String> hiddenFacts = hiddenMapFactsForCurrentSituation(scenarioPackage, adventure);
+            hiddenFactCount = hiddenFacts.size();
+            NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
+                    proposal.narration(), new EvidencePack(List.of(), List.of(), List.of()), adventure.currentContext(),
+                    action, hiddenFacts));
+            if (!safety.approved()) throw new IllegalStateException("environment narration safety rejected");
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
                     "exploration_environment_plan", "adventureId=" + adventureId.value() + " phaseId=" + phaseId
                             + " environmentPhase=" + environmentPhase + " expectedEnemyMovePolicy="
                             + (environmentPhase == com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION
                                     ? "allowed" : "none")
                             + " actualEnemyMoves=" + proposal.enemyMoves().size()
-                            + " encounterRequested=" + proposal.encounterRequested(), started);
+                            + " encounterRequested=" + proposal.encounterRequested() + " narrationChars=" + narrationChars
+                            + " hiddenFactCount=" + hiddenFactCount + " narrationSafety=approved", started);
             return proposal;
         } catch (RuntimeException | Error failure) {
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
                     "exploration_environment_plan", "adventureId=" + adventureId.value() + " phaseId=" + phaseId
                             + " environmentPhase=" + environmentPhase + " mapStateChars=" + mapStateJson.length()
-                            + " recoveryAction=retry_same_phase_id", started, failure);
+                            + " narrationChars=" + narrationChars + " hiddenFactCount=" + hiddenFactCount
+                            + " narrationSafety=not_approved recoveryAction=discard_proposal_retry_same_phase_id", started, failure);
             throw failure;
         }
     }
