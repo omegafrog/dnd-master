@@ -24,6 +24,120 @@ import ch.qos.logback.core.read.ListAppender;
 import org.slf4j.LoggerFactory;
 
 class ExplorationEnvironmentControllerTest {
+    @Test void environmentEncounterStopsAndPersistsCycleUntilCombatHandoff() {
+        UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), sheetId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID(), mapId = UUID.randomUUID();
+        var party = List.of(new AdventurePartyMember(new CharacterSheetId(sheetId), ControlMode.DIRECT,
+                true, true, true, true, true, true));
+        Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), party,
+                new AdventureContext("복도", "", "", ""));
+        ExplorationGroup group = new ExplorationGroup(groupId, UUID.randomUUID(),
+                List.of(new ExplorationGroup.Member(sheetId, ExplorationGroup.Formation.FRONT, 30)));
+        ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(groupId, 10), new Random(1))
+                .finishGroupTurn(groupId, false);
+        adventure.updateExplorationState(new OwnerPlayerId(owner), 0, new ExplorationState(List.of(group), cycle));
+
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findById(any())).thenReturn(Optional.of(adventure));
+        RuntimeTurnApplicationService runtime = mock(RuntimeTurnApplicationService.class);
+        when(runtime.planExplorationEnvironmentPhase(any(), any(), any(), any(), any())).thenReturn(
+                new ExplorationCycle.EnvironmentProposal("적이 기습해 전투가 필요합니다.", List.of(), 0, true, null));
+        CombatMapViewPort views = mock(CombatMapViewPort.class);
+        when(views.playerView(eq(adventureId), eq(owner))).thenReturn(Optional.of(new CombatMapViewPort.View(
+                mapId, new CombatMapViewPort.Grid(10, 10, 70, 5), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), 0)));
+        CombatMapPort mapPort = mock(CombatMapPort.class);
+        AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        when(players.playerId()).thenReturn(owner);
+        AdventureController controller = controller(adventures, runtime, mapPort, views, players,
+                mock(AppliedRuleSetApplicationService.class));
+
+        UUID phaseId = cycle.currentPhaseCommandId();
+        var first = controller.advanceExplorationEnvironmentPhase(adventureId,
+                new AdventureController.ExplorationCycleFinishRequest(adventure.version(), phaseId, false));
+        assertTrue(first.cycle().pendingEnvironmentProposal().encounterRequested());
+        assertEquals(phaseId, first.cycle().currentPhaseCommandId());
+        assertEquals(0, first.cycle().elapsedSeconds());
+
+        var retry = controller.advanceExplorationEnvironmentPhase(adventureId,
+                new AdventureController.ExplorationCycleFinishRequest(adventure.version(), phaseId, false));
+        assertEquals(first.cycle(), retry.cycle());
+        verify(runtime, times(1)).planExplorationEnvironmentPhase(any(), any(), any(), any(), any());
+        verify(mapPort, never()).advanceDurations(any());
+        verify(mapPort, never()).advanceGameTime(any());
+        assertTrue(adventure.conversation().isEmpty());
+    }
+
+    @Test void committedCombatLinksToAndPreservesSuspendedExplorationCycle() {
+        UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), sheetId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID(), encounterId = UUID.randomUUID();
+        var party = List.of(new AdventurePartyMember(new CharacterSheetId(sheetId), ControlMode.DIRECT,
+                true, true, true, true, true, true));
+        Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), party,
+                new AdventureContext("복도", "", "", ""));
+        ExplorationGroup group = new ExplorationGroup(groupId, UUID.randomUUID(),
+                List.of(new ExplorationGroup.Member(sheetId, ExplorationGroup.Formation.FRONT, 30)));
+        ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(groupId, 10), new Random(1))
+                .finishGroupTurn(groupId, false)
+                .withEnvironmentProposal(new ExplorationCycle.EnvironmentProposal("적대적 접촉", List.of(), 0, true, null));
+        adventure.updateExplorationState(new OwnerPlayerId(owner), 0, new ExplorationState(List.of(group), cycle));
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findByIdForUpdate(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        when(players.playerId()).thenReturn(owner);
+        AdventureController controller = controller(adventures, mock(RuntimeTurnApplicationService.class),
+                mock(CombatMapPort.class), mock(CombatMapViewPort.class), players,
+                mock(AppliedRuleSetApplicationService.class));
+
+        controller.linkExplorationCycleToCombat(adventureId, encounterId);
+        ExplorationCycle linked = storedCycle(adventure);
+        assertEquals(cycle.id(), linked.id());
+        assertEquals(cycle.currentPhaseCommandId(), linked.currentPhaseCommandId());
+        assertEquals(0, linked.elapsedSeconds());
+        assertFalse(linked.pendingEnvironmentProposal().encounterRequested());
+        assertEquals(encounterId, linked.pendingEnvironmentProposal().linkedCombatEncounterId());
+        controller.linkExplorationCycleToCombat(adventureId, encounterId);
+        assertEquals(linked, storedCycle(adventure));
+        assertThrows(ApiRequestGuard.ApiContractException.class,
+                () -> controller.linkExplorationCycleToCombat(adventureId, UUID.randomUUID()));
+    }
+
+    @Test void linkedActiveCombatBlocksEnvironmentPhaseAdvance() {
+        UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), sheetId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID(), mapId = UUID.randomUUID(), encounterId = UUID.randomUUID();
+        var party = List.of(new AdventurePartyMember(new CharacterSheetId(sheetId), ControlMode.DIRECT,
+                true, true, true, true, true, true));
+        Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), party,
+                new AdventureContext("복도", "", "", ""));
+        ExplorationGroup group = new ExplorationGroup(groupId, UUID.randomUUID(),
+                List.of(new ExplorationGroup.Member(sheetId, ExplorationGroup.Formation.FRONT, 30)));
+        ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(groupId, 10), new Random(1))
+                .finishGroupTurn(groupId, false)
+                .withEnvironmentProposal(new ExplorationCycle.EnvironmentProposal("적대적 접촉", List.of(), 0, true, null))
+                .linkCombatEncounter(encounterId);
+        adventure.updateExplorationState(new OwnerPlayerId(owner), 0, new ExplorationState(List.of(group), cycle));
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findById(any())).thenReturn(Optional.of(adventure));
+        var lifecycle = mock(CombatLifecycleApplicationService.class);
+        var encounter = mock(com.dndmaster.adventure.domain.combat.CombatEncounter.class);
+        when(encounter.encounterId()).thenReturn(encounterId);
+        when(lifecycle.findActiveEncounter(adventureId)).thenReturn(Optional.of(encounter));
+        AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        when(players.playerId()).thenReturn(owner);
+        RuntimeTurnApplicationService runtime = mock(RuntimeTurnApplicationService.class);
+        AdventureController controller = controller(adventures, runtime, mock(CombatMapPort.class),
+                mock(CombatMapViewPort.class), players, mock(AppliedRuleSetApplicationService.class), lifecycle);
+
+        var failure = assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.advanceExplorationEnvironmentPhase(
+                adventureId, new AdventureController.ExplorationCycleFinishRequest(adventure.version(),
+                        cycle.currentPhaseCommandId(), false)));
+        assertEquals("EXPLORATION_CYCLE_SUSPENDED_FOR_COMBAT", failure.getMessage());
+        verifyNoInteractions(runtime);
+    }
+
     @Test void callerCannotMarkGroupTurnInterruptedWithoutMapMovementResult() {
         UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), sheetId = UUID.randomUUID();
         UUID groupId = UUID.randomUUID();
@@ -209,6 +323,11 @@ class ExplorationEnvironmentControllerTest {
     private static AdventureController controller(AdventureRepository adventures, RuntimeTurnApplicationService runtime,
             CombatMapPort mapPort, CombatMapViewPort views, AuthenticatedPlayerResolver players,
             AppliedRuleSetApplicationService rules) {
+        return controller(adventures, runtime, mapPort, views, players, rules, mock(CombatLifecycleApplicationService.class));
+    }
+    private static AdventureController controller(AdventureRepository adventures, RuntimeTurnApplicationService runtime,
+            CombatMapPort mapPort, CombatMapViewPort views, AuthenticatedPlayerResolver players,
+            AppliedRuleSetApplicationService rules, CombatLifecycleApplicationService combatLifecycle) {
         return new AdventureController(mock(com.dndmaster.adventure.application.saved.SavedAdventureApplicationService.class),
                 runtime, adventures, mock(com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder.class),
                 mock(com.dndmaster.adventure.application.runtime.GmTurnRepository.class),
@@ -222,7 +341,7 @@ class ExplorationEnvironmentControllerTest {
                 new ObjectMapper(), provider(views), provider(mock(CombatMapPreparationPort.class)),
                 mock(PendingMapMovementConfirmationRepository.class),
                 mock(com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository.class),
-                mock(CombatLifecycleApplicationService.class), rules,
+                combatLifecycle, rules,
                 mock(com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService.class));
     }
     private static <T> ObjectProvider<T> provider(T value) {

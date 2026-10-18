@@ -395,6 +395,8 @@ public class AdventureController {
                         LOGGER.warn("gm_turn_combat_start_skipped adventureId={} reason=ACTIVE_COMBAT_ALREADY_EXISTS turnId={}",
                                 adventureId, result.turn().turnId());
                     }
+                    combatLifecycleService.findActiveEncounter(adventureId)
+                            .ifPresent(encounter -> linkExplorationCycleToCombat(adventureId, encounter.encounterId()));
                 }
                 sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
                         result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
@@ -486,7 +488,29 @@ public class AdventureController {
                                                         result.turn().turnId(), participantId, adventure.version(), scope)),
                                 result.enemySheetPreparationRequest());
             }
+            combatLifecycleService.findActiveEncounter(adventureId)
+                    .ifPresent(encounter -> linkExplorationCycleToCombat(adventureId, encounter.encounterId()));
         }
+    }
+
+    void linkExplorationCycleToCombat(UUID adventureId, UUID encounterId) {
+        Adventure adventure = adventureRepository.findByIdForUpdate(new AdventureId(adventureId)).orElseThrow();
+        var state = storedExplorationState(adventure);
+        var cycle = state.cycle();
+        if (cycle == null || cycle.pendingEnvironmentProposal() == null
+                || (!cycle.pendingEnvironmentProposal().encounterRequested()
+                        && cycle.pendingEnvironmentProposal().linkedCombatEncounterId() == null)) return;
+        UUID linkedId = cycle.pendingEnvironmentProposal().linkedCombatEncounterId();
+        if (linkedId != null) {
+            if (!linkedId.equals(encounterId))
+                throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_CYCLE_ALREADY_LINKED_TO_COMBAT");
+            return;
+        }
+        var linked = cycle.linkCombatEncounter(encounterId);
+        adventure.updateExplorationState(new OwnerPlayerId(adventure.ownerPlayerId().value()), adventure.version(), state.withCycle(linked));
+        adventureRepository.save(adventure);
+        LOGGER.info("exploration_combat_handoff_linked adventureId={} cycleId={} phaseId={} encounterId={} result=linked",
+                adventureId, linked.id(), linked.currentPhaseCommandId(), encounterId);
     }
 
     private static Map<String, String> runtimeTurnFailure(RuntimeException exception) {
@@ -701,6 +725,10 @@ public class AdventureController {
         var cycle = state.cycle();
         if (cycle == null || cycle.phase() != com.dndmaster.adventure.domain.runtime.ExplorationCycle.Phase.ENVIRONMENT)
             throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_ENVIRONMENT_PHASE_NOT_ACTIVE");
+        var activeEncounter = combatLifecycleService.findActiveEncounter(adventureId);
+        if (activeEncounter.isPresent() && cycle.pendingEnvironmentProposal() != null
+                && activeEncounter.orElseThrow().encounterId().equals(cycle.pendingEnvironmentProposal().linkedCombatEncounterId()))
+            throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_CYCLE_SUSPENDED_FOR_COMBAT");
         UUID phaseId = cycle.currentPhaseCommandId();
         if (!phaseId.equals(request.commandId())) throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_ENVIRONMENT_PHASE_ID_MISMATCH");
         if (cycle.pendingEnvironmentProposal() == null && adventure.version() != request.expectedVersion())
@@ -724,7 +752,7 @@ public class AdventureController {
                 var generated = runtimeTurnService.planExplorationEnvironmentPhase(new AdventureId(adventureId),
                         new OwnerPlayerId(owner), phaseId, cycle.environmentPhase(), gmMap);
                 proposal = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal(
-                        generated.narration(), generated.enemyMoves(), map.version());
+                        generated.narration(), generated.enemyMoves(), map.version(), generated.encounterRequested(), null);
                 if (cycle.environmentPhase() != com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION
                         && !proposal.enemyMoves().isEmpty()) {
                     throw new ApiRequestGuard.ApiContractException(502, "ENEMY_MOVEMENT_OUTSIDE_ENVIRONMENT_MOVEMENT_PHASE");
@@ -759,6 +787,15 @@ public class AdventureController {
                 adventureRepository.save(latest);
                 state = state.withCycle(cycle);
             }
+            if (proposal.encounterRequested()) {
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                        "exploration_environment_phase", "adventureId=" + adventureId + " phaseId=" + phaseId
+                                + " encounterRequested=true enemyMovesExpected=" + proposal.enemyMoves().size()
+                                + " enemyMovesApplied=" + actualEnemyMoves + " elapsedSeconds=" + cycle.elapsedSeconds()
+                                + " result=handoff_pending recoveryAction=await_committed_gm_combat_start", started);
+                Adventure latest = ownedAdventure(adventureId);
+                return new ExplorationEnvironmentPhaseResponse(latest.version(), cycle, proposal.narration());
+            }
             if (cycle.environmentPhase() == com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentPhase.DURATIONS_AND_DEADLINES) {
                 UUID durationId = UUID.nameUUIDFromBytes((phaseId + ":durations").getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 var currentMap = combatMapViewPort.playerView(adventureId, owner).orElseThrow();
@@ -780,6 +817,7 @@ public class AdventureController {
                             + " mapVersionExpected=" + proposal.expectedMapVersion()
                             + " mapVersionActual=" + actualMapVersion
                             + " elapsedSeconds=" + cycle.elapsedSeconds()
+                            + " encounterRequested=" + proposal.encounterRequested()
                             + " recoveryAction=continue_next_group_cycle", started);
             return new ExplorationEnvironmentPhaseResponse(latest.version(), cycle, proposal.narration());
         } catch (RuntimeException | Error failure) {

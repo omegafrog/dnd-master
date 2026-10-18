@@ -1646,7 +1646,7 @@ class TypedAgentContractControllerTest {
 
     @Test
     void exploration_environment_requires_typed_enemy_routes_and_rejects_duplicate_tokens() {
-        String valid = "{\"narration\":\"순찰병이 복도를 따라 이동합니다.\",\"enemyMoves\":[{\"tokenId\":\""
+        String valid = "{\"narration\":\"순찰병이 복도를 따라 이동합니다.\",\"encounterRequested\":false,\"enemyMoves\":[{\"tokenId\":\""
                 + UUID.randomUUID() + "\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}]}";
         TypedAgentContractController controller = new TypedAgentContractController(
                 selectedAdapter((operation, prompt, requested) -> valid), new ObjectMapper(), new ApiRequestGuard("service-secret"));
@@ -1656,8 +1656,13 @@ class TypedAgentContractControllerTest {
         var result = controller.explorationEnvironment("service-secret", request);
         org.junit.jupiter.api.Assertions.assertEquals(1, result.enemyMoves().size());
         org.junit.jupiter.api.Assertions.assertEquals(2, result.enemyMoves().getFirst().path().size());
+        org.junit.jupiter.api.Assertions.assertFalse(result.encounterRequested());
+        TypedAgentContractController encounterController = new TypedAgentContractController(
+                selectedAdapter((operation, prompt, requested) -> "{\"narration\":\"적이 기습해 전투가 필요합니다.\",\"enemyMoves\":[],\"encounterRequested\":true}"),
+                new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        org.junit.jupiter.api.Assertions.assertTrue(encounterController.explorationEnvironment("service-secret", request).encounterRequested());
 
-        String duplicate = "{\"narration\":\"순찰병이 이동합니다.\",\"enemyMoves\":["
+        String duplicate = "{\"narration\":\"순찰병이 이동합니다.\",\"encounterRequested\":false,\"enemyMoves\":["
                 + "{\"tokenId\":\"00000000-0000-0000-0000-000000000001\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]},"
                 + "{\"tokenId\":\"00000000-0000-0000-0000-000000000001\",\"path\":[{\"x\":1,\"y\":1},{\"x\":1,\"y\":2}]}]}";
         TypedAgentContractController invalid = new TypedAgentContractController(

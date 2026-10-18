@@ -91,6 +91,7 @@ public class RuntimeTurnApplicationService {
         String action = "환경 하위 단계 판단: 한 모험 순환의 공통 6초 안에서 지정된 단계만 처리한다. "
                 + "ENEMIES_PATROLS_AND_DETECTION 단계에서만 적 토큰 이동 경로를 제안한다. 다른 단계에서는 적 이동 경로를 비워 둔다. "
                 + "PATROL_ROUTE_SOURCE=none; 저장된 순찰 경로 조회 기능이 없으므로 주변 적의 이동은 GM 판단으로 제안한다. "
+                + "적대적 조우가 발생해 전투 전환이 필요하면 encounterRequested=true로 응답하고, 해당 단계는 시간 진행 전에 중단한다. "
                 + "PHASE_ID=" + phaseId + " ENVIRONMENT_PHASE=" + environmentPhase
                 + " GM_MAP_STATE=" + Objects.requireNonNull(mapStateJson);
         RuntimePlanningRequest request = new RuntimePlanningRequest(adventureId, ownerPlayerId,
@@ -115,7 +116,8 @@ public class RuntimeTurnApplicationService {
                             + " environmentPhase=" + environmentPhase + " expectedEnemyMovePolicy="
                             + (environmentPhase == com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION
                                     ? "allowed" : "none")
-                            + " actualEnemyMoves=" + proposal.enemyMoves().size(), started);
+                            + " actualEnemyMoves=" + proposal.enemyMoves().size()
+                            + " encounterRequested=" + proposal.encounterRequested(), started);
             return proposal;
         } catch (RuntimeException | Error failure) {
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,

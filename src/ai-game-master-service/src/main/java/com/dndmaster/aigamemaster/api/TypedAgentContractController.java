@@ -899,8 +899,9 @@ public final class TypedAgentContractController {
             ExplorationEnvironmentResponse response = adapter.completeWithResolution(request.soloPlayerId(),
                     request.operationKey(), request.prompt(), json -> parseExplorationEnvironment(json), requested,
                     resolution, null, EXPLORATION_ENVIRONMENT_OUTPUT_SCHEMA).response();
-            if (runtimeDiagnosticsEnabled()) log.info("dev_gm_environment_phase outcome=completed operationKey={} enemyMoveCount={} elapsedMs={}",
-                    request.operationKey(), response.enemyMoves().size(), java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+            if (runtimeDiagnosticsEnabled()) log.info("dev_gm_environment_phase outcome=completed operationKey={} enemyMoveCount={} encounterRequested={} elapsedMs={}",
+                    request.operationKey(), response.enemyMoves().size(), response.encounterRequested(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
             return response;
         } catch (RuntimeException failure) {
             if (runtimeDiagnosticsEnabled()) log.warn("dev_gm_environment_phase outcome=failed operationKey={} promptChars={} schemaChars={} failureClass={} recoveryAction=retry_same_phase_id elapsedMs={}",
@@ -912,8 +913,11 @@ public final class TypedAgentContractController {
 
     private ExplorationEnvironmentResponse parseExplorationEnvironment(String json) {
         JsonNode root = readObject(json);
-        requireOnlyFields(root, Set.of("narration", "enemyMoves"), Set.of("narration", "enemyMoves"), "exploration environment");
+        requireOnlyFields(root, Set.of("narration", "enemyMoves", "encounterRequested"),
+                Set.of("narration", "enemyMoves", "encounterRequested"), "exploration environment");
         String narration = required(root, "narration");
+        JsonNode encounterRequestedNode = root.path("encounterRequested");
+        if (!encounterRequestedNode.isBoolean()) throw new IllegalArgumentException("encounterRequested must be a boolean");
         JsonNode movesNode = root.path("enemyMoves");
         if (!movesNode.isArray() || movesNode.size() > 100) throw new IllegalArgumentException("enemyMoves must be an array of at most 100 routes");
         var moves = new ArrayList<EnvironmentEnemyMove>();
@@ -936,14 +940,14 @@ public final class TypedAgentContractController {
             }
             moves.add(new EnvironmentEnemyMove(tokenId, positions));
         }
-        return new ExplorationEnvironmentResponse(narration, moves);
+        return new ExplorationEnvironmentResponse(narration, moves, encounterRequestedNode.booleanValue());
     }
 
     public record ExplorationEnvironmentRequest(java.util.UUID soloPlayerId, String operationKey,
             java.util.UUID endpointId, String provider, String model, String reasoning,
             java.util.UUID effectiveEndpointId, String effectiveEndpointVersion, String effectiveProvider,
             String effectiveModel, String prompt) { }
-    public record ExplorationEnvironmentResponse(String narration, List<EnvironmentEnemyMove> enemyMoves) {
+    public record ExplorationEnvironmentResponse(String narration, List<EnvironmentEnemyMove> enemyMoves, boolean encounterRequested) {
         public ExplorationEnvironmentResponse { enemyMoves = List.copyOf(enemyMoves); }
     }
     public record EnvironmentEnemyMove(java.util.UUID tokenId, List<EnvironmentPosition> path) {

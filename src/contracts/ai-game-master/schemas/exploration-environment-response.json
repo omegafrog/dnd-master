@@ -2,9 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["narration", "enemyMoves"],
+  "required": ["narration", "enemyMoves", "encounterRequested"],
   "properties": {
     "narration": { "type": "string", "minLength": 1 },
+    "encounterRequested": { "type": "boolean" },
     "enemyMoves": {
       "type": "array",
       "items": {

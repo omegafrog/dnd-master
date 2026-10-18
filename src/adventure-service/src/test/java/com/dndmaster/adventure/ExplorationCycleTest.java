@@ -100,6 +100,21 @@ class ExplorationCycleTest {
                 new ExplorationCycle.EnvironmentProposal("replacement", java.util.List.of())));
     }
 
+    @Test void encounterRequestSuspendsEnvironmentUntilCommittedCombatIsLinked() {
+        UUID group = UUID.randomUUID(), encounter = UUID.randomUUID();
+        ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(group, 12)).finishGroupTurn(group, false);
+        UUID phaseId = cycle.currentPhaseCommandId();
+        ExplorationCycle requested = cycle.withEnvironmentProposal(new ExplorationCycle.EnvironmentProposal(
+                "적대적 접촉이 발생했습니다.", java.util.List.of(), 0, true, null));
+
+        assertThrows(IllegalStateException.class, () -> requested.completeEnvironmentPhase(phaseId));
+        ExplorationCycle handoff = requested.linkCombatEncounter(encounter);
+        assertFalse(handoff.pendingEnvironmentProposal().encounterRequested());
+        assertEquals(encounter, handoff.pendingEnvironmentProposal().linkedCombatEncounterId());
+        assertEquals(phaseId, handoff.currentPhaseCommandId());
+        assertEquals(0, handoff.elapsedSeconds());
+    }
+
     @Test void enemyRoutesAreRejectedOutsideTheEnemyAndPatrolPhase() {
         UUID group = UUID.randomUUID();
         ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(group, 12))

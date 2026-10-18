@@ -103,12 +103,27 @@ public record ExplorationCycle(
         }
     }
 
-    public record EnvironmentProposal(String narration, List<EnemyMove> enemyMoves, long expectedMapVersion) {
-        public EnvironmentProposal(String narration, List<EnemyMove> enemyMoves) { this(narration, enemyMoves, -1); }
+    public record EnvironmentProposal(String narration, List<EnemyMove> enemyMoves, long expectedMapVersion,
+            boolean encounterRequested, UUID linkedCombatEncounterId) {
+        public EnvironmentProposal(String narration, List<EnemyMove> enemyMoves) { this(narration, enemyMoves, -1, false, null); }
+        public EnvironmentProposal(String narration, List<EnemyMove> enemyMoves, long expectedMapVersion) {
+            this(narration, enemyMoves, expectedMapVersion, false, null);
+        }
         public EnvironmentProposal {
             narration = narration == null ? "" : narration.trim();
             enemyMoves = List.copyOf(Objects.requireNonNull(enemyMoves));
             if (expectedMapVersion < -1) throw new IllegalArgumentException("expected map version is invalid");
+            if (linkedCombatEncounterId != null && encounterRequested)
+                throw new IllegalArgumentException("linked combat encounter already satisfies the encounter handoff");
+        }
+
+        public EnvironmentProposal linkCombatEncounter(UUID encounterId) {
+            Objects.requireNonNull(encounterId);
+            if (!encounterRequested && linkedCombatEncounterId == null)
+                throw new IllegalStateException("environment phase did not request an encounter");
+            if (linkedCombatEncounterId != null && !linkedCombatEncounterId.equals(encounterId))
+                throw new IllegalStateException("environment phase is already linked to another combat encounter");
+            return new EnvironmentProposal(narration, enemyMoves, expectedMapVersion, false, encounterId);
         }
     }
     public record Position(int x, int y) { }
@@ -152,6 +167,15 @@ public record ExplorationCycle(
             throw new IllegalStateException("environment proposal is already persisted");
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
                 environmentPhase, completedEnvironmentCommands, elapsedSeconds, proposal, completedEnvironmentActions,
+                pendingMovementEvent, resolvedMovementEventIds);
+    }
+
+    public ExplorationCycle linkCombatEncounter(UUID encounterId) {
+        if (phase != Phase.ENVIRONMENT || pendingEnvironmentProposal == null)
+            throw new IllegalStateException("environment encounter handoff is not pending");
+        EnvironmentProposal linked = pendingEnvironmentProposal.linkCombatEncounter(encounterId);
+        return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
+                environmentPhase, completedEnvironmentCommands, elapsedSeconds, linked, completedEnvironmentActions,
                 pendingMovementEvent, resolvedMovementEventIds);
     }
 
@@ -218,6 +242,8 @@ public record ExplorationCycle(
     public ExplorationCycle completeEnvironmentPhase(UUID commandId) {
         Objects.requireNonNull(commandId);
         if (phase != Phase.ENVIRONMENT) throw new IllegalStateException("environment phase is not active");
+        if (pendingEnvironmentProposal != null && pendingEnvironmentProposal.encounterRequested())
+            throw new IllegalStateException("environment encounter handoff must be linked to combat before the phase can continue");
         if (completedEnvironmentCommands.contains(commandId)) return this;
         if (!currentPhaseCommandId().equals(commandId)) throw new IllegalArgumentException("environment command id is not current");
         Set<UUID> completed = new HashSet<>(completedEnvironmentCommands);

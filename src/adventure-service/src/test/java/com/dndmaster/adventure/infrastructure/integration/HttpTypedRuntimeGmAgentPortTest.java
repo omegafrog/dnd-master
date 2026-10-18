@@ -127,6 +127,32 @@ class HttpTypedRuntimeGmAgentPortTest {
     }
 
     @Test
+    void exploration_environment_decodes_encounter_handoff_signal() {
+        server = new WireMockServer(0);
+        server.start();
+        UUID ownerId = UUID.randomUUID(), endpointId = UUID.randomUUID();
+        server.stubFor(post(urlEqualTo("/internal/gm/runtime-endpoint")).willReturn(aResponse().withStatus(200)
+                .withBody("{\"endpointId\":\"" + endpointId + "\",\"endpointVersion\":\"1970-01-01T00:00:00Z\","
+                        + "\"provider\":\"codex-cli\",\"model\":\"gpt-5.6-luna\",\"reasoning\":\"medium\"}")));
+        server.stubFor(post(urlEqualTo("/internal/gm/exploration-environment")).willReturn(aResponse().withStatus(200)
+                .withBody("{\"narration\":\"적대적 접촉이 발생해 전투로 넘어갑니다.\",\"enemyMoves\":[],\"encounterRequested\":true}")));
+        GmContextEnvelope context = new GmContextEnvelope(AdventureId.generate(), new OwnerPlayerId(ownerId),
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1,
+                new AdventureContext("복도", "조용한 통로", "", ""), null, "환경 순환",
+                new EvidencePack(List.of(), List.of(), List.of()), List.of(), List.of(), "",
+                "codex-cli", "gpt-5.6-luna", "medium",
+                new RequestedGmProviderSelection(endpointId, "codex-cli", "gpt-5.6-luna", "medium"), null);
+        HttpTypedRuntimeGmAgentPort port = new HttpTypedRuntimeGmAgentPort(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "service-token",
+                "codex-cli/gpt-5.6-luna=272000");
+
+        var proposal = port.planEnvironmentPhase(context);
+
+        org.junit.jupiter.api.Assertions.assertTrue(proposal.encounterRequested());
+        org.junit.jupiter.api.Assertions.assertTrue(proposal.narration().contains("적대적 접촉"));
+    }
+
+    @Test
     void maps_model_selected_storybook_and_rulebook_keys_back_to_the_exact_evidence_items(CapturedOutput output) {
         server = new WireMockServer(0);
         server.start();

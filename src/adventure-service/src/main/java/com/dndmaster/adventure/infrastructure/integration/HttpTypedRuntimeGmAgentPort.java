@@ -159,7 +159,7 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
             HttpResponse<String> selected = client.send(selectionRequest, HttpResponse.BodyHandlers.ofString());
             if (selected.statusCode() / 100 != 2) throw new IllegalStateException("selected GM model is unavailable");
             RuntimeEndpointResponse endpoint = mapper.readValue(selected.body(), RuntimeEndpointResponse.class);
-            String prompt = "ROLE=EXPLORATION_ENVIRONMENT_PHASE\nTASK=Judge nearby enemy movement and supported environment changes for one six-second phase. Return only the fixed schema. Do not invent map positions or change unsupported state.\n"
+            String prompt = "ROLE=EXPLORATION_ENVIRONMENT_PHASE\nTASK=Judge nearby enemy movement and supported environment changes for one six-second phase. Set encounterRequested=true only when hostile contact or an event requires handing off this paused exploration cycle to normal combat startup. Return only the fixed schema. Do not invent map positions or change unsupported state.\n"
                     + "CURRENT_SITUATION=" + context.currentSituation() + "\nESTABLISHED_SCENE="
                     + context.currentContext().currentScene() + "\nPHASE_INPUT=" + context.action();
             String body = mapper.writeValueAsString(new ExplorationEnvironmentRequest(context.ownerPlayerId().value(),
@@ -172,7 +172,8 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
             if (response.statusCode() / 100 != 2) throw new IllegalStateException("typed exploration environment request failed with status " + response.statusCode());
             var proposal = mapper.readValue(response.body(), com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal.class);
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
-                    "exploration_environment_agent_request", "operationKey=" + operationKey + " enemyMoveCount=" + proposal.enemyMoves().size(), started);
+                    "exploration_environment_agent_request", "operationKey=" + operationKey + " enemyMoveCount=" + proposal.enemyMoves().size()
+                            + " encounterRequested=" + proposal.encounterRequested(), started);
             return proposal;
         } catch (Exception failure) {
             devLog("dev_agent_environment_phase outcome=failed operationKey={} failureClass={} recoveryAction=retry_same_phase_id",
