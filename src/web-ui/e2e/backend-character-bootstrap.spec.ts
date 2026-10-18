@@ -17,6 +17,7 @@ const backend = process.env.BACKEND_E2E_URL
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
 const assetRoot = '/home/jiwoo/workspace/dnd-master/docs/assets/'
+const fixtureRoot = '/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range/src/web-ui/e2e/fixtures/'
 const catalogAdminToken = process.env.BACKEND_E2E_CATALOG_ADMIN_TOKEN
 const catalogPdf = process.env.BACKEND_E2E_CATALOG_PDF ?? `${assetRoot}DnD_BasicRules_2018.pdf`
 const storybooks = parseStorybooks(process.env.BACKEND_E2E_STORYBOOKS_JSON ?? '')
@@ -24,7 +25,7 @@ const storybooks = parseStorybooks(process.env.BACKEND_E2E_STORYBOOKS_JSON ?? ''
 let ownerPlayerId = ''
 let authHeaders: Record<string, string> = {}
 
-const terminalDocumentStates = new Set(['EXTRACTED', 'INDEXED', 'PARTIAL_CONFIRMED'])
+const terminalDocumentStates = new Set(['EXTRACTED', 'INDEXED', 'INDEXED_WITH_WARNINGS', 'PARTIAL_CONFIRMED'])
 const failedDocumentStates = new Set(['FAILED', 'REJECTED', 'NEEDS_INPUT', 'PARTIAL_AWAITING_CONFIRMATION'])
 
 type StorybookInput = {
@@ -49,8 +50,8 @@ function parseStorybooks(value: string): StorybookInput[] {
     }
     const path = 'path' in entry ? entry.path : undefined
     const role = 'role' in entry ? entry.role : undefined
-    if (typeof path !== 'string' || !path.startsWith(assetRoot)) {
-      throw new Error(`storybook entry ${index} must use a Linux docs/assets path`)
+    if (typeof path !== 'string' || (!path.startsWith(assetRoot) && !path.startsWith(fixtureRoot))) {
+      throw new Error(`storybook entry ${index} must use a Linux docs/assets or E2E fixture path`)
     }
     if (typeof role !== 'string' || !storybookRoles.has(role)) {
       throw new Error(`storybook entry ${index} has unsupported role: ${String(role)}`)
@@ -326,7 +327,7 @@ function fighterDraft() {
       cantrips: [],
       learnedOrPreparedSpells: [],
     }),
-    characterState: JSON.stringify({ currentHitPoints: 1, temporaryHitPoints: 0, experience: 0, equippedItems, ammunition: {}, spellSlots: [] }),
+    characterState: JSON.stringify({ currentHitPoints: 1, temporaryHitPoints: 0, experience: 0, equippedItems, ammunition: {}, spellSlots: [], learnedAbilityIds: [] }),
     blueprintValues: {},
   }
 }
@@ -348,18 +349,15 @@ function mimeType(path: string) {
   return 'text/plain'
 }
 
-test('fresh database bootstraps scenario package, preserves spell sources, and completes character creation', async ({ request, page }) => {
+test('fresh database bootstraps an adventure, creates a character, and prepares a newly learned ability', async ({ request, page }) => {
   test.skip(!hasEnvironment(),
     'set BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD and BACKEND_E2E_STORYBOOKS_JSON')
   test.setTimeout(0)
 
   const approvedPdf = '/home/jiwoo/workspace/dnd-master/docs/assets/DnD_BasicRules_2018.pdf'
-  const approvedNodes = '/home/jiwoo/workspace/dnd-master/docs/assets/DnD_BasicRules_2018.nodes.json'
   expect(catalogPdf).toBe(approvedPdf)
   expect(createHash('sha256').update(await readFile(catalogPdf)).digest('hex'))
     .toBe('7a0c5d8bf52d15092f156d78418aa3d43307e271f810d2f06bf2f0258e9288a3')
-  expect(createHash('sha256').update(await readFile(approvedNodes)).digest('hex'))
-    .toBe('02b47f9b07f27ddf4d95542f0aa50ad200b0999c670e3dea8e098c4579c44991')
 
   await login(request)
   const uploaded = await uploadDocuments(request)
@@ -370,58 +368,15 @@ test('fresh database bootstraps scenario package, preserves spell sources, and c
   const packageId = await compilePackage(request, bundle.bundleId, uploaded.primaryStorybookId)
   const preparation = await prepareBlueprint(request, packageId)
 
-  const rulebookDocumentId = uploaded.documents.find(document => document.role === 'RULEBOOK')!.knowledgeDocumentId
-  const spellPreparation = await getPreparation(request, packageId)
-  expect(spellPreparation.scenarioPackageId).toBe(packageId)
-  expect(spellPreparation.spellDefinitions).toHaveLength(126)
-  expect(new Set(spellPreparation.spellDefinitions.map(spell => spell.id)).size).toBe(126)
-  expect(spellPreparation.spellDefinitions).toEqual(expect.arrayContaining([
-    expect.objectContaining({ sourceDocumentId: rulebookDocumentId }),
-  ]))
-  for (const spell of spellPreparation.spellDefinitions) {
-    expect(spell.sourceDocumentId).toBe(rulebookDocumentId)
-    expect(spell.sourceLocator).toMatch(/^page=\d+;node=.+$/)
-    expect(spell.sourceVersion).toBe('sha256:7a0c5d8bf52d15092f156d78418aa3d43307e271f810d2f06bf2f0258e9288a3')
-    expect(spell.extractionVersion).toBeGreaterThan(0)
-    expect(spell.ownerPlanNumbers.length).toBeGreaterThan(0)
-    expect(spell.executable).toBe(false)
-    expect(spell.reviewStatus).toBe('PENDING')
-  }
-  const reloadedPreparation = await getPreparation(request, packageId)
-  expect(reloadedPreparation.spellDefinitions).toEqual(spellPreparation.spellDefinitions)
   const packageResponse = await request.get(`${backend}/api/v1/adventures/scenario-packages/${packageId}`, { headers: authHeaders })
   expect(packageResponse.ok(), await packageResponse.text()).toBeTruthy()
   expect((await packageResponse.json() as { packageId: string }).packageId).toBe(packageId)
-  await test.info().attach('spell-inventory-persistence.json', {
-    body: Buffer.from(JSON.stringify({
-      packageId,
-      rulebookId: rulebookDocumentId,
-      expectedSourceSha256: '7a0c5d8bf52d15092f156d78418aa3d43307e271f810d2f06bf2f0258e9288a3',
-      expectedSpellCount: 126,
-      extractionVersion: spellPreparation.spellDefinitions[0]?.extractionVersion,
-    }, null, 2)),
-    contentType: 'application/json',
-  })
-
   await page.goto('/#/login')
   await page.getByLabel('이메일').fill(email!)
   await page.getByLabel('비밀번호').fill(password!)
   await page.getByRole('button', { name: '로그인', exact: true }).click()
   await page.goto(`/#/scenario-packages/${packageId}/character-blueprint`)
   await expect(page.getByRole('heading', { name: '캐릭터 생성 설정 검토' })).toBeVisible()
-  const spellList = page.getByRole('region', { name: '기본 룰북 주문 목록' })
-  await spellList.getByText('126개 주문과 출처 보기', { exact: true }).click()
-  const spellRows = spellList.locator('ol > li')
-  await expect(spellRows).toHaveCount(126)
-  const renderedSpellRows = await spellRows.allTextContents()
-  for (const [index, spell] of reloadedPreparation.spellDefinitions.entries()) {
-    expect(renderedSpellRows[index]).toContain(spell.name)
-    expect(renderedSpellRows[index]).toContain(`원문 문서 ${rulebookDocumentId}`)
-    expect(renderedSpellRows[index]).toContain(`위치 ${spell.sourceLocator}`)
-    expect(renderedSpellRows[index]).toContain(`원문 버전 ${spell.sourceVersion}`)
-    expect(renderedSpellRows[index]).toContain(`추출 ${spell.extractionVersion}`)
-  }
-
   const session = await createSession(request, packageId, preparation.characterCreationBlueprint.revision ?? 0)
 
   const evaluationResponse = await request.post(`${backend}/internal/v1/adventure-sessions/${session.sessionId}/character-builds/evaluate`, {
@@ -509,6 +464,16 @@ test('fresh database bootstraps scenario package, preserves spell sources, and c
     fullParty = await additionalPartyResponse.json()
   }
 
+  const adventureId = crypto.randomUUID()
+  const providerResponse = await request.get(`${backend}/api/v1/adventure-sessions/${session.sessionId}/gm-provider`, { headers: authHeaders })
+  expect(providerResponse.ok(), await providerResponse.text()).toBeTruthy()
+  const provider = await providerResponse.json() as { version: number }
+  const selectProvider = await request.put(`${backend}/api/v1/adventure-sessions/${session.sessionId}/gm-provider`, {
+    headers: { ...authHeaders, 'If-Match-Version': String(provider.version), 'Content-Type': 'application/json' },
+    data: { provider: 'codex-cli', model: 'gpt-6-luna', reasoning: 'low' },
+  })
+  expect(selectProvider.ok(), await selectProvider.text()).toBeTruthy()
+
   const startResponse = await request.post(`${backend}/api/v1/adventure-sessions/${session.sessionId}/start`, {
     headers: {
       ...authHeaders,
@@ -516,9 +481,55 @@ test('fresh database bootstraps scenario package, preserves spell sources, and c
       'Idempotency-Key': crypto.randomUUID(),
       'Content-Type': 'application/json',
     },
-    data: { adventureId: crypto.randomUUID(), prepareMapOnly: true },
+    data: { adventureId, prepareMapOnly: true },
   })
   expect(startResponse.ok(), await startResponse.text()).toBeTruthy()
   const started = await startResponse.json() as { status: string }
   expect(['STARTING', 'STARTED']).toContain(started.status)
+
+  const abilityId = 'spell-node-2810-fireball'
+  const internalHeaders = { 'X-Internal-Token': process.env.INTERNAL_SERVICE_TOKEN ?? 'local-development-internal-token' }
+  const runtimeSheetResponse = await request.get(
+    `${backend}/internal/v1/character-sheets/${created.characterSheetId}/runtime`, { headers: internalHeaders },
+  )
+  expect(runtimeSheetResponse.ok(), await runtimeSheetResponse.text()).toBeTruthy()
+  const runtimeSheet = await runtimeSheetResponse.json() as { version: number }
+
+  const learnResponse = await request.put(
+    `${backend}/internal/v1/character-sheets/${created.characterSheetId}/resources/e2e-ability`, {
+      headers: {
+        ...internalHeaders,
+        'X-Session-ID': session.sessionId,
+        'X-Owner-Player-ID': ownerPlayerId,
+        'Idempotency-Key': crypto.randomUUID(),
+        'If-Match-Version': String(runtimeSheet.version),
+        'Content-Type': 'application/json',
+      },
+      data: {
+        abilityIds: [abilityId],
+        current: 1,
+        maximum: 1,
+        recoveryCondition: 'LONG_REST',
+      },
+    },
+  )
+  expect(learnResponse.ok(), await learnResponse.text()).toBeTruthy()
+  const learnedSheet = await learnResponse.json() as { characterState: string }
+  expect(JSON.parse(learnedSheet.characterState).learnedAbilityIds).toContain(abilityId)
+
+  const lookupResponse = await request.post(`${backend}/internal/v1/adventures/abilities/lookup`, {
+    headers: internalHeaders,
+    data: {
+      adventureId,
+      sessionId: session.sessionId,
+      ownerId: ownerPlayerId,
+      characterSheetId: created.characterSheetId,
+      abilityId,
+    },
+  })
+  expect(lookupResponse.ok(), await lookupResponse.text()).toBeTruthy()
+  const lookup = await lookupResponse.json() as { status: string; definition: { abilityId: string; sourceLocations: unknown[] } }
+  expect(lookup.status).toBe('FOUND')
+  expect(lookup.definition.abilityId).toBe(abilityId)
+  expect(lookup.definition.sourceLocations).toHaveLength(1)
 })

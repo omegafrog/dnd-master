@@ -63,12 +63,11 @@ public final class AdventureAbilityDefinitionController {
         if (request == null || request.adventureId() == null || request.sessionId() == null || request.ownerId() == null
                 || request.characterSheetId() == null || request.abilityId() == null || request.abilityId().isBlank())
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_ABILITY_LOOKUP_SCOPE");
-        var adventure = adventures.findBySessionId(new SessionId(request.sessionId()))
-                .filter(item -> item.id().value().equals(request.adventureId()))
-                .filter(item -> item.ownerPlayerId().value().equals(request.ownerId()))
-                .orElseThrow(() -> new ApiRequestGuard.ApiContractException(404, "ADVENTURE_NOT_FOUND"));
+        var adventure = findAdventure(request.sessionId(), request.ownerId());
+        if (!request.adventureId().equals(adventure.id().value()) && !request.adventureId().equals(request.sessionId()))
+            throw new ApiRequestGuard.ApiContractException(404, "ADVENTURE_NOT_FOUND");
         JsonNode sheet = readSheet(request.characterSheetId());
-        validateSheetScope(sheet, request.adventureId(), request.sessionId(), request.ownerId());
+        validateSheetScope(sheet, request.sessionId(), request.ownerId());
         if (!learnedIds(sheet).contains(request.abilityId())) return new LookupResponse("NOT_LEARNED", null);
         var stored = definitions.find(adventure.id().value(), request.abilityId());
         if (stored.isEmpty()) return new LookupResponse("NEEDS_PREPARATION", null);
@@ -81,12 +80,17 @@ public final class AdventureAbilityDefinitionController {
                 || request.characterSheetId() == null || request.abilityIds() == null || request.abilityIds().isEmpty()
                 || request.abilityIds().size() > 100 || request.abilityIds().stream().anyMatch(id -> id == null || id.isBlank()))
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_ABILITY_PREPARATION_REQUEST");
-        var adventure = adventures.findBySessionId(new SessionId(request.sessionId()))
-                .filter(item -> item.id().value().equals(request.adventureId()))
-                .filter(item -> item.ownerPlayerId().value().equals(request.ownerId()))
-                .orElseThrow(() -> new ApiRequestGuard.ApiContractException(404, "ADVENTURE_NOT_FOUND"));
-        validateSheetScope(readSheet(request.characterSheetId()), request.adventureId(), request.sessionId(), request.ownerId());
+        var adventure = findAdventure(request.sessionId(), request.ownerId());
+        if (!request.adventureId().equals(adventure.id().value()) && !request.adventureId().equals(request.sessionId()))
+            throw new ApiRequestGuard.ApiContractException(404, "ADVENTURE_NOT_FOUND");
+        validateSheetScope(readSheet(request.characterSheetId()), request.sessionId(), request.ownerId());
         return adventure;
+    }
+
+    private com.dndmaster.adventure.domain.adventure.Adventure findAdventure(UUID sessionId, UUID ownerId) {
+        return adventures.findBySessionId(new SessionId(sessionId))
+                .filter(item -> item.ownerPlayerId().value().equals(ownerId))
+                .orElseThrow(() -> new ApiRequestGuard.ApiContractException(404, "ADVENTURE_NOT_FOUND"));
     }
 
     private JsonNode readSheet(UUID sheetId) {
@@ -96,9 +100,8 @@ public final class AdventureAbilityDefinitionController {
         }
     }
 
-    private static void validateSheetScope(JsonNode sheet, UUID adventureId, UUID sessionId, UUID ownerId) {
-        if (!adventureId.toString().equals(sheet.path("adventureId").asText())
-                || !sessionId.toString().equals(sheet.path("sessionId").asText())
+    private static void validateSheetScope(JsonNode sheet, UUID sessionId, UUID ownerId) {
+        if (!sessionId.toString().equals(sheet.path("sessionId").asText())
                 || !ownerId.toString().equals(sheet.path("ownerPlayerId").asText()))
             throw new ApiRequestGuard.ApiContractException(404, "CHARACTER_SHEET_NOT_IN_ADVENTURE");
     }
