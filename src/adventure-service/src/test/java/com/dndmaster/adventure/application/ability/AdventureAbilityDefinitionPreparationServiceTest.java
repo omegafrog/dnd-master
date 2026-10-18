@@ -33,6 +33,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.evidence.EvidenceSearchScope;
+import com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -118,6 +119,45 @@ class AdventureAbilityDefinitionPreparationServiceTest {
 
         assertThat(result.path("abilityId").asText()).isEqualTo("ability:blink");
         verify(gm, times(2)).generate(any());
+    }
+
+    @Test
+    void validation_repair_diagnostics_include_failure_code_and_expected_actual_field_shapes() throws Exception {
+        var bindings = mock(GmProviderBindingRepository.class);
+        var gm = mock(InitialSituationGmPort.class);
+        UUID sessionId = UUID.randomUUID();
+        UUID documentId = UUID.randomUUID();
+        when(bindings.current(sessionId)).thenReturn(Optional.of(new ProviderBinding(sessionId,
+                new GmProviderSelection(UUID.randomUUID(), "codex", "test-model", "medium"), 1)));
+        when(gm.generate(any())).thenReturn(JSON.readTree("{\"abilityId\":\"ability:blink\"}"), validDefinition(documentId));
+        var service = new AdventureAbilityDefinitionPreparationService(mock(AdventureAbilityDefinitionRepository.class),
+                mock(ScenarioPackageRepository.class), mock(SessionKnowledgeSetRepository.class),
+                mock(AdventureSessionRepository.class), mock(RuntimeCharacterSheetReadPort.class),
+                mock(RuntimeEvidenceSearchPort.class), mock(RuntimeEvidenceLocationLookupPort.class), bindings, gm, JSON);
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(
+                AdventureAbilityDefinitionPreparationService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        String previous = System.getProperty(DevelopmentDiagnostics.FLAG);
+        System.setProperty(DevelopmentDiagnostics.FLAG, "true");
+        try {
+            service.generateValidated(new AdventureId(UUID.randomUUID()), new SessionId(sessionId),
+                    new OwnerPlayerId(UUID.randomUUID()), "ability:blink",
+                    List.of(new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK, new KnowledgeDocumentId(documentId),
+                            3, "page 12", "The ability moves the user.", "cite-1")),
+                    java.util.Map.of(documentId, 3L));
+
+            String logs = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            assertThat(logs).contains("outcome=structured_output_repair", "abilityId=ability:blink",
+                    "validation_code=SCHEMA_OR_IDENTIFIER", "expectedFields=abilityId,name,actionTiming",
+                    "actualFields=abilityId");
+        } finally {
+            logger.detachAppender(appender);
+            if (previous == null) System.clearProperty(DevelopmentDiagnostics.FLAG);
+            else System.setProperty(DevelopmentDiagnostics.FLAG, previous);
+        }
     }
 
     @Test
@@ -219,12 +259,33 @@ class AdventureAbilityDefinitionPreparationServiceTest {
         var service = new AdventureAbilityDefinitionPreparationService(definitions, packages, knowledgeSets,
                 sessions, mock(RuntimeCharacterSheetReadPort.class), evidenceSearch, locations,
                 mock(GmProviderBindingRepository.class), mock(InitialSituationGmPort.class), JSON);
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(
+                AdventureAbilityDefinitionPreparationService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        String previous = System.getProperty(DevelopmentDiagnostics.FLAG);
+        System.setProperty(DevelopmentDiagnostics.FLAG, "true");
+        try {
+            service.prepare(new AdventureId(packageId), sessionKey, new OwnerPlayerId(ownerId),
+                    List.of("ability:blink"), validDefinition(documentId));
+            assertThatThrownBy(() -> service.prepare(new AdventureId(packageId), sessionKey,
+                    new OwnerPlayerId(ownerId), List.of("ability:blink"), JSON.readTree("{\"abilityId\":\"other\"}")))
+                    .isInstanceOf(AbilityDefinitionSourceInputRequiredException.class);
 
-        service.prepare(new AdventureId(packageId), sessionKey, new OwnerPlayerId(ownerId),
-                List.of("ability:blink"), validDefinition(documentId));
-
-        verify(evidenceSearch, org.mockito.Mockito.never()).search(any());
-        verify(definitions).prepare(packageId, "ability:blink", validDefinition(documentId));
+            verify(evidenceSearch, org.mockito.Mockito.never()).search(any());
+            verify(definitions).prepare(packageId, "ability:blink", validDefinition(documentId));
+            String logs = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            assertThat(logs).contains("dev_ability_preparation", "outcome=started", "outcome=complete",
+                    "adventureId=" + packageId, "sessionId=" + sessionId, "abilityId=ability:blink",
+                    "expected=valid_definition_saved", "actual=sourceDefinitionFields=",
+                    "outcome=failed", "failureKind=invalid_source_input_set", "actualInputType=object");
+        } finally {
+            logger.detachAppender(appender);
+            if (previous == null) System.clearProperty(DevelopmentDiagnostics.FLAG);
+            else System.setProperty(DevelopmentDiagnostics.FLAG, previous);
+        }
     }
 
     @Test

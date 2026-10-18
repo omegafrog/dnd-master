@@ -25,7 +25,8 @@ class CharacterSheetApplicationServiceTest {
         CharacterSheet sheet = new CharacterSheet(CharacterSheetId.generate(), adventureId,
                 new SessionId(adventureId.value()), owner, SheetEdition.DND_5E_2014,
                 new CharacterSheetData2014("마루", 1, false, "인간", "위저드", "학자", "INT=16", "{}",
-                        "{}", "{}"), 0, null, null);
+                        "{\"ownedEquipment\":[],\"ownedWeaponIds\":[],\"subclass\":\"\"}",
+                        "{\"equippedItems\":{\"armor\":\"\",\"shield\":false,\"mainHandWeaponId\":null,\"offHandWeaponId\":null,\"twoHandedWeaponId\":null}}"), 0, null, null);
         repository.save(sheet);
         service.setAbilityLearningPreparationPort((adventure, session, player, character, abilities) -> {
             assertEquals(adventureId.value(), adventure);
@@ -39,6 +40,38 @@ class CharacterSheetApplicationServiceTest {
         assertTrue(new com.fasterxml.jackson.databind.ObjectMapper().readTree(
                 repository.findById(sheet.id()).orElseThrow().data().characterState())
                 .path("learnedAbilityIds").isMissingNode());
+    }
+
+    @Test
+    void prepares_newly_learned_ability_before_persisting_its_id() throws Exception {
+        InMemoryRepository repository = new InMemoryRepository();
+        UUID owner = UUID.randomUUID();
+        CharacterSheetApplicationService service = new CharacterSheetApplicationService(repository,
+                id -> SheetEdition.DND_5E_2014, id -> SessionCharacterPolicy.started("DND_5E_2014"));
+        AdventureId adventureId = adventure();
+        CharacterSheet sheet = new CharacterSheet(CharacterSheetId.generate(), adventureId,
+                new SessionId(adventureId.value()), owner, SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("마루", 1, false, "인간", "위저드", "학자", "INT=16", "{}",
+                        "{\"ownedEquipment\":[],\"ownedWeaponIds\":[],\"subclass\":\"\"}",
+                        "{\"equippedItems\":{\"armor\":\"\",\"shield\":false,\"mainHandWeaponId\":null,\"offHandWeaponId\":null,\"twoHandedWeaponId\":null}}"), 0, null, null);
+        repository.save(sheet);
+        var prepCalled = new AtomicBoolean(false);
+        service.setAbilityLearningPreparationPort((adventure, session, player, character, abilities) -> {
+            assertEquals(adventureId.value(), adventure);
+            assertEquals(List.of("ability:blink"), abilities);
+            CharacterSheet persistedBeforePreparation = repository.findById(sheet.id()).orElseThrow();
+            assertEquals(0, persistedBeforePreparation.version());
+            assertTrue(!persistedBeforePreparation.data().characterState().contains("learnedAbilityIds"));
+            prepCalled.set(true);
+        });
+
+        CharacterSheet updated = service.updateAbilityResource(sheet.id(), sheet.sessionId(), owner, "arcane-charge",
+                List.of("ability:blink"), 2, 3, "LONG_REST", UUID.randomUUID(), 0);
+
+        assertTrue(prepCalled.get());
+        assertEquals(1, updated.version());
+        assertEquals("ability:blink", new com.fasterxml.jackson.databind.ObjectMapper().readTree(
+                updated.data().characterState()).path("learnedAbilityIds").get(0).asText());
     }
 
     @Test

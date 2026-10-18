@@ -13,6 +13,7 @@ import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageR
 import com.dndmaster.adventure.application.scenario.preparation.InitialSituationGmPort;
 import com.dndmaster.adventure.application.scenario.preparation.TransientInitialSituationGmFailureException;
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
+import com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
@@ -85,12 +86,29 @@ public final class AdventureAbilityDefinitionPreparationService {
         if (sourceDefinition != null && !sourceDefinition.isNull()) {
             try { validateSourceInputSet(requestedAbilityIds, sourceDefinition); }
             catch (IllegalArgumentException invalid) {
-                throw new AbilityDefinitionSourceInputRequiredException(requestedAbilityIds.getFirst(), invalid);
+                diagnostic("failed", adventureId, sessionId, requestedAbilityIds.isEmpty() ? "none" : requestedAbilityIds.getFirst(), 0,
+                        "one_source_definition_per_requested_ability", 0, "invalid_source_input_set",
+                        "requestedAbilityCount=" + requestedAbilityIds.size() + ";actualInputType=" + nodeType(sourceDefinition));
+                throw new AbilityDefinitionSourceInputRequiredException(requestedAbilityIds.isEmpty() ? "none" : requestedAbilityIds.getFirst(), invalid);
             }
         }
         for (String abilityId : requestedAbilityIds) {
-            if (definitions.find(adventureId.value(), abilityId).isPresent()) continue;
             long started = System.nanoTime();
+            diagnostic("started", adventureId, sessionId, abilityId, 0, "valid_definition_saved", 0, "none",
+                    "requestedAbilityCount=" + requestedAbilityIds.size() + ";sourceInputProvided="
+                            + (sourceDefinition != null && !sourceDefinition.isNull()));
+            try {
+                if (definitions.find(adventureId.value(), abilityId).isPresent()) {
+                    diagnostic("complete", adventureId, sessionId, abilityId, 0, "existing_definition_reused",
+                            (System.nanoTime() - started) / 1_000_000, "none", "definitionAlreadyPrepared=true");
+                    continue;
+                }
+            } catch (RuntimeException failure) {
+                diagnostic("failed", adventureId, sessionId, abilityId, 0, "definition_repository_lookup",
+                        (System.nanoTime() - started) / 1_000_000, failure.getClass().getSimpleName(),
+                        "definitionLookupCompleted=false");
+                throw failure;
+            }
             List<RuntimeEvidence> evidence = List.of();
             Map<UUID, Long> authorizedSources = Map.of();
             EvidenceSearchScope sourceScope = null;
@@ -112,10 +130,14 @@ public final class AdventureAbilityDefinitionPreparationService {
                 }
                 definitions.prepare(adventureId.value(), abilityId, proposed);
                 diagnostic("complete", adventureId, sessionId, abilityId, evidence.size(), "valid_definition_saved",
-                        (System.nanoTime() - started) / 1_000_000, "none");
-            } catch (TransientInitialSituationGmFailureException failure) {
+                        (System.nanoTime() - started) / 1_000_000, "none",
+                        "sourceDefinitionFields=" + fieldInventory(proposed));
+            } catch (RuntimeException failure) {
+                String failureKind = failure instanceof AbilityDefinitionValidationException invalid
+                        ? "validation_code=" + invalid.code() : failure.getClass().getSimpleName();
                 diagnostic("source_input_required", adventureId, sessionId, abilityId, evidence.size(),
-                        "validated_definition", (System.nanoTime() - started) / 1_000_000, failure.getClass().getSimpleName());
+                        "validated_definition", (System.nanoTime() - started) / 1_000_000, failureKind,
+                        "sourceInputRequired=true;actualEvidenceCount=" + evidence.size());
                 throw new AbilityDefinitionSourceInputRequiredException(abilityId, failure);
             }
         }
@@ -131,7 +153,12 @@ public final class AdventureAbilityDefinitionPreparationService {
             try {
                 proposed = generate(adventureId, sessionId, owner, abilityId, evidence, corrections);
             } catch (TransientInitialSituationGmFailureException failure) {
-                if (providerFailureRetried) throw failure;
+                if (providerFailureRetried) {
+                    diagnostic("generation_failed", adventureId, sessionId, abilityId, evidence.size(),
+                            "successful_structured_response", (System.nanoTime() - attemptStarted) / 1_000_000,
+                            failure.getClass().getSimpleName(), "providerTransientRetryAlreadyUsed=true");
+                    throw failure;
+                }
                 providerFailureRetried = true;
                 corrections.add("GENERATION_FAILURE_RETRY");
                 diagnostic("generation_retry", adventureId, sessionId, abilityId, evidence.size(),
@@ -144,11 +171,17 @@ public final class AdventureAbilityDefinitionPreparationService {
                 return proposed;
             } catch (AbilityDefinitionValidationException invalid) {
                 String correction = invalid.code();
-                if (corrections.contains(correction)) throw invalid;
+                if (corrections.contains(correction)) {
+                    diagnostic("validation_recovery_exhausted", adventureId, sessionId, abilityId, evidence.size(),
+                            "new_validation_code", (System.nanoTime() - attemptStarted) / 1_000_000,
+                            "validation_code=" + correction, "actualFields=" + fieldInventory(proposed));
+                    throw invalid;
+                }
                 corrections.add(correction);
                 diagnostic("structured_output_repair", adventureId, sessionId, abilityId, evidence.size(),
                         "new_validation_feedback", (System.nanoTime() - attemptStarted) / 1_000_000,
-                        "validation_failure:" + corrections.size());
+                        "validation_code=" + correction,
+                        "expectedFields=" + expectedFieldInventory() + ";actualFields=" + fieldInventory(proposed));
             }
         }
     }
@@ -173,10 +206,36 @@ public final class AdventureAbilityDefinitionPreparationService {
 
     private static void diagnostic(String outcome, AdventureId adventure, SessionId session, String abilityId,
             int evidenceCount, String expected, long elapsedMs, String failureKind) {
-        if (Boolean.parseBoolean(System.getenv().getOrDefault("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "false")))
-            LOGGER.info("dev_ability_preparation outcome={} adventureId={} sessionId={} abilityId={} evidenceCount={} expected={} failureKind={} elapsedMs={} recovery={}",
-                    outcome, adventure.value(), session.value(), abilityId, evidenceCount, expected, failureKind, elapsedMs,
-                    "source_definition_resubmission");
+        diagnostic(outcome, adventure, session, abilityId, evidenceCount, expected, elapsedMs, failureKind, "not_applicable");
+    }
+
+    private static void diagnostic(String outcome, AdventureId adventure, SessionId session, String abilityId,
+            int evidenceCount, String expected, long elapsedMs, String failureKind, String actual) {
+        if (DevelopmentDiagnostics.enabled())
+            LOGGER.info("dev_ability_preparation outcome={} adventureId={} sessionId={} abilityId={} evidenceCount={} expected={} actual={} failureKind={} elapsedMs={} recovery={}",
+                    outcome, adventure.value(), session.value(), abilityId, evidenceCount, expected, actual, failureKind,
+                    elapsedMs, "source_definition_resubmission");
+    }
+
+    private static String expectedFieldInventory() {
+        return "abilityId,name,actionTiming,resourceCost,visibility,range,targeting,origin,effect,pathBlocking,effectSpread,check,duration,trigger,exceptions,actionKind,rangeForm,targetMode,originMode,effectShape,pathBlockingRule,propagationRule,verticalDirection,sourceLocations";
+    }
+
+    private static String fieldInventory(JsonNode node) {
+        if (node == null || !node.isObject()) return "nodeType=" + nodeType(node);
+        List<String> fields = new ArrayList<>();
+        node.fieldNames().forEachRemaining(fields::add);
+        return String.join(",", fields.stream().sorted().toList());
+    }
+
+    private static String nodeType(JsonNode node) {
+        if (node == null || node.isNull()) return "null";
+        if (node.isObject()) return "object";
+        if (node.isArray()) return "array";
+        if (node.isTextual()) return "string";
+        if (node.isNumber()) return "number";
+        if (node.isBoolean()) return "boolean";
+        return "other";
     }
 
     public void activate(UUID adventureId, List<String> abilityIds) {
