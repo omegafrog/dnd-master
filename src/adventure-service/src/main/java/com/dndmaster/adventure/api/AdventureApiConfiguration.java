@@ -1091,7 +1091,7 @@ public class AdventureApiConfiguration {
         service.setTurnLockService(runtimeTurnLockService);
         service.setCommitOrchestrator(commitOrchestrator);
         service.setCommitGate(new com.dndmaster.adventure.application.combat.PreparedMapEntryCommitGate(
-                combatMapViewPort, combatMapPreparationPort));
+                combatMapViewPort, combatMapPreparationPort, packageRepository, stageArtifactRepository));
         service.setRuntimeFactLookupService(runtimeFactLookupService);
         service.setPlayerActionEvidenceAcquirer(new RuntimePlayerActionEvidenceAcquirer(
                 evidenceAcquisitionApplicationService, runtimeEvidenceLocationLookupPort));
