@@ -422,10 +422,28 @@ class AdventureAbilityDefinitionPreparationServiceTest {
             if (partialSearches.getAndIncrement() < 2) return List.of();
             throw new IllegalStateException("search service unavailable for this query");
         }).when(evidenceSearch).search(any());
-        assertThatThrownBy(() -> service.prepare(new AdventureId(packageId), sessionKey,
-                new OwnerPlayerId(ownerId), List.of("ability:blink")))
-                .isInstanceOf(IllegalStateException.class)
-                .isNotInstanceOf(AbilityDefinitionSourceInputRequiredException.class);
+        var mixedAppender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        mixedAppender.start();
+        logger.addAppender(mixedAppender);
+        previousDiagnostics = System.getProperty(DevelopmentDiagnostics.FLAG);
+        System.setProperty(DevelopmentDiagnostics.FLAG, "true");
+        try {
+            assertThatThrownBy(() -> service.prepare(new AdventureId(packageId), sessionKey,
+                    new OwnerPlayerId(ownerId), List.of("ability:blink")))
+                    .isInstanceOf(IllegalStateException.class)
+                    .isNotInstanceOf(AbilityDefinitionSourceInputRequiredException.class);
+            String logs = mixedAppender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            assertThat(logs).contains("outcome=search_retry", "failureKind=IllegalStateException",
+                    "queryResult=unavailable;aggregateEvidenceCount=0", "recovery=try_next_distinct_query",
+                    "outcome=failed", "failureKind=AbilityEvidenceSearchFailureException",
+                    "sourceInputRequired=false", "recovery=resolve_failure_then_retry_operation")
+                    .doesNotContain("outcome=source_input_required");
+        } finally {
+            logger.detachAppender(mixedAppender);
+            if (previousDiagnostics == null) System.clearProperty(DevelopmentDiagnostics.FLAG);
+            else System.setProperty(DevelopmentDiagnostics.FLAG, previousDiagnostics);
+        }
     }
 
     private static ScenarioBundleDocumentSelection selectedDocument(UUID documentId, String type) {
