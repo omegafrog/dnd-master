@@ -117,7 +117,7 @@ export function SessionRuntime({ adventureId, adventureApi, expectedVersion, pla
     </header>
     <div className={`session-runtime-columns${partyOpen ? '' : ' runtime-party-collapsed'}`}>
       <PartyPanel snapshot={combatSnapshot} characters={partyCharacters} open={partyOpen} onToggle={() => setPartyOpen(value => !value)} />
-      <main className="runtime-feed-panel" aria-label="게임 기록"><AdventureStream adventureId={adventureId} api={adventureApi} expectedVersion={expectedVersion} onTurnCommitted={onTurnCommitted} onCurrentSceneChanged={setCurrentScene} /></main>
+      <main className="runtime-feed-panel" aria-label="게임 기록"><AdventureStream adventureId={adventureId} api={adventureApi} playApi={playApi} expectedVersion={expectedVersion} onTurnCommitted={onTurnCommitted} onCurrentSceneChanged={setCurrentScene} /></main>
       <aside className="runtime-context-panel" aria-label="현재 상황">
         <ContextPanel currentScene={currentScene} combatSnapshot={combatSnapshot} mapOpen={mapOpen} setMapOpen={setMapOpen} noteOpen={noteOpen} setNoteOpen={setNoteOpen} map={mapOpen ? <CombatMapView adventureId={adventureId} api={playApi} refreshToken={mapRefreshToken} compact /> : null} handouts={handouts} handoutsLoading={handoutsLoading} handoutsMessage={handoutsMessage} getHandoutPreview={getHandoutPreview} />
       </aside>

@@ -499,9 +499,41 @@ test('fresh database bootstraps an adventure, creates a character, and prepares 
   const playerAction = '테스트에서 준비한 다음 시츄에이션 안으로 들어갑니다.'
   await page.getByLabel('무엇을 하시겠어요?').fill(playerAction)
   await page.getByRole('button', { name: '행동 보내기' }).click()
-  await expect(page.getByLabel('대화 기록').getByText(playerAction, { exact: true })).toBeVisible()
-  await expect.poll(() => readPersistedCurrentSituationId(adventureId), { timeout: 180_000, intervals: [1000, 2000, 5000] })
+  const placement = page.getByRole('region', { name: '시츄에이션 진입 시작 위치 선택' })
+  await expect.poll(async () => {
+    return await placement.isVisible()
+      || await readPersistedActiveSituationId(adventureId) === destination!.situationId
+  }, { timeout: 180_000, intervals: [1000, 2000, 5000] }).toBe(true)
+  let selectedCellLabel: string | null = null
+  if (await placement.isVisible()) {
+    await expect(page.getByLabel('대화 기록').getByText(playerAction, { exact: true })).toHaveCount(0)
+    await expect.poll(() => readPersistedActiveSituationId(adventureId), { timeout: 15_000 })
+      .toBe(opening.situationId)
+
+    // When the map-entry agent has no safe candidate, use the same map
+    // preparation UI and resume the original pending turn after saving a cell.
+    await placement.getByRole('button', { name: '전체 지도' }).click()
+    await placement.getByRole('button', { name: '자르기 적용' }).click()
+    const gridPreparation = placement.getByRole('region', { name: '맵 격자 맞추기' }).first()
+    await gridPreparation.getByRole('button', { name: '격자 맞추기' }).first().click()
+    const alignedGrid = placement.locator('.map-grid-alignment-actions')
+    await alignedGrid.getByRole('button', { name: '적용' }).click()
+
+    const startCell = placement.locator('button[aria-label^="빈 격자 "]:not([disabled])').first()
+    await expect(startCell).toBeVisible()
+    selectedCellLabel = await startCell.getAttribute('aria-label')
+    await startCell.click()
+    await expect(placement.getByRole('status').filter({ hasText: '수동 대안으로 선택한 시작 칸' })).toBeVisible()
+    await placement.getByRole('button', { name: '벽·문 편집' }).click()
+    await placement.getByRole('button', { name: '맵 초안 저장' }).click()
+    await expect(placement.getByRole('button', { name: '맵 준비 완료, 모험 시작' })).toBeEnabled()
+    await placement.getByRole('button', { name: '맵 준비 완료, 모험 시작' }).click()
+  }
+
+  await expect.poll(() => readPersistedActiveSituationId(adventureId), { timeout: 180_000, intervals: [1000, 2000, 5000] })
     .toBe(destination!.situationId)
+  await expect(page.getByLabel('대화 기록').getByText(playerAction, { exact: true })).toBeVisible()
+  await expect(page.getByLabel('대화 기록').getByText(/문을 지나 준비된 목적지에 들어섰고/)).toBeVisible()
 
   const mapResponse = await request.get(
     `${backend}/internal/v1/adventures/${adventureId}/combat-map/player-view?ownerId=${ownerPlayerId}`, { headers: internalHeaders },
@@ -509,10 +541,21 @@ test('fresh database bootstraps an adventure, creates a character, and prepares 
   expect(mapResponse.ok(), await mapResponse.text()).toBeTruthy()
   const playerMap = await mapResponse.json() as {
     mapId: string
-    tokens: Array<{ id: string; type: string }>
+    tokens: Array<{ id: string; type: string; x?: number; y?: number }>
     spatialFeatures: Array<{ id: string; visibility: string }>
   }
   expect(playerMap.mapId).toBeTruthy()
+  const playerToken = playerMap.tokens.find(token => token.type === 'PLAYER')
+  expect(playerToken, 'the destination map should contain the party at a confirmed start cell').toBeTruthy()
+  if (selectedCellLabel && playerToken) {
+    const coordinates = /([0-9]+),([0-9]+)$/.exec(selectedCellLabel)
+    expect(coordinates, 'the selected cell label should contain its saved coordinates').toBeTruthy()
+    expect({ x: playerToken.x, y: playerToken.y }).toEqual({ x: Number(coordinates?.[1]), y: Number(coordinates?.[2]) })
+  }
+  const persistedMapId = await readPersistedActiveMapId(adventureId)
+  expect(persistedMapId, 'the destination map should be saved as the active map').toBe(playerMap.mapId)
+  expect(await readMapDefinitionFromPreparedMap(playerMap.mapId), 'the active map draft should derive from the destination Situation map')
+    .toBe(destination!.mapDefinitionId)
   const gmMapResponse = await request.get(
     `${backend}/internal/v1/combat-maps/${playerMap.mapId}/gm-view?ownerId=${ownerPlayerId}`, { headers: internalHeaders },
   )
@@ -614,14 +657,37 @@ async function readPersistedSituations(adventureId: string) {
   }> }).situations
 }
 
-async function readPersistedCurrentSituationId(adventureId: string) {
-  const sql = `SELECT current_situation_id FROM adventure WHERE adventure_id = '${adventureId}'::uuid`
+async function readPersistedActiveSituationId(adventureId: string) {
+  const sql = `SELECT story_runtime_state_jsonb->>'activeSituationId' FROM adventure WHERE adventure_id = '${adventureId}'::uuid`
   const { stdout } = await execFileAsync('docker', [
     'compose', ...(process.env.COMPOSE_PROJECT_NAME ? ['-p', process.env.COMPOSE_PROJECT_NAME] : []),
     '-f', composeFile, 'exec', '-T', 'postgres', 'psql', '--username', 'postgres', '--dbname', 'postgres',
     '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql,
   ])
   return stdout.trim()
+}
+
+async function readPersistedActiveMapId(adventureId: string) {
+  const sql = `SELECT combat_map_id FROM adventure_active_tactical_map WHERE adventure_id = '${adventureId}'::uuid AND stage_position = 1`
+  const { stdout } = await execFileAsync('docker', [
+    'compose', ...(process.env.COMPOSE_PROJECT_NAME ? ['-p', process.env.COMPOSE_PROJECT_NAME] : []),
+    '-f', composeFile, 'exec', '-T', 'postgres', 'psql', '--username', 'postgres', '--dbname', 'postgres',
+    '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql,
+  ])
+  return stdout.trim()
+}
+
+async function readMapDefinitionFromPreparedMap(mapId: string) {
+  const sql = `SELECT operation_fingerprint FROM combat_map_command_history WHERE map_id = '${mapId}'::uuid AND operation_fingerprint LIKE 'DRAFT|%' ORDER BY version LIMIT 1`
+  const { stdout } = await execFileAsync('docker', [
+    'compose', ...(process.env.COMPOSE_PROJECT_NAME ? ['-p', process.env.COMPOSE_PROJECT_NAME] : []),
+    '-f', composeFile, 'exec', '-T', 'postgres', 'psql', '--username', 'postgres', '--dbname', 'postgres',
+    '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql,
+  ])
+  const fingerprint = stdout.trim()
+  const mapDefinitionId = /^DRAFT\|[^|]+\|([^|]+)\|/.exec(fingerprint)?.[1]
+  expect(mapDefinitionId, `active map ${mapId} should retain its draft provenance`).toBeTruthy()
+  return mapDefinitionId
 }
 
 async function readStoredMapDefinitions(packageId: string) {

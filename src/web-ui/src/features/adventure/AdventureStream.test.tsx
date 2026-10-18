@@ -4,6 +4,47 @@ import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { AdventureStream } from './AdventureStream'
 import { AdventureRequestError, type AdventureApi } from './AdventureApi'
+import type { AdventurePlayApi } from '../saved-adventures/AdventurePlayApi'
+
+vi.mock('../combat-map/CombatMapView', () => ({
+  CombatMapView: ({ onPreparationComplete }: { onPreparationComplete?: () => void | Promise<void> }) =>
+    <button type="button" onClick={() => void onPreparationComplete?.()}>맵 준비 완료, 모험 시작</button>,
+}))
+
+it('keeps an unresolved map entry private and resumes the same turn after manual placement', async () => {
+  let readCount = 0
+  const api: AdventureApi = {
+    async readConversation() {
+      readCount += 1
+      return readCount < 3
+        ? { adventureId: 'a1', version: 4, entries: [] }
+        : { adventureId: 'a1', version: 5, entries: [
+          { sequence: 0, speaker: 'PLAYER', content: '다음 방으로 들어간다' },
+          { sequence: 1, speaker: 'AI_GAME_MASTER', content: '시작 위치를 확정한 뒤 공개되는 진입 서술' },
+        ] }
+    },
+    async sendMessage() {
+      throw new AdventureRequestError('실패', 502, '턴 처리 실패: 맵 시작 위치를 선택해야 모험을 시작할 수 있습니다.')
+    },
+  }
+  const resumeRuntimeTurn = vi.fn(async () => ({ turnId: 'turn-1', version: 5 }))
+  const playApi = { resumeRuntimeTurn } as unknown as AdventurePlayApi
+  const user = userEvent.setup()
+
+  render(<AdventureStream adventureId="a1" api={api} playApi={playApi} />)
+  await user.type(await screen.findByRole('textbox', { name: '무엇을 하시겠어요?' }), '다음 방으로 들어간다')
+  await user.click(screen.getByRole('button', { name: '행동 보내기' }))
+
+  expect(await screen.findByRole('region', { name: '시츄에이션 진입 시작 위치 선택' })).toBeInTheDocument()
+  expect(screen.queryByText('다음 방으로 들어간다')).not.toBeInTheDocument()
+  expect(screen.queryByText('시작 위치를 확정한 뒤 공개되는 진입 서술')).not.toBeInTheDocument()
+
+  await user.click(screen.getByRole('button', { name: '맵 준비 완료, 모험 시작' }))
+  expect(resumeRuntimeTurn).toHaveBeenCalledWith('a1', expect.any(String), expect.any(String))
+  expect(await screen.findByText('시작 위치를 확정한 뒤 공개되는 진입 서술')).toBeInTheDocument()
+  expect(screen.getByText('다음 방으로 들어간다')).toBeInTheDocument()
+  expect(screen.queryByRole('region', { name: '시츄에이션 진입 시작 위치 선택' })).not.toBeInTheDocument()
+})
 
 it('renders the GM narration without exposing its internal judgment', async () => {
   const sent: string[] = []

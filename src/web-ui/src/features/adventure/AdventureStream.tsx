@@ -1,17 +1,21 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { AdventureRequestError, type AdventureApi, type AdventureMessageResponse } from './AdventureApi'
 import type { PlayerRollRequest } from './AdventureApi'
+import type { AdventurePlayApi } from '../saved-adventures/AdventurePlayApi'
+import { CombatMapView } from '../combat-map/CombatMapView'
 
 type ChatMessageEntry = { speaker: string; text: string }
 type LocalTurn = { action: ChatMessageEntry; response: ChatMessageEntry[]; expectedVersion: number; committedVersion?: number }
 
-export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommitted, onCurrentSceneChanged }: { adventureId: string; api: AdventureApi; expectedVersion?: number | null; onTurnCommitted?: () => void; onCurrentSceneChanged?: (scene: string) => void }) {
+export function AdventureStream({ adventureId, api, playApi, expectedVersion, onTurnCommitted, onCurrentSceneChanged }: { adventureId: string; api: AdventureApi; playApi?: AdventurePlayApi; expectedVersion?: number | null; onTurnCommitted?: () => void; onCurrentSceneChanged?: (scene: string) => void }) {
   const [messages, setMessages] = useState<ChatMessageEntry[]>([])
   const [notice, setNotice] = useState('')
   const [sending, setSending] = useState(false)
   const [projectionStatus, setProjectionStatus] = useState<'idle' | 'processing' | 'failed'>('idle')
   const [rollRequest, setRollRequest] = useState<PlayerRollRequest | null>(null)
   const [rollValue, setRollValue] = useState('')
+  const [pendingMapEntry, setPendingMapEntry] = useState<{ turnId: string; commandId: string } | null>(null)
+  const [mapEntryResuming, setMapEntryResuming] = useState(false)
   const [conversationHydrated, setConversationHydrated] = useState(() => !api.readConversation)
   const [eventSubscriptionReady, setEventSubscriptionReady] = useState(() => !api.readConversation)
   const hydrationPending = Boolean(api.readConversation) && !conversationHydrated
@@ -166,11 +170,40 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       localTurn.current = null
       setMessages(current => current.filter(entry => entry !== action))
       setProjectionStatus('failed')
-      setNotice(error instanceof AdventureRequestError && error.diagnostic
-        ? error.diagnostic
-        : '메시지를 전송하지 못했습니다.')
+      const placementRequired = error instanceof AdventureRequestError
+        && error.diagnostic?.includes('맵 시작 위치를 선택해야 모험을 시작할 수 있습니다.')
+        && playApi?.resumeRuntimeTurn
+      if (placementRequired) {
+        setPendingMapEntry({ turnId: command.turnId, commandId: command.commandId })
+        setNotice('지도에서 시작 위치를 선택하고 저장한 뒤 같은 시츄에이션 진입을 다시 이어가세요.')
+      } else {
+        setNotice(error instanceof AdventureRequestError && error.diagnostic
+          ? error.diagnostic
+          : '메시지를 전송하지 못했습니다.')
+      }
     } finally {
       setSending(false)
+    }
+  }
+
+  async function resumeMapEntry() {
+    if (!pendingMapEntry || !playApi?.resumeRuntimeTurn || mapEntryResuming) return
+    setMapEntryResuming(true)
+    try {
+      await playApi.resumeRuntimeTurn(adventureId, pendingMapEntry.turnId, pendingMapEntry.commandId)
+      const conversation = await api.readConversation?.(adventureId)
+      if (conversation) {
+        projectionVersion.current = conversation.version
+        committedVersion.current = Math.max(committedVersion.current, conversation.version)
+        if (conversation.currentScene) onCurrentSceneChanged?.(conversation.currentScene)
+        setMessages(conversation.entries.map(entry => ({ speaker: speakerLabel(entry.speaker), text: entry.content })))
+      }
+      setPendingMapEntry(null)
+      setNotice('')
+      setProjectionStatus('idle')
+      onTurnCommitted?.()
+    } finally {
+      setMapEntryResuming(false)
     }
   }
 
@@ -212,6 +245,10 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
         ))}
       </ol>
       <p role="alert">{notice}</p>
+      {pendingMapEntry && playApi && <section aria-label="시츄에이션 진입 시작 위치 선택">
+        <p role="alert">자동으로 시작 위치를 정하지 못했습니다. 지도에서 플레이어 시작 칸을 선택하고 저장하세요. 저장 뒤 같은 진입을 다시 이어갑니다.</p>
+        <CombatMapView adventureId={adventureId} api={playApi} preparationMode onPreparationComplete={resumeMapEntry} />
+      </section>}
       {rollRequest && <form onSubmit={submitRoll} aria-label="주사위 굴림 요청">
         <p><strong>{rollRequest.label}</strong>: {rollRequest.prompt}</p>
         <label>{rollRequest.diceExpression} 결과<input type="number" min={diceResultRange(rollRequest.diceExpression).minimum} max={diceResultRange(rollRequest.diceExpression).maximum} step="1" value={rollValue} onChange={event => setRollValue(event.target.value)} disabled={sending} required /></label>
