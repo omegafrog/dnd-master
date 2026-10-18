@@ -285,15 +285,16 @@ public final class AdventureAbilityDefinitionPreparationService {
                 "Prepare the ability " + abilityId + " from this source type",
                 "Find rules and details for " + searchableId,
                 "Ability " + searchableId + " rules, effects, range, targets, and cost");
+        List<String> distinctQueries = queries.stream().distinct().toList();
         RuntimeException lastFailure = null;
-        boolean completedQuery = false;
+        int completedQueries = 0;
         SearchResult lastSuccessfulResult = null;
         java.util.LinkedHashSet<RuntimeEvidence> collectedEvidence = new java.util.LinkedHashSet<>();
-        for (String query : queries.stream().distinct().toList()) {
+        for (String query : distinctQueries) {
             long started = System.nanoTime();
             try {
                 SearchResult result = search(adventureId, sessionId, owner, abilityId, query, selected);
-                completedQuery = true;
+                completedQueries++;
                 lastSuccessfulResult = result;
                 collectedEvidence.addAll(result.evidence());
                 diagnostic(collectedEvidence.isEmpty() ? "search_retry" : "evidence_query_complete", adventureId,
@@ -309,7 +310,7 @@ public final class AdventureAbilityDefinitionPreparationService {
         if (!collectedEvidence.isEmpty() && lastSuccessfulResult != null)
             return new SearchResult(List.copyOf(collectedEvidence), lastSuccessfulResult.authorizedSourceVersions(),
                     lastSuccessfulResult.sourceScope());
-        if (completedQuery) throw new AbilityEvidenceRecoveryExhaustedException(null);
+        if (completedQueries == distinctQueries.size()) throw new AbilityEvidenceRecoveryExhaustedException(null);
         throw new AbilityEvidenceSearchFailureException(lastFailure);
     }
 

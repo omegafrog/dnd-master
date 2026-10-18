@@ -377,6 +377,21 @@ class AdventureAbilityDefinitionPreparationServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .isNotInstanceOf(AbilityDefinitionSourceInputRequiredException.class);
         verify(definitions, times(1)).prepare(packageId, "ability:blink", validDefinition(storyDocumentId));
+
+        org.mockito.Mockito.doReturn(List.of()).when(evidenceSearch).search(any());
+        assertThatThrownBy(() -> service.prepare(new AdventureId(packageId), sessionKey,
+                new OwnerPlayerId(ownerId), List.of("ability:blink")))
+                .isInstanceOf(AbilityDefinitionSourceInputRequiredException.class);
+
+        var partialSearches = new java.util.concurrent.atomic.AtomicInteger();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            if (partialSearches.getAndIncrement() < 2) return List.of();
+            throw new IllegalStateException("search service unavailable for this query");
+        }).when(evidenceSearch).search(any());
+        assertThatThrownBy(() -> service.prepare(new AdventureId(packageId), sessionKey,
+                new OwnerPlayerId(ownerId), List.of("ability:blink")))
+                .isInstanceOf(IllegalStateException.class)
+                .isNotInstanceOf(AbilityDefinitionSourceInputRequiredException.class);
     }
 
     private static ScenarioBundleDocumentSelection selectedDocument(UUID documentId, String type) {
