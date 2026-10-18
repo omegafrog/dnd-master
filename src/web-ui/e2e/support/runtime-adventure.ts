@@ -9,6 +9,11 @@ const backend = process.env.BACKEND_E2E_URL
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
 const storybooks = JSON.parse(process.env.BACKEND_E2E_STORYBOOKS_JSON ?? '[]') as Array<{ path: string, role: string }>
+export const explorationGroupStorybooks = [
+  { path: '/home/jiwoo/workspace/dnd-master/docs/assets/344-compact-combat-main.pdf', role: 'MAIN_SCENARIO' },
+  { path: '/home/jiwoo/workspace/dnd-master/docs/assets/344-compact-combat-map.pdf', role: 'MAP' },
+  { path: '/home/jiwoo/workspace/dnd-master/docs/assets/344-compact-combat-handout.pdf', role: 'HANDOUT' },
+] as const
 const root = new URL('../../../..', import.meta.url).pathname
 const composeFile = `${root}src/infra/compose.yaml`
 
@@ -37,9 +42,9 @@ export function sessionCreationPayload(packageId: string, blueprintRevision: num
   return { scenarioPackageId: packageId, blueprintId: packageId, blueprintRevision, partySize, preparationId }
 }
 
-export async function bootstrapStartedAdventure(request: APIRequestContext, partyMemberCount = 1) {
+export async function bootstrapStartedAdventure(request: APIRequestContext, partyMemberCount = 1, sources = storybooks) {
   const auth = await login(request)
-  const prepared = await createPreparedPackage(request, auth)
+  const prepared = await createPreparedPackage(request, auth, sources)
   const session = await createSession(request, auth, prepared, partyMemberCount)
   let version = session.version
   for (let member = 0; member < partyMemberCount; member++) {
@@ -120,14 +125,14 @@ async function login(request: APIRequestContext): Promise<Auth> {
   return { ownerPlayerId: result.playerId!, headers: { Authorization: `Bearer ${result.token}` } }
 }
 
-async function createPreparedPackage(request: APIRequestContext, auth: Auth): Promise<PreparedPackage> {
+async function createPreparedPackage(request: APIRequestContext, auth: Auth, sources: ReadonlyArray<{ path: string, role: string }>): Promise<PreparedPackage> {
   const catalog = await request.get(`${backend}/api/v1/rulebook-catalog`)
   expect(catalog.ok(), await catalog.text()).toBeTruthy()
   const rulebook = (await catalog.json() as Array<{ edition: string, rulebookId: string | null, status: string }>)
     .find(entry => entry.edition === 'DND_5E_2014' && entry.status === 'READY' && entry.rulebookId)
   expect(rulebook).toBeTruthy()
   const documents: Array<{ knowledgeDocumentId: string, role: string }> = [{ knowledgeDocumentId: rulebook!.rulebookId!, role: 'RULEBOOK' }]
-  for (const source of storybooks) {
+  for (const source of sources) {
     const contents = await readFile(source.path)
     const multipart = new FormData()
     multipart.append('documents', new Blob([JSON.stringify([{ idempotencyKey: crypto.randomUUID(), documentType: 'STORYBOOK', originalFilename: basename(source.path) }])], { type: 'application/json' }), 'documents.json')

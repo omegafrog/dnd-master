@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { assertPotentBrewStorybooks, bootstrapStartedAdventure, hasRuntimeEnvironment, isStorybookReady,
+import { assertPotentBrewStorybooks, bootstrapStartedAdventure, explorationGroupStorybooks, hasRuntimeEnvironment, isStorybookReady,
   sessionCreationPayload } from './support/runtime-adventure'
 
 const email = process.env.BACKEND_E2E_EMAIL
@@ -17,12 +17,21 @@ test('adventure session creation binds the reviewed action preparation', () => {
   })
 })
 
+test('exploration group bootstrap uses the compact combat source fixture', () => {
+  expect(explorationGroupStorybooks.map(source => [source.role, source.path.split('/').at(-1)])).toEqual([
+    ['MAIN_SCENARIO', '344-compact-combat-main.pdf'],
+    ['MAP', '344-compact-combat-map.pdf'],
+    ['HANDOUT', '344-compact-combat-handout.pdf'],
+  ])
+  assertPotentBrewStorybooks(explorationGroupStorybooks)
+})
+
 test('지도에서 나눈 그룹과 대열을 저장하고 다시 불러온다', async ({ page, request }) => {
   test.skip(!hasRuntimeEnvironment(), '실제 백엔드 로그인과 MAIN_SCENARIO, MAP, HANDOUT 자료가 필요합니다')
   assertPotentBrewStorybooks()
   test.setTimeout(0)
 
-  const adventure = await bootstrapStartedAdventure(request, 2)
+  const adventure = await bootstrapStartedAdventure(request, 2, explorationGroupStorybooks)
   await page.goto('/#/login')
   await page.getByLabel('이메일').fill(email!)
   await page.getByLabel('비밀번호').fill(password!)
