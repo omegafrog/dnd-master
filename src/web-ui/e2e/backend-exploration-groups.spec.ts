@@ -140,6 +140,7 @@ async function hasActiveMap(page: import('@playwright/test').Page, adventureId: 
     const token = JSON.parse(localStorage.getItem('dnd-master.auth-session') ?? '{}').accessToken as string | undefined
     if (!token) throw new Error('authenticated browser session is unavailable')
     const response = await fetch(`/api/v1/adventures/${adventureId}/combat-map`, { headers: { Authorization: `Bearer ${token}` } })
-    return response.ok
+    if (!response.ok) throw new Error(`map read failed: ${response.status}`)
+    return Boolean((await response.json() as { mapId: string | null }).mapId)
   }, { adventureId })
 }
