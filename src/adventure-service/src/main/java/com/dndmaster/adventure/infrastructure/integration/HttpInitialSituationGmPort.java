@@ -1,12 +1,14 @@
 package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.scenario.preparation.InitialSituationGmPort;
+import com.dndmaster.adventure.application.scenario.preparation.TransientInitialSituationGmFailureException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.Objects;
 
@@ -28,27 +30,38 @@ public final class HttpInitialSituationGmPort implements InitialSituationGmPort 
     }
 
     @Override public JsonNode generate(Request request) {
+        String body;
         try {
-            String body = mapper.writeValueAsString(new GmRequest(request.ownerPlayerId(), request.endpointId(),
+            body = mapper.writeValueAsString(new GmRequest(request.ownerPlayerId(), request.endpointId(),
                     request.provider(), request.model(), request.reasoning(), request.operationKey(), request.prompt(),
                     request.outputSchema(), request.useSubagents(), request.stageTasks()));
-            HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/gm/initial-situation"))
-                    .timeout(timeout).header("Content-Type", "application/json")
-                    .header("X-Internal-Token", internalToken)
-                    .POST(HttpRequest.BodyPublishers.ofString(body)).build();
-            HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() / 100 != 2) {
-                throw HttpScenarioCompilationAgentPort.decodeFailure(response.statusCode(), response.body(), request.operationKey());
-            }
-            JsonNode result = mapper.readTree(response.body());
-            if (result == null || !result.isObject()) throw new IllegalStateException("initial situation GM returned invalid JSON object");
-            return result;
+        } catch (Exception failure) {
+            throw new IllegalStateException("initial situation GM request could not be encoded", failure);
+        }
+        HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/gm/initial-situation"))
+                .timeout(timeout).header("Content-Type", "application/json")
+                .header("X-Internal-Token", internalToken)
+                .POST(HttpRequest.BodyPublishers.ofString(body)).build();
+        HttpResponse<String> response;
+        try {
+            response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("initial situation GM request interrupted", failure);
-        } catch (Exception failure) {
-            if (failure instanceof RuntimeException runtime) throw runtime;
-            throw new IllegalStateException("initial situation GM request failed", failure);
+        } catch (IOException failure) {
+            throw new TransientInitialSituationGmFailureException(failure);
+        }
+        if (response.statusCode() / 100 != 2) {
+            var failure = HttpScenarioCompilationAgentPort.decodeFailure(response.statusCode(), response.body(), request.operationKey());
+            if (failure.retryable()) throw new TransientInitialSituationGmFailureException(failure);
+            throw failure;
+        }
+        try {
+            JsonNode result = mapper.readTree(response.body());
+            if (result == null || !result.isObject()) throw new IllegalStateException("initial situation GM returned invalid JSON object");
+            return result;
+        } catch (IOException failure) {
+            throw new IllegalStateException("initial situation GM returned invalid JSON", failure);
         }
     }
 

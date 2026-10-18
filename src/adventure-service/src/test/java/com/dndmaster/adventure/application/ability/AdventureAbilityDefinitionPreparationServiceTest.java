@@ -19,6 +19,7 @@ import com.dndmaster.adventure.application.runtime.RuntimeEvidenceSearchPort;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.preparation.InitialSituationGmPort;
+import com.dndmaster.adventure.application.scenario.preparation.TransientInitialSituationGmFailureException;
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
@@ -94,14 +95,15 @@ class AdventureAbilityDefinitionPreparationServiceTest {
     }
 
     @Test
-    void retries_generation_once_for_a_new_failure_kind_before_requesting_source_input() throws Exception {
+    void retries_once_after_a_classified_transient_provider_failure() throws Exception {
         var bindings = mock(GmProviderBindingRepository.class);
         var gm = mock(InitialSituationGmPort.class);
         UUID sessionUuid = UUID.randomUUID();
         UUID documentUuid = UUID.randomUUID();
         when(bindings.current(sessionUuid)).thenReturn(Optional.of(new ProviderBinding(sessionUuid,
                 new GmProviderSelection(UUID.randomUUID(), "codex", "test-model", "medium"), 1)));
-        when(gm.generate(any())).thenThrow(new IllegalStateException("temporary provider failure"))
+        when(gm.generate(any())).thenThrow(new TransientInitialSituationGmFailureException(
+                new java.io.IOException("temporary provider failure")))
                 .thenReturn(validDefinition(documentUuid));
         var service = new AdventureAbilityDefinitionPreparationService(mock(AdventureAbilityDefinitionRepository.class),
                 mock(ScenarioPackageRepository.class), mock(SessionKnowledgeSetRepository.class),
@@ -116,6 +118,27 @@ class AdventureAbilityDefinitionPreparationServiceTest {
 
         assertThat(result.path("abilityId").asText()).isEqualTo("ability:blink");
         verify(gm, times(2)).generate(any());
+    }
+
+    @Test
+    void does_not_retry_a_nontransient_generation_failure() {
+        var bindings = mock(GmProviderBindingRepository.class);
+        var gm = mock(InitialSituationGmPort.class);
+        UUID sessionUuid = UUID.randomUUID();
+        when(bindings.current(sessionUuid)).thenReturn(Optional.of(new ProviderBinding(sessionUuid,
+                new GmProviderSelection(UUID.randomUUID(), "codex", "test-model", "medium"), 1)));
+        when(gm.generate(any())).thenThrow(new IllegalStateException("provider selection is invalid"));
+        var service = new AdventureAbilityDefinitionPreparationService(mock(AdventureAbilityDefinitionRepository.class),
+                mock(ScenarioPackageRepository.class), mock(SessionKnowledgeSetRepository.class),
+                mock(AdventureSessionRepository.class), mock(RuntimeCharacterSheetReadPort.class),
+                mock(RuntimeEvidenceSearchPort.class), mock(RuntimeEvidenceLocationLookupPort.class), bindings, gm, JSON);
+        var evidence = List.of(new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
+                new KnowledgeDocumentId(UUID.randomUUID()), 3, "page 12", "The ability moves the user.", "cite-1"));
+
+        assertThatThrownBy(() -> service.generateValidated(new AdventureId(UUID.randomUUID()), new SessionId(sessionUuid),
+                new OwnerPlayerId(UUID.randomUUID()), "ability:blink", evidence, java.util.Map.of()))
+                .isInstanceOf(IllegalStateException.class);
+        verify(gm, times(1)).generate(any());
     }
 
     @Test

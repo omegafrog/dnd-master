@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.dndmaster.adventure.application.scenario.preparation.InitialSituationGmPort;
+import com.dndmaster.adventure.application.scenario.preparation.TransientInitialSituationGmFailureException;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationAgentFailureException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
@@ -72,8 +73,25 @@ class HttpInitialSituationGmPortTest {
                     "openai", "story-model", "high", "initial-situation:retry", "prompt",
                     new ObjectMapper().readTree("{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}"));
 
-            assertThatThrownBy(() -> port.generate(request)).isInstanceOf(ScenarioCompilationAgentFailureException.class)
+            assertThatThrownBy(() -> port.generate(request))
+                    .isInstanceOf(TransientInitialSituationGmFailureException.class)
+                    .hasCauseInstanceOf(ScenarioCompilationAgentFailureException.class)
                     .hasMessageNotContaining("prompt");
+        }
+    }
+
+    @Test
+    void does_not_classify_nonretryable_upstream_status_as_transient() throws Exception {
+        try (var server = new InitialSituationServer(new java.util.concurrent.atomic.AtomicReference<>(),
+                new java.util.concurrent.atomic.AtomicReference<>(), 400,
+                "{\"code\":\"INVALID_REQUEST\",\"correlationId\":\"initial-situation:invalid\",\"retryable\":false}")) {
+            var port = new HttpInitialSituationGmPort(HttpClient.newHttpClient(), server.baseUri(),
+                    Duration.ofSeconds(2), new ObjectMapper(), "internal-token");
+            var request = new InitialSituationGmPort.Request(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                    "openai", "story-model", "high", "initial-situation:invalid", "prompt",
+                    new ObjectMapper().readTree("{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}"));
+
+            assertThatThrownBy(() -> port.generate(request)).isInstanceOf(ScenarioCompilationAgentFailureException.class);
         }
     }
 

@@ -11,6 +11,7 @@ import com.dndmaster.adventure.application.runtime.RuntimeEvidenceLocationLookup
 import com.dndmaster.adventure.evidence.EvidenceSearchScope;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.preparation.InitialSituationGmPort;
+import com.dndmaster.adventure.application.scenario.preparation.TransientInitialSituationGmFailureException;
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
@@ -112,7 +113,7 @@ public final class AdventureAbilityDefinitionPreparationService {
                 definitions.prepare(adventureId.value(), abilityId, proposed);
                 diagnostic("complete", adventureId, sessionId, abilityId, evidence.size(), "valid_definition_saved",
                         (System.nanoTime() - started) / 1_000_000, "none");
-            } catch (RuntimeException failure) {
+            } catch (TransientInitialSituationGmFailureException failure) {
                 diagnostic("source_input_required", adventureId, sessionId, abilityId, evidence.size(),
                         "validated_definition", (System.nanoTime() - started) / 1_000_000, failure.getClass().getSimpleName());
                 throw new AbilityDefinitionSourceInputRequiredException(abilityId, failure);
@@ -129,7 +130,7 @@ public final class AdventureAbilityDefinitionPreparationService {
             JsonNode proposed;
             try {
                 proposed = generate(adventureId, sessionId, owner, abilityId, evidence, corrections);
-            } catch (RuntimeException failure) {
+            } catch (TransientInitialSituationGmFailureException failure) {
                 if (providerFailureRetried) throw failure;
                 providerFailureRetried = true;
                 corrections.add("GENERATION_FAILURE_RETRY");
