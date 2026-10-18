@@ -1,7 +1,8 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import { basename } from 'node:path'
+import { basename, dirname, resolve, sep } from 'node:path'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 
 const storybookRoles = new Set([
   'MAIN_SCENARIO',
@@ -17,7 +18,7 @@ const backend = process.env.BACKEND_E2E_URL
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
 const assetRoot = '/home/jiwoo/workspace/dnd-master/docs/assets/'
-const fixtureRoot = '/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range/src/web-ui/e2e/fixtures/'
+const fixtureRoot = `${resolve(dirname(fileURLToPath(import.meta.url)), 'fixtures')}${sep}`
 const catalogAdminToken = process.env.BACKEND_E2E_CATALOG_ADMIN_TOKEN
 const catalogPdf = process.env.BACKEND_E2E_CATALOG_PDF ?? `${assetRoot}DnD_BasicRules_2018.pdf`
 const storybooks = parseStorybooks(process.env.BACKEND_E2E_STORYBOOKS_JSON ?? '')
