@@ -14,6 +14,8 @@
         "--tests",
         "com.dndmaster.adventure.ExplorationCycleTest",
         "--tests",
+        "com.dndmaster.adventure.api.ExplorationEnvironmentControllerTest",
+        "--tests",
         "com.dndmaster.adventure.BestOfNTurnPlanningTest"
       ],
       "required_env": [],
@@ -33,6 +35,7 @@
         "src/adventure-service/src/test/java/com/dndmaster/adventure/MapMovementCoordinatorTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/api/PreparationMapImageSourceTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/BestOfNTurnPlanningTest.java"
       ],
       "prepare": [],

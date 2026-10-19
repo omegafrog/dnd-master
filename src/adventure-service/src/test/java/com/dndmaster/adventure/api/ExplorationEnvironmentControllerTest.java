@@ -27,6 +27,92 @@ import ch.qos.logback.core.read.ListAppender;
 import org.slf4j.LoggerFactory;
 
 class ExplorationEnvironmentControllerTest {
+    @Test void explorationCycleRequiresMapNeededActiveSituation() {
+        var fixture = explorationCycleStartFixture(false, Optional.empty());
+        Logger logger = (Logger) LoggerFactory.getLogger(AdventureController.class);
+        var appender = new ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        String previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        ApiRequestGuard.ApiContractException failure;
+        try {
+            failure = assertThrows(ApiRequestGuard.ApiContractException.class,
+                    () -> fixture.controller().startExplorationCycle(fixture.adventureId(),
+                            new AdventureController.ExplorationCycleStartRequest(fixture.adventure().version(), UUID.randomUUID())));
+        } finally {
+            logger.detachAppender(appender);
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
+
+        assertEquals("EXPLORATION_REQUIRES_MAP_NEEDED_SITUATION", failure.getMessage());
+        verify(fixture.adventures(), never()).save(any());
+        String logs = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                .reduce("", (left, right) -> left + "\n" + right);
+        assertTrue(logs.contains("outcome=started"));
+        assertTrue(logs.contains("outcome=failed"));
+        assertTrue(logs.contains("expectedMapNeeded=true actualMapNeeded=false"));
+        assertTrue(logs.contains("recoveryAction=resolve_situation_or_end_combat"));
+    }
+
+    @Test void explorationCycleCannotStartWhileCombatIsActive() {
+        var fixture = explorationCycleStartFixture(true,
+                Optional.of(mock(com.dndmaster.adventure.domain.combat.CombatEncounter.class)));
+
+        ApiRequestGuard.ApiContractException failure = assertThrows(ApiRequestGuard.ApiContractException.class,
+                () -> fixture.controller().startExplorationCycle(fixture.adventureId(),
+                        new AdventureController.ExplorationCycleStartRequest(fixture.adventure().version(), UUID.randomUUID())));
+
+        assertEquals("EXPLORATION_CYCLE_SUSPENDED_FOR_COMBAT", failure.getMessage());
+        verify(fixture.adventures(), never()).save(any());
+    }
+
+    private static CycleStartFixture explorationCycleStartFixture(boolean mapNeeded,
+            Optional<com.dndmaster.adventure.domain.combat.CombatEncounter> activeCombat) {
+        UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), sheetId = UUID.randomUUID(), packageId = UUID.randomUUID();
+        var party = List.of(new AdventurePartyMember(new CharacterSheetId(sheetId), ControlMode.DIRECT,
+                true, true, true, true, true, true));
+        Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), party, new AdventureContext("복도", "", "", ""));
+        var source = new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(
+                new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1");
+        UUID mapId = mapNeeded ? UUID.randomUUID() : null;
+        var situation = new com.dndmaster.adventure.domain.scenario.SituationDefinition("opening",
+                List.of(com.dndmaster.adventure.domain.scenario.StageIntent.REVELATION), List.of("truth"),
+                List.of(), List.of(), List.of(), List.of(), true, true, List.of(),
+                com.dndmaster.adventure.domain.scenario.SituationProvenance.SOURCE_EXTRACTED, mapId, List.of(source), mapNeeded);
+        var stage = new com.dndmaster.adventure.domain.scenario.DetailedStage(packageId, 1, "stage", 1, "Find the key",
+                List.of(new com.dndmaster.adventure.domain.scenario.RevelationDefinition("truth", true, List.of(source))),
+                new com.dndmaster.adventure.domain.scenario.ThreatDefinition("A threat waits", List.of(source)),
+                new com.dndmaster.adventure.domain.scenario.PressureDefinition("pressure", "The danger grows", List.of(source)),
+                new com.dndmaster.adventure.domain.scenario.FunnelDefinition("resolution", List.of("truth"), List.of(source)),
+                List.of(situation), List.of(), List.of(source));
+        adventure.commitStoryRuntimeState(new OwnerPlayerId(owner), 0,
+                com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState.start(stage));
+        UUID groupId = UUID.randomUUID();
+        adventure.updateExplorationState(new OwnerPlayerId(owner), adventure.version(), new ExplorationState(List.of(
+                new ExplorationGroup(groupId, UUID.randomUUID(), List.of(
+                        new ExplorationGroup.Member(sheetId, ExplorationGroup.Formation.FRONT, 30))))));
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findByIdForUpdate(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        when(players.playerId()).thenReturn(owner);
+        CombatLifecycleApplicationService combatLifecycle = mock(CombatLifecycleApplicationService.class);
+        when(combatLifecycle.findActiveEncounter(adventureId)).thenReturn(activeCombat);
+        var stageArtifacts = mock(com.dndmaster.adventure.domain.scenario.StageArtifactRepository.class);
+        when(stageArtifacts.findDetailedStage(eq(new AdventureId(adventureId)), eq(packageId), eq("stage"), eq(1L), eq(1L)))
+                .thenReturn(Optional.of(stage));
+        AdventureController controller = controller(adventures, mock(RuntimeTurnApplicationService.class),
+                mock(CombatMapPort.class), mock(CombatMapViewPort.class), players,
+                mock(AppliedRuleSetApplicationService.class), combatLifecycle);
+        controller.setStageArtifactRepository(stageArtifacts);
+        return new CycleStartFixture(adventureId, adventure, adventures, controller);
+    }
+
+    private record CycleStartFixture(UUID adventureId, Adventure adventure, AdventureRepository adventures,
+            AdventureController controller) {}
+
     @Test void playerExplorationCycleJsonOmitsInternalRoutesAndMapIdentifiers() throws Exception {
         UUID groupId = UUID.randomUUID(), playerTokenId = UUID.randomUUID(), enemyTokenId = UUID.randomUUID();
         UUID featureId = UUID.randomUUID(), hostileTokenId = UUID.randomUUID(), movementOperationId = UUID.randomUUID();

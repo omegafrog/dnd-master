@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { createHash } from 'node:crypto'
 import { bootstrapAdventureSession, explorationGroupStorybooks, hasRuntimeCredentials, isStorybookReady,
   explorationGroupLearnedAbilityIds, readPersistedAdventureRuleSetId, readPersistedMapVisibilityRuleTurn, readStoredMapDefinitions, sessionCreationPayload } from './support/runtime-adventure'
 
@@ -49,10 +50,12 @@ test('지도에서 나눈 그룹과 대열을 저장하고 다시 불러온다',
     mapDefinitionCount: mapDefinitions.length,
     mapDefinitionId: mapDefinition?.id ?? null,
     assetId: mapDefinition?.assetId ?? null,
-    assetLocator: assetLocator ?? null,
-    requestedAssetLocator: sourceLocator ?? null,
+    assetLocatorKind: assetLocator?.match(/\bpage\s+\d+\b/i) ? 'page' : assetLocator ? 'other' : 'missing',
+    assetLocatorLength: assetLocator?.length ?? 0,
+    assetLocatorFingerprint: createHash('sha256').update(assetLocator ?? '').digest('hex').slice(0, 16),
     sourceDocumentId: sourceDocumentId ?? null,
-    sourceEvidenceLocator: mapDefinition?.source?.locator ?? null,
+    sourceEvidenceLocatorLength: mapDefinition?.source?.locator?.length ?? 0,
+    sourceEvidenceLocatorFingerprint: createHash('sha256').update(mapDefinition?.source?.locator ?? '').digest('hex').slice(0, 16),
     assetStatus: sourceResponse?.status() ?? null,
     assetContentType: sourceResponse?.headers()['content-type'] ?? null,
     assetBytes: Number(sourceResponse?.headers()['content-length'] ?? 0) || null,

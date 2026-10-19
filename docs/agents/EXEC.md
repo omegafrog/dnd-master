@@ -2,10 +2,10 @@
 
 ## Adventure Runtime 집중 단위 테스트
 
-Run the #367 movement-coordinator, map-image source, exploration-cycle rules, and environment-planning delegation tests from the active checkout with the Gradle wrapper. These tests use in-memory dependencies and do not require PostgreSQL, Redis, or application services:
+Run the #367 movement-coordinator, map-image source, exploration-cycle rules and start preconditions, and environment-planning delegation tests from the active checkout with the Gradle wrapper. These tests use in-memory dependencies and do not require PostgreSQL, Redis, or application services:
 
 ```bash
-./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.MapMovementCoordinatorTest --tests com.dndmaster.adventure.api.PreparationMapImageSourceTest --tests com.dndmaster.adventure.ExplorationCycleTest --tests com.dndmaster.adventure.BestOfNTurnPlanningTest
+./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.MapMovementCoordinatorTest --tests com.dndmaster.adventure.api.PreparationMapImageSourceTest --tests com.dndmaster.adventure.ExplorationCycleTest --tests com.dndmaster.adventure.api.ExplorationEnvironmentControllerTest --tests com.dndmaster.adventure.BestOfNTurnPlanningTest
 ```
 
 The matching Harness profile is `adventure-focused-unit` in `docs/agents/execution.json`.

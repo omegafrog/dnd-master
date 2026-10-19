@@ -77,6 +77,7 @@ public class AdventureController {
     private final com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
     private final CombatMapPreparationPort combatMapPreparationPort;
     private final com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository;
+    private com.dndmaster.adventure.domain.scenario.StageArtifactRepository stageArtifactRepository;
     private final ObjectMapper objectMapper;
     private final com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService;
     private final AppliedRuleSetApplicationService appliedRuleSetService;
@@ -88,6 +89,11 @@ public class AdventureController {
     @Autowired(required = false)
     void setMovementPlacementModelPort(MovementPlacementModelPort movementPlacementModelPort) {
         this.movementPlacementModelPort = Objects.requireNonNull(movementPlacementModelPort);
+    }
+
+    @Autowired(required = false)
+    void setStageArtifactRepository(com.dndmaster.adventure.domain.scenario.StageArtifactRepository repository) {
+        this.stageArtifactRepository = Objects.requireNonNull(repository);
     }
 
     public record AdventureMovementOperationResponse(UUID operationId, com.dndmaster.adventure.application.combat.CombatMapMovementStatus status, long version,
@@ -659,6 +665,33 @@ public class AdventureController {
         }
         if (adventure.version() != request.expectedVersion())
             throw new ApiRequestGuard.ApiContractException(409, "STALE_EXPLORATION_CYCLE");
+        var story = adventure.storyRuntimeState();
+        java.util.Optional<com.dndmaster.adventure.domain.scenario.SituationDefinition> activeSituation =
+                story == null || story.isOpenPlay() || stageArtifactRepository == null ? java.util.Optional.empty()
+                : stageArtifactRepository.findDetailedStage(adventure.id(), story.scenarioPackageId(), story.stageId(),
+                        story.backboneRevision(), story.detailedStageRevision())
+                        .stream().flatMap(stage -> stage.situations().stream())
+                        .filter(candidate -> candidate.situationId().equals(story.activeSituationId())).findFirst();
+        boolean mapNeeded = activeSituation.map(com.dndmaster.adventure.domain.scenario.SituationDefinition::mapNeeded).orElse(false);
+        boolean activeCombat = combatLifecycleService.findActiveEncounter(adventureId).isPresent();
+        String eligibilityContext = "adventureId=" + adventureId + " groupCount=" + state.groups().size()
+                + " expectedMapNeeded=true actualMapNeeded=" + mapNeeded + " activeCombat=" + activeCombat
+                + " expectedVersion=" + request.expectedVersion();
+        long eligibilityStarted = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(
+                LOGGER, "exploration_cycle_start_eligibility", eligibilityContext);
+        try {
+            if (!mapNeeded)
+                throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_REQUIRES_MAP_NEEDED_SITUATION");
+            if (activeCombat)
+                throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_CYCLE_SUSPENDED_FOR_COMBAT");
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "exploration_cycle_start_eligibility", eligibilityContext + " result=eligible", eligibilityStarted);
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "exploration_cycle_start_eligibility", eligibilityContext + " recoveryAction=resolve_situation_or_end_combat",
+                    eligibilityStarted, failure);
+            throw failure;
+        }
         if (initiativeDicePorts == null)
             throw new ApiRequestGuard.ApiContractException(503, "EXPLORATION_INITIATIVE_UNAVAILABLE");
         long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
