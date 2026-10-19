@@ -1,5 +1,7 @@
 import { expect, type APIRequestContext } from '@playwright/test'
 import { basename } from 'node:path'
+import { resolve } from 'node:path'
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -61,8 +63,8 @@ export async function bootstrapStartedAdventure(request: APIRequestContext, part
 
 export async function bootstrapAdventureSession(request: APIRequestContext, partyMemberCount = 1, sources = storybooks,
     learnedAbilityIds: readonly string[] = []) {
-  const { sessionId } = await createAdventureSession(request, partyMemberCount, sources, learnedAbilityIds)
-  return { sessionId }
+  const { sessionId, packageId } = await createAdventureSession(request, partyMemberCount, sources, learnedAbilityIds)
+  return { sessionId, packageId }
 }
 
 async function createAdventureSession(request: APIRequestContext, partyMemberCount: number, sources: ReadonlyArray<{ path: string, role: string }>,
@@ -86,7 +88,25 @@ async function createAdventureSession(request: APIRequestContext, partyMemberCou
     expect(provider.ok(), await provider.text()).toBeTruthy()
     expect(await provider.json()).toEqual(expect.objectContaining({ provider: expect.any(String), model: expect.any(String), version: expect.any(Number) }))
   }
-  return { auth, sessionId: session.sessionId, version }
+  return { auth, sessionId: session.sessionId, packageId: prepared.packageId, version }
+}
+
+export async function readStoredMapDefinitions(packageId: string) {
+  const sql = `SELECT map_definitions_json FROM scenario_package WHERE package_id = '${packageId}'::uuid`
+  const composeProjectName = process.env.COMPOSE_PROJECT_NAME
+    ?? `dnd-master-${createHash('sha256').update(resolve(root, 'src')).digest('hex').slice(0, 8)}`
+  const { stdout } = await execFileAsync('docker', [
+    'compose', '-p', composeProjectName,
+    '-f', composeFile, 'exec', '-T', 'postgres', 'psql', '--username', 'postgres', '--dbname', 'postgres',
+    '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql,
+  ])
+  expect(stdout.trim(), 'scenario package map definitions should be persisted').not.toBe('')
+  return JSON.parse(stdout.trim()) as Array<{
+    id: string
+    assetId?: string
+    assetLocator?: string
+    source?: { knowledgeDocumentId?: string | { value?: string }, locator?: string }
+  }>
 }
 
 export async function readPersistedLongTermFacts(adventureId: string) {

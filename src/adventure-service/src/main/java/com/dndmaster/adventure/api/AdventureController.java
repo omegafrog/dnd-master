@@ -1648,8 +1648,10 @@ public class AdventureController {
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         var editingMap = editingMap(adventureId, owner);
         var source = sourceForPreparationImage(adventure);
+        String sourceDetails = source.map(value -> " sourceDocumentId=" + value.documentId()
+                + " sourceAssetLocator=" + value.locator()).orElse(" sourceDocumentId=none sourceAssetLocator=none");
         byte[] image = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
-                LOGGER, "combat_map_preparation_image_read", "adventureId=" + adventureId + " mapId=" + editingMap.mapId(),
+                LOGGER, "combat_map_preparation_image_read", "adventureId=" + adventureId + " mapId=" + editingMap.mapId() + sourceDetails,
                 () -> source.map(value -> combatMapViewPort.preparationImage(editingMap.mapId(), owner,
                                 value.documentId(), value.locator()))
                         .orElseGet(() -> combatMapViewPort.preparationImage(editingMap.mapId(), owner)));
@@ -2063,10 +2065,14 @@ public class AdventureController {
         if (packageId == null || scenarioPackageRepository == null) return java.util.Optional.empty();
         return scenarioPackageRepository.findById(packageId)
                 .flatMap(packageVersion -> packageVersion.initialMapDefinition(adventure.currentContext().currentScene()))
-                .map(map -> new MapImageSource(map.source().knowledgeDocumentId().value(), map.source().locator()));
+                .map(AdventureController::sourceForPreparationImage);
     }
 
-    private record MapImageSource(UUID documentId, String locator) {}
+    static MapImageSource sourceForPreparationImage(com.dndmaster.adventure.domain.scenario.MapDefinition map) {
+        return new MapImageSource(map.source().knowledgeDocumentId().value(), map.assetLocator());
+    }
+
+    record MapImageSource(UUID documentId, String locator) {}
 
     private com.dndmaster.adventure.domain.adventure.AdventurePartyMember characterSheetForToken(
             Adventure adventure, UUID owner, UUID tokenId) {
