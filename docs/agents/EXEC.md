@@ -2,10 +2,10 @@
 
 ## Adventure Runtime 집중 단위 테스트
 
-Run the #367 movement-coordinator policy test and map-image source regression test from the active checkout with the Gradle wrapper. These tests use in-memory dependencies and do not require PostgreSQL, Redis, or application services:
+Run the #367 movement-coordinator, map-image source, and environment-planning delegation tests from the active checkout with the Gradle wrapper. These tests use in-memory dependencies and do not require PostgreSQL, Redis, or application services:
 
 ```bash
-./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.MapMovementCoordinatorTest --tests com.dndmaster.adventure.api.PreparationMapImageSourceTest
+./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.MapMovementCoordinatorTest --tests com.dndmaster.adventure.api.PreparationMapImageSourceTest --tests com.dndmaster.adventure.BestOfNTurnPlanningTest
 ```
 
 The matching Harness profile is `adventure-focused-unit` in `docs/agents/execution.json`.
@@ -14,7 +14,7 @@ The matching Harness profile is `adventure-focused-unit` in `docs/agents/executi
 
 The `adventure-exploration-groups-e2e` profile runs the real browser flow in `src/web-ui/e2e/backend-exploration-groups.spec.ts`. It uploads the checked-in group-flow scenario and map fixtures, so the catalog must already contain a ready D&D 5e 2014 rulebook. The full development stack profile starts the database, Redis, relay, backend, Codex user agent, and frontend using the exact defaults in `src/start-dev.sh`; it uses `gpt-6-luna` for character tagging, reads rulebook assets from the original project's `../dnd-master/docs/assets`, and runs preprocessing from the active checkout.
 
-For this journey, the server profile enables `ADVENTURE_INTEGRATION_SCENARIO_PREPARATION_SEED_MAP_ENTRY_FLOW=true`. After normal preparation, this existing test fixture keeps the opening situation mapless and assigns the first prepared non-opening situation the supplied map. It makes the browser journey deterministic without changing situation grounding or runtime behavior. `ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED=true` records structured runtime branch results for this E2E.
+For this #367 journey, the server profile enables `ADVENTURE_INTEGRATION_SCENARIO_PREPARATION_SEED_OPENING_MAP=true`. After normal preparation, this test fixture sets the prepared opening situation's own `mapNeeded` property and supplied map reference so the browser deterministically exercises map preparation before the group and environment cycle. This test setup does not define whether an opening situation generally requires a map. `ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED=true` records structured runtime branch results for this E2E.
 
 1. Snapshot the checkout's existing untracked and ignored paths with the E2E artifact guard into the active Harness session directory.
 2. Start `adventure-runtime-server` with `harness-exec` and retain its live process session. Wait for the script to report readiness; it checks the relay, backend, demo-agent connection, and frontend itself.

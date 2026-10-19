@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { bootstrapAdventureSession, explorationGroupStorybooks, hasRuntimeCredentials, isStorybookReady,
-  explorationGroupLearnedAbilityIds, readStoredMapDefinitions, sessionCreationPayload } from './support/runtime-adventure'
+  explorationGroupLearnedAbilityIds, readPersistedMapVisibilityRuleTurn, readStoredMapDefinitions, sessionCreationPayload } from './support/runtime-adventure'
 
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
@@ -66,39 +66,38 @@ test('지도에서 나눈 그룹과 대열을 저장하고 다시 불러온다',
   await page.goto(`/#/sessions/${session.sessionId}`)
   await expect(page.getByRole('button', { name: '시나리오 런타임 시작' })).toBeEnabled()
   await page.getByRole('button', { name: '시나리오 런타임 시작' }).click()
+  // This #367 fixture marks its prepared opening as map-required; use the
+  // session UI's existing start-position recovery before testing the cycle.
+  const openingMapPreparation = page.getByRole('region', { name: '시작 위치 수동 선택' })
+  await expect(openingMapPreparation).toBeVisible({ timeout: 180_000 })
+  await page.screenshot({
+    path: `${process.env.HARNESS_SESSION_DIR}/runtime/e2e/367-opening-map-preparation.png`,
+    fullPage: true,
+  })
+  const playerMap = openingMapPreparation.getByRole('region', { name: '플레이어 전투 맵' })
+  await playerMap.getByRole('button', { name: '전체 지도' }).click()
+  await playerMap.getByRole('button', { name: '자르기 적용' }).click()
+  const openingGridPreparation = playerMap.getByRole('region', { name: '맵 격자 맞추기' })
+  await openingGridPreparation.getByRole('button', { name: '격자 맞추기' }).click()
+  await playerMap.locator('.map-grid-alignment-actions').getByRole('button', { name: '적용' }).click()
+  await playerMap.locator('button[aria-label^="빈 격자 "]:not([disabled])').first().click()
+  await expect(playerMap.getByRole('status').filter({ hasText: '수동 대안으로 선택한 시작 칸' })).toBeVisible()
+  await playerMap.getByRole('button', { name: '벽·문 편집' }).click()
+  await playerMap.getByRole('button', { name: '맵 초안 저장' }).click()
+  await expect(playerMap.getByRole('button', { name: '맵 준비 완료, 모험 시작' })).toBeEnabled()
+  await playerMap.getByRole('button', { name: '맵 준비 완료, 모험 시작' }).click()
   await expect(page).toHaveURL(new RegExp(`#\\/sessions\\/${session.sessionId}\\?mode=play`), { timeout: 180_000 })
 
-  const adventureId = await page.evaluate(async ({ sessionId }) => {
+  const startedSession = await page.evaluate(async ({ sessionId }) => {
     const token = JSON.parse(localStorage.getItem('dnd-master.auth-session') ?? '{}').accessToken as string | undefined
     if (!token) throw new Error('authenticated browser session is unavailable')
     const response = await fetch(`/api/v1/adventure-sessions/${sessionId}`, { headers: { Authorization: `Bearer ${token}` } })
     if (!response.ok) throw new Error(`session read failed: ${response.status}`)
-    return (await response.json() as { adventureId: string }).adventureId
+    return await response.json() as { status: string, adventureId: string }
   }, { sessionId: session.sessionId })
-  expect(await hasActiveMap(page, adventureId), 'the opening Situation is mapless').toBe(false)
-  const playerAction = '테스트에서 준비한 다음 시츄에이션 안으로 들어갑니다.'
-  await page.getByLabel('무엇을 하시겠어요?').fill(playerAction)
-  await page.getByRole('button', { name: '행동 보내기' }).click()
-  const placement = page.getByRole('region', { name: '시츄에이션 진입 시작 위치 선택' })
+  expect(startedSession.status).toBe('STARTED')
+  const adventureId = startedSession.adventureId
   const groupsPanel = page.getByRole('region', { name: '탐험 그룹 관리' })
-  await expect(placement).toBeVisible({ timeout: 180_000 })
-  await page.screenshot({
-    path: `${process.env.HARNESS_SESSION_DIR}/runtime/e2e/367-map-entry-placement.png`,
-    fullPage: true,
-  })
-  await expect(placement.getByRole('button', { name: '전체 지도' })).toBeVisible({ timeout: 15_000 })
-  await placement.getByRole('button', { name: '전체 지도' }).click()
-  await placement.getByRole('button', { name: '자르기 적용' }).click()
-  const gridPreparation = placement.getByRole('region', { name: '맵 격자 맞추기' }).first()
-  await gridPreparation.getByRole('button', { name: '격자 맞추기' }).first().click()
-  await placement.locator('.map-grid-alignment-actions').getByRole('button', { name: '적용' }).click()
-  await placement.locator('button[aria-label^="빈 격자 "]:not([disabled])').first().click()
-  await expect(placement.getByRole('status').filter({ hasText: '수동 대안으로 선택한 시작 칸' })).toBeVisible()
-  await placement.getByRole('button', { name: '벽·문 편집' }).click()
-  await placement.getByRole('button', { name: '맵 초안 저장' }).click()
-  await expect(placement.getByRole('button', { name: '맵 준비 완료, 모험 시작' })).toBeEnabled()
-  await placement.getByRole('button', { name: '맵 준비 완료, 모험 시작' }).click()
-
   await expect(groupsPanel).toBeVisible({ timeout: 60_000 })
   const formation = groupsPanel.getByRole('combobox', { name: /^대열 / }).nth(1)
   const formationSaved = page.waitForResponse(response => response.url().includes(`/api/v1/adventures/${adventureId}/exploration-groups`)
@@ -163,7 +162,48 @@ test('지도에서 나눈 그룹과 대열을 저장하고 다시 불러온다',
     && response.request().method() === 'POST')
   await explorationCycle.getByRole('button', { name: '현재 그룹 차례 완료' }).click()
   expect((await secondGroupTurnFinished).ok()).toBeTruthy()
-  expect((await readGroups(page, adventureId)).cycle?.phase).toBe('ENVIRONMENT')
+  const environmentCycle = await readGroups(page, adventureId)
+  expect(environmentCycle.cycle?.phase).toBe('ENVIRONMENT')
+  expect(environmentCycle.cycle?.environmentPhase).toBe('ENEMIES_PATROLS_AND_DETECTION')
+  const mapAtEnvironmentStart = await readMap(page, adventureId)
+  const visibilityRuleTurnBefore = await readPersistedMapVisibilityRuleTurn(mapAtEnvironmentStart.mapId)
+
+  for (const [expectedCurrentPhase, expectedNextPhase] of [
+    ['ENEMIES_PATROLS_AND_DETECTION', 'HAZARDS_AND_ENVIRONMENT'],
+    ['HAZARDS_AND_ENVIRONMENT', 'DURATIONS_AND_DEADLINES'],
+  ] as const) {
+    expect((await readGroups(page, adventureId)).cycle?.environmentPhase).toBe(expectedCurrentPhase)
+    const phaseAdvanced = page.waitForResponse(response => response.url().includes(`/api/v1/adventures/${adventureId}/exploration-cycle/environment/advance`)
+      && response.request().method() === 'POST')
+    await explorationCycle.getByRole('button', { name: '환경 단계 진행' }).click()
+    expect((await phaseAdvanced).ok()).toBeTruthy()
+    const nextEnvironmentCycle = await readGroups(page, adventureId)
+    expect(nextEnvironmentCycle.cycle?.phase).toBe('ENVIRONMENT')
+    expect(nextEnvironmentCycle.cycle?.environmentPhase).toBe(expectedNextPhase)
+    expect(nextEnvironmentCycle.cycle?.elapsedSeconds).toBe(0)
+    await expect(explorationCycle.getByRole('status')).toContainText(`환경 진행: ${expectedNextPhase}`)
+  }
+
+  const durationsAdvanced = page.waitForResponse(response => response.url().includes(`/api/v1/adventures/${adventureId}/exploration-cycle/environment/advance`)
+    && response.request().method() === 'POST')
+  await explorationCycle.getByRole('button', { name: '환경 단계 진행' }).click()
+  expect((await durationsAdvanced).ok()).toBeTruthy()
+  const nextExplorationCycle = await readGroups(page, adventureId)
+  expect(nextExplorationCycle.cycle?.phase).toBe('GROUP_TURNS')
+  expect(nextExplorationCycle.cycle?.cycleNumber).toBe(2)
+  expect(nextExplorationCycle.cycle?.elapsedSeconds).toBe(6)
+  await expect(explorationCycle.getByRole('status')).toContainText('지난 시간 6초 · 그룹 이동')
+  const mapAfterEnvironment = await readMap(page, adventureId)
+  const visibilityRuleTurnAfter = await readPersistedMapVisibilityRuleTurn(mapAfterEnvironment.mapId)
+  console.info('[367-game-time]', JSON.stringify({
+    mapId: mapAfterEnvironment.mapId,
+    visibilityRuleTurnBefore,
+    visibilityRuleTurnAfter,
+    expectedIncrease: 1,
+    persistedElapsedSeconds: nextExplorationCycle.cycle?.elapsedSeconds,
+    result: visibilityRuleTurnAfter === visibilityRuleTurnBefore + 1 ? 'advanced' : 'unexpected',
+  }))
+  expect(visibilityRuleTurnAfter).toBe(visibilityRuleTurnBefore + 1)
 
   const formationRestored = page.waitForResponse(response => response.url().includes(`/api/v1/adventures/${adventureId}/exploration-groups`)
     && response.request().method() === 'PUT')
@@ -194,7 +234,8 @@ async function readGroups(page: import('@playwright/test').Page, adventureId: st
     return response.json() as Promise<{
       version: number
       groups: Array<{ id: string, mapTokenId: string, members: Array<{ characterSheetId: string, formation: string }> }>
-      cycle: { cycleNumber: number, groupOrder: string[], completedGroups: string[], phase: string, elapsedSeconds: number } | null
+      cycle: { cycleNumber: number, groupOrder: string[], completedGroups: string[], phase: string, environmentPhase: string,
+        elapsedSeconds: number } | null
     }>
   }, { adventureId })
 }
@@ -205,16 +246,6 @@ async function readMap(page: import('@playwright/test').Page, adventureId: strin
     if (!token) throw new Error('authenticated browser session is unavailable')
     const response = await fetch(`/api/v1/adventures/${adventureId}/combat-map`, { headers: { Authorization: `Bearer ${token}` } })
     if (!response.ok) throw new Error(`map read failed: ${response.status}`)
-    return response.json() as Promise<{ tokens: Array<{ id: string, type: string, x: number, y: number }> }>
-  }, { adventureId })
-}
-
-async function hasActiveMap(page: import('@playwright/test').Page, adventureId: string) {
-  return page.evaluate(async ({ adventureId }) => {
-    const token = JSON.parse(localStorage.getItem('dnd-master.auth-session') ?? '{}').accessToken as string | undefined
-    if (!token) throw new Error('authenticated browser session is unavailable')
-    const response = await fetch(`/api/v1/adventures/${adventureId}/combat-map`, { headers: { Authorization: `Bearer ${token}` } })
-    if (!response.ok) throw new Error(`map read failed: ${response.status}`)
-    return Boolean((await response.json() as { mapId: string | null }).mapId)
+    return response.json() as Promise<{ mapId: string, tokens: Array<{ id: string, type: string, x: number, y: number }> }>
   }, { adventureId })
 }

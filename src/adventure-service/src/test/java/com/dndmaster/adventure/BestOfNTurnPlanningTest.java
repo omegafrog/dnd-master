@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -15,6 +16,7 @@ import com.dndmaster.adventure.application.runtime.TurnPlan;
 import com.dndmaster.adventure.application.runtime.BestOfNPlanningCoordinator;
 import com.dndmaster.adventure.application.runtime.BestOfNRuntimePlanningAdapter;
 import com.dndmaster.adventure.application.runtime.RuntimePlanningRequest;
+import com.dndmaster.adventure.application.runtime.RuntimePlanningPort;
 import com.dndmaster.adventure.application.runtime.RuntimePlan;
 import com.dndmaster.adventure.application.runtime.EvidencePack;
 import com.dndmaster.adventure.application.runtime.GmAgentPort;
@@ -47,6 +49,34 @@ class BestOfNTurnPlanningTest {
         assertEquals(1, PlanningContext.candidateCount(true));
         assertEquals(1, PlanningContext.boundedCandidateCount(0, false));
         assertEquals(5, PlanningContext.boundedCandidateCount(5, false));
+    }
+
+    @Test
+    void environment_phase_planning_reaches_the_wrapped_gm_port() {
+        var proposal = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal("quiet", List.of());
+        RuntimePlanningRequest request = new RuntimePlanningRequest(AdventureId.generate(), new OwnerPlayerId(UUID.randomUUID()),
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1,
+                new AdventureContext("scene", "npc", "explore", "judgment"), null, "explore",
+                new EvidencePack(List.of(), List.of(), List.of()), List.of(), List.of(), "stage", null,
+                "provider", "model", "reasoning", new NarrativeContext("player", "scene", 0,
+                        Set.of(), List.of(), java.util.Map.of(), List.of(), List.of(), List.of()),
+                null, List.of(), List.of(), "scene", List.of());
+        RuntimePlanningPort delegate = new RuntimePlanningPort() {
+            @Override
+            public RuntimePlan plan(RuntimePlanningRequest ignored) {
+                throw new AssertionError("environment planning should not use the turn planner");
+            }
+
+            @Override
+            public com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal planEnvironmentPhase(
+                    RuntimePlanningRequest actual) {
+                assertSame(request, actual);
+                return proposal;
+            }
+        };
+        var adapter = new BestOfNRuntimePlanningAdapter(delegate, 1, false, audit -> { });
+
+        assertSame(proposal, adapter.planEnvironmentPhase(request));
     }
 
     @Test

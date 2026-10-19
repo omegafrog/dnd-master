@@ -93,10 +93,8 @@ async function createAdventureSession(request: APIRequestContext, partyMemberCou
 
 export async function readStoredMapDefinitions(packageId: string) {
   const sql = `SELECT map_definitions_json FROM scenario_package WHERE package_id = '${packageId}'::uuid`
-  const composeProjectName = process.env.COMPOSE_PROJECT_NAME
-    ?? `dnd-master-${createHash('sha256').update(resolve(root, 'src')).digest('hex').slice(0, 8)}`
   const { stdout } = await execFileAsync('docker', [
-    'compose', '-p', composeProjectName,
+    'compose', '-p', composeProjectName(),
     '-f', composeFile, 'exec', '-T', 'postgres', 'psql', '--username', 'postgres', '--dbname', 'postgres',
     '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql,
   ])
@@ -107,6 +105,23 @@ export async function readStoredMapDefinitions(packageId: string) {
     assetLocator?: string
     source?: { knowledgeDocumentId?: string | { value?: string }, locator?: string }
   }>
+}
+
+export async function readPersistedMapVisibilityRuleTurn(mapId: string) {
+  const sql = `SELECT visibility_rule_turn FROM combat_map WHERE map_id = '${mapId}'::uuid`
+  const { stdout } = await execFileAsync('docker', [
+    'compose', '-p', composeProjectName(),
+    '-f', composeFile, 'exec', '-T', 'postgres', 'psql', '--username', 'postgres', '--dbname', 'postgres',
+    '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql,
+  ])
+  const value = stdout.trim()
+  expect(value, 'the adventure map time cursor should be persisted').not.toBe('')
+  return Number(value)
+}
+
+function composeProjectName() {
+  return process.env.COMPOSE_PROJECT_NAME
+    ?? `dnd-master-${createHash('sha256').update(resolve(root, 'src')).digest('hex').slice(0, 8)}`
 }
 
 export async function readPersistedLongTermFacts(adventureId: string) {
