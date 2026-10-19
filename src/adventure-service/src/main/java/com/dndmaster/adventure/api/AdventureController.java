@@ -908,7 +908,7 @@ public class AdventureController {
                 var duration = combatMapPort.advanceDurations(new com.dndmaster.adventure.application.combat.CombatMapSpatialTurnCommand(currentMap.mapId(), owner,
                         currentMap.version(), durationId));
                 actualMapVersion = duration.version();
-                combatMapPort.advanceGameTime(new com.dndmaster.adventure.application.combat.CombatMapGameTimeCommand(adventureId, currentMap.mapId(), owner,
+                mapMovementCoordinator.advanceGameTime(new com.dndmaster.adventure.application.combat.CombatMapGameTimeCommand(adventureId, currentMap.mapId(), owner,
                         cycle.cycleNumber(), duration.version(), phaseId));
             }
             cycle = cycle.completeEnvironmentPhase(phaseId);

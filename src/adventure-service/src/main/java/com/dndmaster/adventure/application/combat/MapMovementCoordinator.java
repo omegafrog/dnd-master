@@ -142,6 +142,7 @@ public final class MapMovementCoordinator {
     }
     public CombatMapSpatialResult combatTurnStart(CombatMapSpatialTurnCommand command) { return combatMap.combatTurnStart(command); }
     public CombatMapSpatialResult advanceDurations(CombatMapSpatialTurnCommand command) { return combatMap.advanceDurations(command); }
+    public void advanceGameTime(CombatMapGameTimeCommand command) { combatMap.advanceGameTime(command); }
 
     private void authorizeSpatial(CombatMapSpatialActionCommand command, String action) {
         Objects.requireNonNull(command, "spatial action command must not be null");

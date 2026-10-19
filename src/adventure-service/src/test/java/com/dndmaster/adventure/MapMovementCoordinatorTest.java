@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.combat.CombatMapCheckActor;
 import com.dndmaster.adventure.application.combat.CombatMapCheckDetails;
+import com.dndmaster.adventure.application.combat.CombatMapGameTimeCommand;
 import com.dndmaster.adventure.application.combat.CombatMapMoveResult;
 import com.dndmaster.adventure.application.combat.CombatMapMovementStatus;
 import com.dndmaster.adventure.application.combat.CombatMapPendingCheck;
@@ -25,6 +26,20 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class MapMovementCoordinatorTest {
+    @Test
+    void routes_exploration_game_time_through_the_map_boundary() {
+        UUID mapId = UUID.randomUUID();
+        UUID owner = UUID.randomUUID();
+        CapturingMapPort map = new CapturingMapPort(mapId, UUID.randomUUID(), UUID.randomUUID(), owner, 15);
+        MapMovementCoordinator coordinator = new MapMovementCoordinator(map);
+        CombatMapGameTimeCommand command = new CombatMapGameTimeCommand(UUID.randomUUID(), mapId, owner, 2, 7,
+                UUID.randomUUID());
+
+        coordinator.advanceGameTime(command);
+
+        assertEquals(command, map.gameTimeCommand);
+    }
+
     @Test
     void routes_enemy_observation_through_the_dedicated_enemy_roll_port() {
         UUID mapId = UUID.randomUUID();
@@ -124,6 +139,7 @@ class MapMovementCoordinatorTest {
         private int interactions;
         private int rolls;
         private int enemyRolls;
+        private com.dndmaster.adventure.application.combat.CombatMapGameTimeCommand gameTimeCommand;
         private com.dndmaster.adventure.application.combat.CombatMapCheckSubmission submission;
 
         private CapturingMapPort(UUID mapId, UUID operationId, UUID checkId, UUID owner, int roll) {
@@ -152,6 +168,9 @@ class MapMovementCoordinatorTest {
         @Override public CombatMapSpatialResult interact(CombatMapSpatialActionCommand command) {
             interactions++;
             return new CombatMapSpatialResult(mapId, 1, List.of());
+        }
+        @Override public void advanceGameTime(com.dndmaster.adventure.application.combat.CombatMapGameTimeCommand command) {
+            gameTimeCommand = command;
         }
         @Override public CombatMapMoveResult resumeMovementOperation(UUID mapId, UUID operationId,
                 com.dndmaster.adventure.application.combat.CombatMapCheckSubmission submission) {
