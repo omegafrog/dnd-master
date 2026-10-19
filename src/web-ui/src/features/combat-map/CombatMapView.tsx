@@ -89,6 +89,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [selectedPlayerStart, setSelectedPlayerStart] = useState<{ x: number; y: number } | null>(null)
   const boundaryStroke = useRef<BoundaryStroke | null>(null)
   const previewSequence = useRef(0)
+  const reportedGroupTokenProjection = useRef<string | null>(null)
   const [boundaryPreview, setBoundaryPreview] = useState<BoundaryStroke | null>(null)
   const [pendingMovement, setPendingMovement] = useState<PendingMovement | null>(() => readPendingMovement(adventureId))
   const [replayedMovement, setReplayedMovement] = useState<MapMovementResult | null>(null)
@@ -255,6 +256,27 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const currentExplorationGroupId = explorationCycle?.phase === 'GROUP_TURNS' && !explorationCycle.pendingMovementEvent
     ? explorationCycle.groupOrder.find(id => !explorationCycle.completedGroups.includes(id)) ?? null
     : null
+  const currentExplorationGroupTokenId = explorationGroups.find(group => group.id === currentExplorationGroupId)?.mapTokenId ?? null
+
+  useEffect(() => {
+    if (!map || !currentExplorationGroupId || !currentExplorationGroupTokenId) return
+    const activeToken = map.tokens?.find(token => token.id === currentExplorationGroupTokenId)
+    if (!activeToken) return
+    const coLocatedPlayerTokenCount = map.tokens?.filter(token => token.type === 'PLAYER'
+      && token.x === activeToken.x && token.y === activeToken.y).length ?? 0
+    if (coLocatedPlayerTokenCount < 2) return
+    const projectionKey = `${map.mapId}:${map.version}:${currentExplorationGroupId}:${currentExplorationGroupTokenId}`
+    if (reportedGroupTokenProjection.current === projectionKey) return
+    reportedGroupTokenProjection.current = projectionKey
+    diagnosticEvent('exploration_group_active_token_projection', {
+      outcome: 'started', groupId: currentExplorationGroupId, tokenId: currentExplorationGroupTokenId,
+      coLocatedPlayerTokenCount,
+    })
+    diagnosticEvent('exploration_group_active_token_projection', {
+      outcome: 'completed', groupId: currentExplorationGroupId, tokenId: currentExplorationGroupTokenId,
+      coLocatedPlayerTokenCount, result: 'active_group_token_selected',
+    })
+  }, [currentExplorationGroupId, currentExplorationGroupTokenId, map])
 
   async function chooseCell(cell: { x: number; y: number }) {
     if (!map || !selectedToken) return
@@ -441,6 +463,32 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     try { window.localStorage.removeItem(pendingMovementKey(adventureId)) } catch { /* storage is optional */ }
     clearPendingMovementCommand(adventureId)
     setCandidate(null); setSelectedToken(null); setMessage(result.status === 'INTERRUPTED' ? '이동이 중단되었습니다.' : '맵 행동을 GM 턴으로 전송했습니다.')
+    if (api.getExplorationGroups) {
+      const refreshStarted = performance.now()
+      diagnosticEvent('exploration_cycle_after_map_movement', {
+        outcome: 'started', status: result.status, publicEventCount: result.publicEvents.length,
+      })
+      try {
+        const updated = await api.getExplorationGroups(adventureId)
+        setExplorationGroups(updated.groups)
+        setExplorationVersion(updated.version)
+        setExplorationCycle(updated.cycle ?? null)
+        diagnosticEvent('exploration_cycle_after_map_movement', {
+          outcome: 'completed', status: result.status, publicEventCount: result.publicEvents.length,
+          groupCount: updated.groups.length, cyclePhase: updated.cycle?.phase ?? 'NOT_STARTED',
+          pendingMovementEvent: Boolean(updated.cycle?.pendingMovementEvent),
+          elapsedMs: Math.round(performance.now() - refreshStarted),
+        })
+      } catch (error) {
+        diagnosticEvent('exploration_cycle_after_map_movement', {
+          outcome: 'failed', status: result.status, publicEventCount: result.publicEvents.length,
+          groupCount: explorationGroups.length, cyclePhase: explorationCycle?.phase ?? 'NOT_STARTED',
+          failureClass: error instanceof Error ? error.name : 'UnknownError',
+          elapsedMs: Math.round(performance.now() - refreshStarted), recoveryAction: 'reload_exploration_state',
+        })
+        throw error
+      }
+    }
   }
 
   async function recoverMovement(resume: boolean, check?: { success: boolean }) {
@@ -773,7 +821,11 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           // A prepared map may contain an AI-generated or legacy player-start
           // suggestion. It is not authoritative and must never be shown as a
           // coordinate the user is expected to confirm.
-          const token = (preparationMode ? map.tokens?.filter(item => item.type !== 'PLAYER') : map.tokens)?.find(item => item.x === cell.x && item.y === cell.y)
+          const tokensAtCell = (preparationMode ? map.tokens?.filter(item => item.type !== 'PLAYER') : map.tokens)
+            ?.filter(item => item.x === cell.x && item.y === cell.y) ?? []
+          const token = !preparationMode && currentExplorationGroupTokenId
+            ? tokensAtCell.find(item => item.id === currentExplorationGroupTokenId) ?? tokensAtCell[0]
+            : tokensAtCell[0]
           const playable = isPlayableGridCell(map, previewGrid, cell)
           const blocked = !preparationMode && (map.obstacles?.some(obstacle => obstacle.x === cell.x && obstacle.y === cell.y)
             || map.doors?.some(item => item.x === cell.x && item.y === cell.y && !item.open))
@@ -802,7 +854,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
             return { target, tokenId: aimActor.id }
           }
           const draftLabel = door ? `${door.open ? '열린 문' : '닫힌 문'} ${cell.x},${cell.y}` : blocked ? `벽 ${cell.x},${cell.y}` : token ? `플레이어 시작 위치 ${cell.x},${cell.y}` : `빈 격자 ${cell.x},${cell.y}`
-          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : displayToken ? `${displayToken.type} ${displayToken.x},${displayToken.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={displayToken?.type} data-token-faction={tokenVisual?.faction} data-token-status={tokenVisual?.primaryStatus} data-token-asset={tokenVisual?.assetPath} data-token-frame={tokenVisual?.framePath} data-movement-preview={movementPreview ? 'true' : undefined} data-aim-path={aimPath ? 'true' : undefined} data-aim-effect={aimEffect ? 'true' : undefined} data-ghost-token={ghostDestination ? 'true' : undefined} data-start-selected={preparationMode && selectedPlayerStart?.x === cell.x && selectedPlayerStart?.y === cell.y ? 'true' : undefined} data-last-seen={displayToken?.lastSeen ? 'true' : 'false'} className={tokenVisual?.classes.join(' ')} disabled={!playable || startBlocked || (preparationMode && layoutEditing) || (!preparationMode && !visible && !explored)} draggable={!aimInteraction && !preparationMode && displayToken?.type === 'PLAYER'} onPointerEnter={event => { if (aimInteraction) { const aim = aimCell(event); if (aim) aimInteraction.onHover(aim.target, map.version ?? 0, aim.tokenId) } else if (movementHoverEnabled && !preparationMode && selectedToken && displayToken?.type !== 'PLAYER' && (visible || explored)) void chooseCell(cell) }} onFocus={() => { if (aimInteraction && aimActor && map.mapId) aimInteraction.onHover(cell, map.version ?? 0, aimActor.id) }} onDragStart={() => { if (!aimInteraction && !preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id) }} onClick={() => { if (aimInteraction) { if (aimActor && map.mapId) aimInteraction.onSelect(cell, map.version ?? 0, aimActor.id) } else if (preparationMode && !layoutEditing) setSelectedPlayerStart(cell); else if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id); else if (!preparationMode) void chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => { if (!aimInteraction) void chooseCell(cell) }}>
+          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : displayToken ? `${displayToken.type} ${displayToken.x},${displayToken.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-id={displayToken?.id} data-token-type={displayToken?.type} data-token-faction={tokenVisual?.faction} data-token-status={tokenVisual?.primaryStatus} data-token-asset={tokenVisual?.assetPath} data-token-frame={tokenVisual?.framePath} data-movement-preview={movementPreview ? 'true' : undefined} data-aim-path={aimPath ? 'true' : undefined} data-aim-effect={aimEffect ? 'true' : undefined} data-ghost-token={ghostDestination ? 'true' : undefined} data-start-selected={preparationMode && selectedPlayerStart?.x === cell.x && selectedPlayerStart?.y === cell.y ? 'true' : undefined} data-last-seen={displayToken?.lastSeen ? 'true' : 'false'} className={tokenVisual?.classes.join(' ')} disabled={!playable || startBlocked || (preparationMode && layoutEditing) || (!preparationMode && !visible && !explored)} draggable={!aimInteraction && !preparationMode && displayToken?.type === 'PLAYER'} onPointerEnter={event => { if (aimInteraction) { const aim = aimCell(event); if (aim) aimInteraction.onHover(aim.target, map.version ?? 0, aim.tokenId) } else if (movementHoverEnabled && !preparationMode && selectedToken && displayToken?.type !== 'PLAYER' && (visible || explored)) void chooseCell(cell) }} onFocus={() => { if (aimInteraction && aimActor && map.mapId) aimInteraction.onHover(cell, map.version ?? 0, aimActor.id) }} onDragStart={() => { if (!aimInteraction && !preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id) }} onClick={() => { if (aimInteraction) { if (aimActor && map.mapId) aimInteraction.onSelect(cell, map.version ?? 0, aimActor.id) } else if (preparationMode && !layoutEditing) setSelectedPlayerStart(cell); else if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id); else if (!preparationMode) void chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => { if (!aimInteraction) void chooseCell(cell) }}>
             {preparationMode ? door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '벽' : token ? '시작' : '' : ghostDestination ? '유령 토큰' : tokenVisual && displayToken ? <span className="token-visual" aria-hidden="true"><span className="token-visual-frame" style={{ backgroundImage: `url(${tokenVisual.framePath})` }} /><img src={tokenVisual.assetPath} alt="" /><span className="token-visual-label">{`${displayToken.type} (${displayToken.x},${displayToken.y})${displayToken.elevationFeet ? ` · 지면에서 높이 ${displayToken.elevationFeet} 피트` : ''}`}</span></span> : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
           </button>
           })}

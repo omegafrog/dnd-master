@@ -20,7 +20,7 @@ export const explorationGroupLearnedAbilityIds = ['spell-node-2810-fireball'] as
 const composeFile = `${root}src/infra/compose.yaml`
 
 type Auth = { ownerPlayerId: string, headers: Record<string, string> }
-type PreparedPackage = { packageId: string, blueprintRevision: number }
+type PreparedPackage = { packageId: string, blueprintRevision: number, rulebookId: string }
 
 export function hasRuntimeEnvironment() {
   return hasRuntimeCredentials() && storybooks.length > 0
@@ -63,8 +63,8 @@ export async function bootstrapStartedAdventure(request: APIRequestContext, part
 
 export async function bootstrapAdventureSession(request: APIRequestContext, partyMemberCount = 1, sources = storybooks,
     learnedAbilityIds: readonly string[] = []) {
-  const { sessionId, packageId } = await createAdventureSession(request, partyMemberCount, sources, learnedAbilityIds)
-  return { sessionId, packageId }
+  const { sessionId, packageId, rulebookId } = await createAdventureSession(request, partyMemberCount, sources, learnedAbilityIds)
+  return { sessionId, packageId, rulebookId }
 }
 
 async function createAdventureSession(request: APIRequestContext, partyMemberCount: number, sources: ReadonlyArray<{ path: string, role: string }>,
@@ -88,7 +88,7 @@ async function createAdventureSession(request: APIRequestContext, partyMemberCou
     expect(provider.ok(), await provider.text()).toBeTruthy()
     expect(await provider.json()).toEqual(expect.objectContaining({ provider: expect.any(String), model: expect.any(String), version: expect.any(Number) }))
   }
-  return { auth, sessionId: session.sessionId, packageId: prepared.packageId, version }
+  return { auth, sessionId: session.sessionId, packageId: prepared.packageId, rulebookId: prepared.rulebookId, version }
 }
 
 export async function readStoredMapDefinitions(packageId: string) {
@@ -117,6 +117,17 @@ export async function readPersistedMapVisibilityRuleTurn(mapId: string) {
   const value = stdout.trim()
   expect(value, 'the adventure map time cursor should be persisted').not.toBe('')
   return Number(value)
+}
+
+export async function readPersistedAdventureRuleSetId(adventureId: string) {
+  const sql = `SELECT rule_set_id FROM adventure WHERE adventure_id = '${adventureId}'::uuid`
+  const { stdout } = await execFileAsync('docker', [
+    'compose', '-p', composeProjectName(), '-f', composeFile, 'exec', '-T', 'postgres', 'psql', '--username', 'postgres', '--dbname', 'postgres',
+    '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql,
+  ])
+  const value = stdout.trim()
+  expect(value, 'the started adventure should have a runtime rule-set id').toMatch(/^[0-9a-f-]{36}$/i)
+  return value
 }
 
 function composeProjectName() {
@@ -214,7 +225,7 @@ async function createPreparedPackage(request: APIRequestContext, auth: Auth, sou
     expect(publish.ok(), await publish.text()).toBeTruthy()
   }
   const published = await waitForPreparation(request, auth, packageId)
-  return { packageId, blueprintRevision: published.characterCreationBlueprint.revision! }
+  return { packageId, blueprintRevision: published.characterCreationBlueprint.revision!, rulebookId: rulebook!.rulebookId! }
 }
 
 async function createSession(request: APIRequestContext, auth: Auth, prepared: PreparedPackage, partyMemberCount: number) {

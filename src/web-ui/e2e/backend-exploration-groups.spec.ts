@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { bootstrapAdventureSession, explorationGroupStorybooks, hasRuntimeCredentials, isStorybookReady,
-  explorationGroupLearnedAbilityIds, readPersistedMapVisibilityRuleTurn, readStoredMapDefinitions, sessionCreationPayload } from './support/runtime-adventure'
+  explorationGroupLearnedAbilityIds, readPersistedAdventureRuleSetId, readPersistedMapVisibilityRuleTurn, readStoredMapDefinitions, sessionCreationPayload } from './support/runtime-adventure'
 
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
@@ -80,7 +80,7 @@ test('지도에서 나눈 그룹과 대열을 저장하고 다시 불러온다',
   const openingGridPreparation = playerMap.getByRole('region', { name: '맵 격자 맞추기' })
   await openingGridPreparation.getByRole('button', { name: '격자 맞추기' }).click()
   await playerMap.locator('.map-grid-alignment-actions').getByRole('button', { name: '적용' }).click()
-  await playerMap.locator('button[aria-label^="빈 격자 "]:not([disabled])').first().click()
+  await playerMap.getByRole('button', { name: '빈 격자 3,3' }).click()
   await expect(playerMap.getByRole('status').filter({ hasText: '수동 대안으로 선택한 시작 칸' })).toBeVisible()
   await playerMap.getByRole('button', { name: '벽·문 편집' }).click()
   await playerMap.getByRole('button', { name: '맵 초안 저장' }).click()
@@ -97,6 +97,17 @@ test('지도에서 나눈 그룹과 대열을 저장하고 다시 불러온다',
   }, { sessionId: session.sessionId })
   expect(startedSession.status).toBe('STARTED')
   const adventureId = startedSession.adventureId
+  const ruleSetId = await readPersistedAdventureRuleSetId(adventureId)
+  const appliedRuleSet = await page.evaluate(async ({ adventureId, ruleSetId, rulebookId }) => {
+    const token = JSON.parse(localStorage.getItem('dnd-master.auth-session') ?? '{}').accessToken as string | undefined
+    if (!token) throw new Error('authenticated browser session is unavailable')
+    const response = await fetch(`/api/v1/adventures/${adventureId}/applied-rule-set`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ruleSetId, edition: 'DND_5E_2014', rulebookIds: [rulebookId] }),
+    })
+    return { ok: response.ok, status: response.status, body: await response.text() }
+  }, { adventureId, ruleSetId, rulebookId: session.rulebookId })
+  expect(appliedRuleSet.ok, `apply the fixture rulebook before map movement: ${appliedRuleSet.status} ${appliedRuleSet.body}`).toBe(true)
   const groupsPanel = page.getByRole('region', { name: '탐험 그룹 관리' })
   await expect(groupsPanel).toBeVisible({ timeout: 60_000 })
   const formation = groupsPanel.getByRole('combobox', { name: /^대열 / }).nth(1)
@@ -148,16 +159,83 @@ test('지도에서 나눈 그룹과 대열을 저장하고 다시 불러온다',
   expect([...startedCycle.cycle!.groupOrder].sort()).toEqual([...expectedGroupOrder].sort())
 
   const firstGroupId = startedCycle.cycle!.groupOrder[0]
-  const firstGroupTurnFinished = page.waitForResponse(response => response.url().includes(`/api/v1/adventures/${adventureId}/exploration-cycle/groups/${firstGroupId}/finish`)
-    && response.request().method() === 'POST')
-  await explorationCycle.getByRole('button', { name: '현재 그룹 차례 완료' }).click()
-  expect((await firstGroupTurnFinished).ok()).toBeTruthy()
-  const secondGroupTurn = await readGroups(page, adventureId)
-  expect(secondGroupTurn.cycle?.phase).toBe('GROUP_TURNS')
-  expect(secondGroupTurn.cycle?.completedGroups).toEqual([firstGroupId])
-  expect(secondGroupTurn.cycle?.groupOrder[1]).toBeTruthy()
-
   const secondGroupId = startedCycle.cycle!.groupOrder[1]
+  const firstGroup = startedCycle.groups.find(group => group.id === firstGroupId)!
+  const tacticalMap = page.getByLabel('tactical-map')
+  await expect(tacticalMap).toBeVisible()
+  const firstGroupToken = tacticalMap.locator(`[data-token-id="${firstGroup.mapTokenId}"]`)
+  await expect(firstGroupToken).toHaveAttribute('aria-label', 'PLAYER 3,3')
+  await page.screenshot({
+    path: `${process.env.HARNESS_SESSION_DIR}/runtime/e2e/367-active-group-before-movement.png`,
+    fullPage: true,
+  })
+  const trapDestination = tacticalMap.getByRole('button', { name: '격자 4,3' })
+  await expect(trapDestination).toBeEnabled()
+  const movementPreview = page.waitForResponse(response => response.url().includes(`/api/v1/adventures/${adventureId}/combat-map/movement-preview`)
+    && response.request().method() === 'POST')
+  await firstGroupToken.dragTo(trapDestination)
+  await expect(page.getByRole('dialog', { name: '맵 행동 확인' })).toBeVisible()
+  expect((await movementPreview).ok()).toBeTruthy()
+  const moveSubmitted = page.waitForResponse(response => response.url().includes(`/api/v1/adventures/${adventureId}/turns`)
+    && response.request().method() === 'POST')
+  await page.getByRole('dialog', { name: '맵 행동 확인' }).getByRole('button', { name: '확인' }).click()
+  const moveResponse = await moveSubmitted
+  expect(moveResponse.ok(), `group movement submission failed: ${moveResponse.status()}`).toBeTruthy()
+  const savedMovementState = tacticalMap.getByRole('region', { name: '저장된 이동 상태' })
+  if (await savedMovementState.isVisible().catch(() => false)) {
+    const spatialRoll = page.waitForResponse(response => response.url().includes(`/api/v1/adventures/${adventureId}/combat-map/movement-operations/`)
+      && response.url().endsWith('/roll') && response.request().method() === 'POST')
+    await savedMovementState.getByRole('button', { name: '주사위 굴리기' }).click()
+    expect((await spatialRoll).ok()).toBeTruthy()
+  }
+  const stoppedCycle = await readGroups(page, adventureId)
+  const movementEvent = stoppedCycle.cycle?.pendingMovementEvent
+  expect(stoppedCycle.cycle?.phase).toBe('GROUP_TURNS')
+  expect(movementEvent).toBeTruthy()
+  expect(movementEvent?.groupId).toBe(firstGroupId)
+  expect(movementEvent?.cause).toBe('MOVEMENT_INTERRUPTED')
+  expect(movementEvent?.publicEvents.length).toBeGreaterThan(0)
+  const stoppedMap = await readMap(page, adventureId)
+  const stoppedToken = stoppedMap.tokens.find(token => token.id === firstGroup.mapTokenId)
+  expect(stoppedToken).toBeTruthy()
+  expect(movementEvent?.finalPosition).toEqual({ x: stoppedToken!.x, y: stoppedToken!.y })
+  expect([[3, 3], [4, 3]]).toContainEqual([stoppedToken!.x, stoppedToken!.y])
+  console.info('[367-movement-event]', JSON.stringify({
+    groupId: firstGroupId, eventId: movementEvent?.id, cause: movementEvent?.cause,
+    finalPosition: movementEvent?.finalPosition, persistedPosition: { x: stoppedToken!.x, y: stoppedToken!.y },
+    publicEventCount: movementEvent?.publicEvents.length, result: 'interrupted',
+  }))
+  const eventResolved = page.waitForResponse(response => response.url().includes(`/api/v1/adventures/${adventureId}/exploration-cycle/events/${movementEvent!.id}/resolve`)
+    && response.request().method() === 'POST')
+  await explorationCycle.getByRole('button', { name: '사건을 해결하고 다음 그룹으로' }).click()
+  expect((await eventResolved).ok()).toBeTruthy()
+  const secondGroupTurn = await readGroups(page, adventureId)
+  expect(secondGroupTurn.cycle?.pendingMovementEvent).toBeNull()
+  expect(secondGroupTurn.cycle?.completedGroups).toContain(firstGroupId)
+  expect(secondGroupTurn.cycle?.completedGroups).not.toContain(secondGroupId)
+  expect(secondGroupTurn.cycle?.groupOrder[1]).toBe(secondGroupId)
+  expect(secondGroupTurn.cycle?.currentGroupId).toBe(secondGroupId)
+
+  const secondGroup = secondGroupTurn.groups.find(group => group.id === secondGroupId)!
+  const secondGroupToken = tacticalMap.locator(`[data-token-id="${secondGroup.mapTokenId}"]`)
+  await expect(secondGroupToken).toHaveAttribute('aria-label', 'PLAYER 3,3')
+  const secondMovementPreview = page.waitForResponse(response => response.url().includes(`/api/v1/adventures/${adventureId}/combat-map/movement-preview`)
+    && response.request().method() === 'POST')
+  await secondGroupToken.dragTo(tacticalMap.getByRole('button', { name: '격자 2,3' }))
+  await expect(page.getByRole('dialog', { name: '맵 행동 확인' })).toBeVisible()
+  expect((await secondMovementPreview).ok()).toBeTruthy()
+  const secondMoveSubmitted = page.waitForResponse(response => response.url().includes(`/api/v1/adventures/${adventureId}/turns`)
+    && response.request().method() === 'POST')
+  await page.getByRole('dialog', { name: '맵 행동 확인' }).getByRole('button', { name: '확인' }).click()
+  expect((await secondMoveSubmitted).ok()).toBeTruthy()
+  const secondMovedMap = await readMap(page, adventureId)
+  expect(secondMovedMap.tokens.find(token => token.id === secondGroup.mapTokenId)).toMatchObject({ x: 2, y: 3 })
+  expect((await readGroups(page, adventureId)).cycle?.pendingMovementEvent).toBeNull()
+  console.info('[367-group-movement]', JSON.stringify({
+    groupId: secondGroupId, tokenId: secondGroup.mapTokenId, savedPosition: { x: 2, y: 3 },
+    result: 'committed_without_interruption',
+  }))
+
   const secondGroupTurnFinished = page.waitForResponse(response => response.url().includes(`/api/v1/adventures/${adventureId}/exploration-cycle/groups/${secondGroupId}/finish`)
     && response.request().method() === 'POST')
   await explorationCycle.getByRole('button', { name: '현재 그룹 차례 완료' }).click()
@@ -235,7 +313,9 @@ async function readGroups(page: import('@playwright/test').Page, adventureId: st
       version: number
       groups: Array<{ id: string, mapTokenId: string, members: Array<{ characterSheetId: string, formation: string }> }>
       cycle: { cycleNumber: number, groupOrder: string[], completedGroups: string[], phase: string, environmentPhase: string,
-        elapsedSeconds: number } | null
+        elapsedSeconds: number, currentGroupId: string | null, pendingMovementEvent: {
+          id: string, groupId: string, cause: string, finalPosition: { x: number, y: number }, publicEvents: string[]
+        } | null } | null
     }>
   }, { adventureId })
 }

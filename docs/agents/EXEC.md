@@ -2,10 +2,10 @@
 
 ## Adventure Runtime 집중 단위 테스트
 
-Run the #367 movement-coordinator, map-image source, and environment-planning delegation tests from the active checkout with the Gradle wrapper. These tests use in-memory dependencies and do not require PostgreSQL, Redis, or application services:
+Run the #367 movement-coordinator, map-image source, exploration-cycle rules, and environment-planning delegation tests from the active checkout with the Gradle wrapper. These tests use in-memory dependencies and do not require PostgreSQL, Redis, or application services:
 
 ```bash
-./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.MapMovementCoordinatorTest --tests com.dndmaster.adventure.api.PreparationMapImageSourceTest --tests com.dndmaster.adventure.BestOfNTurnPlanningTest
+./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.MapMovementCoordinatorTest --tests com.dndmaster.adventure.api.PreparationMapImageSourceTest --tests com.dndmaster.adventure.ExplorationCycleTest --tests com.dndmaster.adventure.BestOfNTurnPlanningTest
 ```
 
 The matching Harness profile is `adventure-focused-unit` in `docs/agents/execution.json`.
@@ -21,7 +21,7 @@ For this #367 journey, the server profile enables `ADVENTURE_INTEGRATION_SCENARI
 3. Run `adventure-exploration-groups-e2e` with `harness-exec`. The profile verifies the backend at `http://127.0.0.1:8080` and reads the demo login values from the existing startup script without printing them. Playwright starts its own frontend on `127.0.0.1:15174`; its result directory is overridden to `<session_directory>/runtime/e2e/playwright`.
 4. Record the profile receipts, browser result, service logs, and process IDs under the session directory. Stop only the server process started by this run. Run the artifact guard cleanup and verify no new test output remains in the checkout.
 
-The E2E creates a fresh scenario package and adventure session using the small checked-in group-flow PDFs. It can wait for rulebook extraction and scenario compilation, so the profile timeout is one hour. A skipped browser scenario is not a passing end-to-end result.
+The E2E creates a fresh scenario package and adventure session using the small checked-in group-flow PDFs. In this test fixture, the first group begins at `(3,3)` and drags its active player token to the pressure plate at `(4,3)` through the map preview and confirmation controls. The journey checks the saved interruption location and event, resolves it in the UI, then moves the next group to `(2,3)` and checks its saved position before completing the environment cycle. A skipped browser scenario is not a passing end-to-end result.
 
 ## 사전 조건
 
