@@ -1648,8 +1648,8 @@ public class AdventureController {
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         var editingMap = editingMap(adventureId, owner);
         var source = sourceForPreparationImage(adventure);
-        String sourceDetails = source.map(value -> " sourceDocumentId=" + value.documentId()
-                + " sourceAssetLocator=" + value.locator()).orElse(" sourceDocumentId=none sourceAssetLocator=none");
+        String sourceDetails = source.map(AdventureController::preparationImageSourceDiagnostics)
+                .orElse(" sourceDocumentId=none sourceAssetLocatorKind=none sourceAssetLocatorLength=0");
         byte[] image = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
                 LOGGER, "combat_map_preparation_image_read", "adventureId=" + adventureId + " mapId=" + editingMap.mapId() + sourceDetails,
                 () -> source.map(value -> combatMapViewPort.preparationImage(editingMap.mapId(), owner,
@@ -2070,6 +2070,17 @@ public class AdventureController {
 
     static MapImageSource sourceForPreparationImage(com.dndmaster.adventure.domain.scenario.MapDefinition map) {
         return new MapImageSource(map.source().knowledgeDocumentId().value(), map.assetLocator());
+    }
+
+    static String preparationImageSourceDiagnostics(MapImageSource source) {
+        String locator = source.locator();
+        String locatorKind = java.util.regex.Pattern.compile("(?i)\\bpage\\s+\\d+\\b").matcher(locator).find()
+                ? "page" : "other";
+        return " sourceDocumentId=" + source.documentId()
+                + " sourceAssetLocatorKind=" + locatorKind
+                + " sourceAssetLocatorLength=" + locator.length()
+                + " sourceAssetLocatorFingerprint="
+                + com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(locator);
     }
 
     record MapImageSource(UUID documentId, String locator) {}
