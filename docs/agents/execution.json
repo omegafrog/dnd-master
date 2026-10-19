@@ -51,6 +51,9 @@
     "adventure-runtime-server": {
       "command": [
         "env",
+        "BACKEND_SERVER_PORT=8080",
+        "LOCAL_AGENT_CONNECTION_RELAY_PORT=8081",
+        "FRONTEND_DEV_PORT=5173",
         "CODEX_CHARACTER_TAG_MODEL=gpt-6-luna",
         "ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED=true",
         "ADVENTURE_INTEGRATION_SCENARIO_PREPARATION_SEED_OPENING_MAP=true",
