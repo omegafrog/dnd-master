@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "adventure-focused-unit": {
+      "command": [
+        "./src/gradlew",
+        "-p",
+        "src",
+        ":adventure-service:test",
+        "--tests",
+        "com.dndmaster.adventure.MapMovementCoordinatorTest",
+        "--tests",
+        "com.dndmaster.adventure.api.PreparationMapImageSourceTest"
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "docs/agents/EXEC.md",
+        ".github/workflows/dnd-master-ci.yml",
+        "src/gradlew",
+        "src/gradle/wrapper/gradle-wrapper.properties",
+        "src/settings.gradle.kts",
+        "src/build.gradle.kts",
+        "src/adventure-service/build.gradle.kts",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/MapDefinition.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/MapSourceReference.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/MapMovementCoordinatorTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/api/PreparationMapImageSourceTest.java"
+      ],
+      "prepare": [],
+      "verify_config": [
+        ["test", "-x", "src/gradlew"],
+        ["java", "-version"]
+      ],
+      "dependencies": [],
+      "timeout_ms": 600000,
+      "readiness_timeout_ms": 5000,
+      "poll_interval_ms": 250
+    },
+    "adventure-runtime-server": {
+      "command": [
+        "env",
+        "CODEX_CHARACTER_TAG_MODEL=gpt-6-luna",
+        "ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED=true",
+        "ADVENTURE_INTEGRATION_SCENARIO_PREPARATION_SEED_MAP_ENTRY_FLOW=true",
+        "RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT=/home/jiwoo/workspace/dnd-master/docs/assets",
+        "RULE_KNOWLEDGE_PREPROCESSING_WORKING_DIRECTORY=/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range",
+        "bash",
+        "src/start-dev.sh"
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "docs/agents/EXEC.md",
+        "src/start-dev.sh",
+        "src/infra/compose.yaml",
+        "src/gradlew",
+        "src/gradle/wrapper/gradle-wrapper.properties",
+        "src/settings.gradle.kts",
+        "src/build.gradle.kts",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/MapDefinition.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/MapSourceReference.java",
+        "src/web-ui/package.json",
+        "src/web-ui/playwright.config.ts",
+        "src/web-ui/e2e/backend-exploration-groups.spec.ts",
+        "src/web-ui/e2e/support/runtime-adventure.ts",
+        "src/web-ui/e2e/fixtures/exploration-groups-main.pdf",
+        "src/web-ui/e2e/fixtures/exploration-groups-map.pdf"
+      ],
+      "prepare": [],
+      "verify_config": [
+        ["docker", "info"],
+        ["java", "-version"],
+        ["node", "--version"],
+        ["test", "-x", "/home/jiwoo/.nvm/versions/node/v24.12.0/bin/codex"],
+        ["test", "-d", "../dnd-master/docs/assets"],
+        ["test", "-r", "../dnd-master/docs/assets/892902-A_Most_Potent_Brew.pdf"],
+        ["test", "-r", "../dnd-master/docs/assets/892902-A_Potent_Brew_Map.pdf"],
+        ["test", "-r", "../dnd-master/docs/assets/892902-A_Most_Potent_Brew_Player_Handout.pdf"]
+      ],
+      "dependencies": [],
+      "timeout_ms": 3600000,
+      "readiness_timeout_ms": 5000,
+      "poll_interval_ms": 1000
+    },
+    "adventure-exploration-groups-e2e": {
+      "command": [
+        "bash",
+        "-lc",
+        "export BACKEND_E2E_URL=http://127.0.0.1:8080; source <(sed -n '/^export BACKEND_E2E_EMAIL=/p; /^export BACKEND_E2E_PASSWORD=/p' src/start-dev.sh); npm --prefix src/web-ui run test:e2e -- e2e/backend-exploration-groups.spec.ts --output \"$HARNESS_SESSION_DIR/runtime/e2e/playwright\""
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "docs/agents/EXEC.md",
+        "src/start-dev.sh",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/MapDefinition.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/MapSourceReference.java",
+        "src/web-ui/package.json",
+        "src/web-ui/playwright.config.ts",
+        "src/web-ui/e2e/backend-exploration-groups.spec.ts",
+        "src/web-ui/e2e/support/runtime-adventure.ts",
+        "src/web-ui/e2e/fixtures/exploration-groups-main.pdf",
+        "src/web-ui/e2e/fixtures/exploration-groups-map.pdf"
+      ],
+      "prepare": [],
+      "verify_config": [
+        ["test", "-x", "src/web-ui/node_modules/.bin/playwright"],
+        ["test", "-r", "src/start-dev.sh"],
+        ["test", "-r", "src/web-ui/e2e/fixtures/exploration-groups-main.pdf"],
+        ["test", "-r", "src/web-ui/e2e/fixtures/exploration-groups-map.pdf"],
+        ["curl", "-fsS", "http://127.0.0.1:8080/actuator/health"],
+        ["bash", "-lc", "source <(sed -n '/^export BACKEND_E2E_PASSWORD=/p' src/start-dev.sh); test -n \"$BACKEND_E2E_PASSWORD\""]
+      ],
+      "dependencies": [
+        {
+          "id": "adventure-backend",
+          "check": ["curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
+        }
+      ],
+      "timeout_ms": 3600000,
+      "readiness_timeout_ms": 180000,
+      "poll_interval_ms": 2000
+    }
+  }
+}
