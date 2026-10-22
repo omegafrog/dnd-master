@@ -245,13 +245,17 @@ class ExplorationCycleTest {
         assertEquals(java.util.Set.of(first, second), proposal.awareCharacterSheetIds());
         assertTrue(proposal.enemiesAware());
 
-        var notificationHeard = new ExplorationCycle.ThreatDiscovery(java.util.Set.of(first), false, true, false);
+        var notificationHeard = new ExplorationCycle.ThreatDiscovery(java.util.Set.of(first), false, false, false,
+                java.util.Set.of(), java.util.Set.of(hostile), Map.of(hostile, java.util.Set.of(first)));
         proposal = new ExplorationCycle.EnvironmentProposal("", java.util.List.of()).withDiscovery(
                 notificationHeard, java.util.Set.of(first, second));
         cycle = cycle.withEnvironmentProposal(proposal);
         var shared = cycle.shareThreatWithGroup(group, first, java.util.Set.of(first, second), true);
         assertTrue(shared.pendingEnvironmentProposal().enemiesAware());
         assertEquals(java.util.Set.of(first, second), shared.pendingEnvironmentProposal().awareCharacterSheetIds());
+        assertEquals(java.util.Set.of(first, second), shared.pendingEnvironmentProposal().threatDiscovery()
+                .awareCharactersByHostileTokenId().get(hostile));
+        assertEquals(java.util.Set.of(first, second), shared.threatAwareness().awareCharactersByHostileTokenId().get(hostile));
     }
 
     @Test void enemyFirstNarrationStaysPendingUntilCommittedPlayerResponseIsAcknowledged() {

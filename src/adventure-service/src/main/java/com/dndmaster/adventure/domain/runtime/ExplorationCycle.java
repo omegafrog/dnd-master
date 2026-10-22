@@ -322,9 +322,16 @@ public record ExplorationCycle(
             shared.addAll(characterSheetIds);
             var awareEnemies = new HashSet<>(threatDiscovery.awareEnemyTokenIds());
             awareEnemies.addAll(heardEnemyTokenIds);
+            var perHostileAwareness = new java.util.HashMap<UUID, Set<UUID>>(
+                    threatDiscovery.awareCharactersByHostileTokenId());
+            perHostileAwareness.replaceAll((hostileId, awareCharacters) -> {
+                var sharedAwareness = new HashSet<>(awareCharacters);
+                sharedAwareness.addAll(characterSheetIds);
+                return Set.copyOf(sharedAwareness);
+            });
             var discovery = new ThreatDiscovery(threatDiscovery.discovererCharacterSheetIds(),
                     threatDiscovery.enemyDiscoveredFirst(), enemiesHeardNotification, threatDiscovery.bothSidesNotHidden(),
-                    awareEnemies, threatDiscovery.threatHostileTokenIds(), threatDiscovery.awareCharactersByHostileTokenId());
+                    awareEnemies, threatDiscovery.threatHostileTokenIds(), perHostileAwareness);
             return new EnvironmentProposal(narration, enemyMoves, featureInteractions, expectedMapVersion,
                     encounterRequested, linkedCombatEncounterId, discovery, shared, hostileActionStarted, playerResponseRequired);
         }

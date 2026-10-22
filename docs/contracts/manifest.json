@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "revision": 59,
+  "revision": 61,
   "updated_at": "2026-10-22",
-  "change_summary": "Implement #367 per-character threat awareness, combat surprise, and durable enemy-first player response wait",
+  "change_summary": "Record final #367 per-character threat awareness and review coverage",
   "source_roots": [
     "src",
     ".github",
@@ -301,7 +301,7 @@
       "reason": "폐기된 검색 설계에는 현행 상태와 전이가 없다."
     }
   ],
-  "no_contract_change": null,
+  "no_contract_change": "Only plan-367 implementation and verification evidence hashes and the passing Harness receipt pointer were updated; Product and Architecture behavior is unchanged.",
   "hashes": {
     "@model": "54537ebc81dcd515399470ca544adf583339dd963d8c0c6890e8c5ff69d8de80",
     ".github/pull_request_template.md": "4a773c8b13e402f6e7b2c5fe02d78f74cf2dc094045b7952f45b3021eb62f552",
@@ -371,7 +371,7 @@
     "docs/plans/combat-movement-spell-range/map-entry-flow.md": "82a867389d52f4c1019ce279b9dd9fa97e537491792c65b26d4637e2bd872906",
     "docs/plans/combat-movement-spell-range/plans.md": "d061110a127892723e0149d709911fb8cd7dc8207c6b6e7a7bf09151c92374e4",
     "docs/plans/combat-movement-spell-range/rulebook-action-extraction.md": "821e856fe9f70233dcf4fa234d74cbd08efcfe7fae4ab74a8fc5a6b19c0d0cc4",
-    "docs/plans/combat-movement-spell-range/traceability.json": "dd74091a5fcb8d4209fd7011dde5053e6a61d4ba98404febd0fd2c7b1b4908bc",
+    "docs/plans/combat-movement-spell-range/traceability.json": "1a2832da66f63b5f73ec78ee4212017dff37bd070022be8e1e07ad1d621ce2f8",
     "docs/plans/document-preprocessing-pivot.md": "98788bbd0ad536b93250561d667945e6012365c277f3b426822b5fd5e6acc4c6",
     "docs/plans/gm-context-compaction/plans.md": "f03a210e67086da62ed8c2641ca36dce9cf30d87490a96fa969702a8fd3ed538",
     "docs/plans/hybrid-rag-evidence-selection/plans.md": "d04bfc0f239d5dcaa44ecbd942b43a63838f9f22deaf3b756a4bb83cd69844d5",
@@ -1273,7 +1273,7 @@
     "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/CurrentSituation.java": "0c33dc499057f542bd717776f3911d0cd70e71dec758528c55bffd4a4ce0bfa7",
     "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/DisclosureState.java": "6182d7b08ea0c57829caf06ad8e5074f8d46b29884c34150a3e3eded9b0908a9",
     "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/EffectiveGmProviderSelection.java": "e33babb5cd558a2202dd7911e77f4a557d494960e3b9c6ddd3afcc96a1cb4a74",
-    "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java": "9fc9d519114fbe57bffc14a2e11df4cde626a97b93fb65c5880085ba65ef96af",
+    "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java": "055887378e6cf14f1c9bd2f08003c93b1ecebd838d4a6d0261932c2f772ae40c",
     "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationGroup.java": "8fedcac69e4255de66634c0e584ad10207abf723d2b6e3588373cff2b4f16da9",
     "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationInitiativePolicy.java": "66516c6bf2154164a7c1a830f9634b509b6c66cfad9b74e44f83f76922d61910",
     "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationState.java": "8bd47aed00e150343097c8435ec2181d189e87fd693e32870991b7d76b804b99",
@@ -1646,7 +1646,7 @@
     "src/adventure-service/src/test/java/com/dndmaster/adventure/DomainValidationTest.java": "37911a34f776d2c04eb31649c2dee93a63a9c676769d1085a96ed8577924f47c",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/EnvironmentApprovedPromptConfigurationReadPortTest.java": "2c8ffcae556b60ebde621135547073bbbe553743051181130d2fbe3edd4bd596",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/ExemplarRetrievalTest.java": "afeaf9b34b929dfc5b79341b0061df6690acad062dfeac5c16b1173b50f3fd6f",
-    "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java": "e0de7a91205a39b0d969801d5e46b4c5588bc8f9d8cfca1d6f4cc90870492336",
+    "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java": "ba16615a01ae70d6e6a76bde157dbf36a62d40c2dff622eca49dedf2fbbb895a",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationGroupTest.java": "c77d8db3e9b9b62643a5665dd12af4947601b4676bacc36e973a6c1514c1d7a4",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/GmAgentPolicyTest.java": "7a90e2d865526985ee55573ce89f77b3dc1e0701ddeb57d2c422a129085ff03a",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/GmAgentRuntimePlanningAdapterTest.java": "7c8dca5ceebb9724ddabbfdf6e938492739fee20095d35d4371864e095c23e1f",
