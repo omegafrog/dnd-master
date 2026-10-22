@@ -18,6 +18,10 @@ class CombatEncounter {
   + requestReaction(ReactionInterrupt reaction, long expectedVersion): CombatEncounter
   + resolveReaction(UUID reactionId, UUID actorId, ReactionChoice choice, long expectedVersion): CombatEncounter
   + end(CombatEndProposal proposal): CombatEncounter
+  note right
+    시작 시 참가자별 인지 여부로 기습을 판정하고,
+    미인지 참가자는 첫 차례를 건너뛴다.
+  end note
 }
 class AdventureSession {
   - SessionId id

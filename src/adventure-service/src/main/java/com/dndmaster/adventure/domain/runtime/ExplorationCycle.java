@@ -104,7 +104,12 @@ public record ExplorationCycle(
     }
 
     public record MovementStopEvent(UUID id, UUID groupId, UUID movementOperationId, String cause,
-            List<String> publicEvents, Position finalPosition, UUID hostileTokenId) {
+            List<String> publicEvents, Position finalPosition, UUID hostileTokenId,
+            Set<UUID> discoveredByCharacterSheetIds, Set<UUID> awareCharacterSheetIds, boolean enemiesAware) {
+        public MovementStopEvent(UUID id, UUID groupId, UUID movementOperationId, String cause,
+                List<String> publicEvents, Position finalPosition, UUID hostileTokenId) {
+            this(id, groupId, movementOperationId, cause, publicEvents, finalPosition, hostileTokenId, Set.of(), Set.of(), false);
+        }
         public MovementStopEvent {
             Objects.requireNonNull(id);
             Objects.requireNonNull(groupId);
@@ -112,12 +117,39 @@ public record ExplorationCycle(
             cause = cause == null ? "MOVEMENT_INTERRUPTED" : cause;
             publicEvents = List.copyOf(Objects.requireNonNull(publicEvents));
             Objects.requireNonNull(finalPosition);
+            discoveredByCharacterSheetIds = Set.copyOf(Objects.requireNonNullElse(discoveredByCharacterSheetIds, Set.of()));
+            awareCharacterSheetIds = Set.copyOf(Objects.requireNonNullElse(awareCharacterSheetIds, Set.of()));
+            if (!awareCharacterSheetIds.containsAll(discoveredByCharacterSheetIds))
+                throw new IllegalArgumentException("discoverers must be aware of the threat");
+        }
+        public MovementStopEvent shareWith(Set<UUID> characterSheetIds, UUID discovererId, boolean enemiesHeardNotification) {
+            if (!discoveredByCharacterSheetIds.contains(discovererId)) throw new IllegalArgumentException("sharing actor has not discovered the threat");
+            var shared = new HashSet<>(awareCharacterSheetIds);
+            shared.addAll(characterSheetIds);
+            return new MovementStopEvent(id, groupId, movementOperationId, cause, publicEvents, finalPosition,
+                    hostileTokenId, discoveredByCharacterSheetIds, shared, enemiesAware || enemiesHeardNotification);
+        }
+    }
+
+    public record ThreatDiscovery(Set<UUID> discovererCharacterSheetIds, boolean enemyDiscoveredFirst,
+            boolean enemyHeardNotification, boolean bothSidesNotHidden) {
+        public ThreatDiscovery {
+            discovererCharacterSheetIds = Set.copyOf(Objects.requireNonNullElse(discovererCharacterSheetIds, Set.of()));
+            if (enemyDiscoveredFirst && !discovererCharacterSheetIds.isEmpty())
+                throw new IllegalArgumentException("enemy-first discovery cannot name party discoverers");
+            if (bothSidesNotHidden && enemyDiscoveredFirst)
+                throw new IllegalArgumentException("both sides cannot be unnoticed when enemies discovered first");
         }
     }
 
     public record EnvironmentProposal(String narration, List<EnemyMove> enemyMoves,
             List<FeatureInteraction> featureInteractions, long expectedMapVersion,
-            boolean encounterRequested, UUID linkedCombatEncounterId) {
+            boolean encounterRequested, UUID linkedCombatEncounterId, ThreatDiscovery threatDiscovery,
+            Set<UUID> awareCharacterSheetIds) {
+        public EnvironmentProposal(String narration, List<EnemyMove> enemyMoves, List<FeatureInteraction> featureInteractions,
+                long expectedMapVersion, boolean encounterRequested, UUID linkedCombatEncounterId) {
+            this(narration, enemyMoves, featureInteractions, expectedMapVersion, encounterRequested, linkedCombatEncounterId, null, Set.of());
+        }
         public EnvironmentProposal(String narration, List<EnemyMove> enemyMoves) { this(narration, enemyMoves, List.of(), -1, false, null); }
         public EnvironmentProposal(String narration, List<EnemyMove> enemyMoves, long expectedMapVersion) {
             this(narration, enemyMoves, List.of(), expectedMapVersion, false, null);
@@ -130,6 +162,13 @@ public record ExplorationCycle(
             narration = narration == null ? "" : narration.trim();
             enemyMoves = List.copyOf(Objects.requireNonNull(enemyMoves));
             featureInteractions = List.copyOf(Objects.requireNonNullElse(featureInteractions, List.of()));
+            awareCharacterSheetIds = Set.copyOf(awareCharacterSheetIds == null
+                    ? threatDiscovery == null ? Set.of() : threatDiscovery.discovererCharacterSheetIds()
+                    : awareCharacterSheetIds);
+            if (threatDiscovery == null && !awareCharacterSheetIds.isEmpty())
+                throw new IllegalArgumentException("awareness requires a threat discovery");
+            if (threatDiscovery != null && !awareCharacterSheetIds.containsAll(threatDiscovery.discovererCharacterSheetIds()))
+                throw new IllegalArgumentException("discoverers must remain aware of the threat");
             if (featureInteractions.stream().map(FeatureInteraction::featureId).distinct().count() != featureInteractions.size())
                 throw new IllegalArgumentException("environment feature interactions must be unique by feature id");
             if (expectedMapVersion < -1) throw new IllegalArgumentException("expected map version is invalid");
@@ -143,7 +182,31 @@ public record ExplorationCycle(
                 throw new IllegalStateException("environment phase did not request an encounter");
             if (linkedCombatEncounterId != null && !linkedCombatEncounterId.equals(encounterId))
                 throw new IllegalStateException("environment phase is already linked to another combat encounter");
-            return new EnvironmentProposal(narration, enemyMoves, featureInteractions, expectedMapVersion, false, encounterId);
+            return new EnvironmentProposal(narration, enemyMoves, featureInteractions, expectedMapVersion, false, encounterId,
+                    threatDiscovery, awareCharacterSheetIds);
+        }
+        public EnvironmentProposal shareWith(Set<UUID> characterSheetIds, UUID discovererId, boolean enemiesHeardNotification) {
+            if (threatDiscovery == null || !threatDiscovery.discovererCharacterSheetIds().contains(discovererId))
+                throw new IllegalArgumentException("sharing actor has not discovered the threat");
+            var shared = new HashSet<>(awareCharacterSheetIds);
+            shared.addAll(characterSheetIds);
+            var discovery = new ThreatDiscovery(threatDiscovery.discovererCharacterSheetIds(),
+                    threatDiscovery.enemyDiscoveredFirst(), enemiesHeardNotification, threatDiscovery.bothSidesNotHidden());
+            return new EnvironmentProposal(narration, enemyMoves, featureInteractions, expectedMapVersion,
+                    encounterRequested, linkedCombatEncounterId, discovery, shared);
+        }
+        public EnvironmentProposal withDiscovery(ThreatDiscovery discovery, Set<UUID> partyCharacterIds) {
+            Objects.requireNonNull(discovery);
+            if (!partyCharacterIds.containsAll(discovery.discovererCharacterSheetIds()))
+                throw new IllegalArgumentException("threat discoverers must belong to the adventure party");
+            Set<UUID> aware = discovery.bothSidesNotHidden() ? Set.copyOf(partyCharacterIds)
+                    : discovery.discovererCharacterSheetIds();
+            return new EnvironmentProposal(narration, enemyMoves, featureInteractions, expectedMapVersion,
+                    encounterRequested, linkedCombatEncounterId, discovery, aware);
+        }
+        public boolean enemiesAware() {
+            return threatDiscovery != null && (threatDiscovery.enemyDiscoveredFirst()
+                    || threatDiscovery.enemyHeardNotification() || threatDiscovery.bothSidesNotHidden());
         }
     }
     public record FeatureInteraction(UUID featureId) {
@@ -199,6 +262,33 @@ public record ExplorationCycle(
                 pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId);
     }
 
+    public ExplorationCycle shareThreatWithGroup(UUID groupId, UUID discovererId, Set<UUID> groupMemberIds,
+            boolean enemiesHeardNotification) {
+        Objects.requireNonNull(groupId);
+        Objects.requireNonNull(discovererId);
+        Set<UUID> members = Set.copyOf(Objects.requireNonNull(groupMemberIds));
+        if (!members.contains(discovererId)) throw new IllegalArgumentException("sharing character is not in the group");
+        if (pendingMovementEvent != null && pendingMovementEvent.groupId().equals(groupId)) {
+            if (!pendingMovementEvent.discoveredByCharacterSheetIds().contains(discovererId))
+                throw new IllegalArgumentException("sharing actor has not discovered the threat");
+            if (pendingMovementEvent.awareCharacterSheetIds().containsAll(members)) return this;
+            var event = pendingMovementEvent.shareWith(members, discovererId, enemiesHeardNotification);
+            return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
+                    environmentPhase, completedEnvironmentCommands, elapsedSeconds, pendingEnvironmentProposal,
+                    completedEnvironmentActions, event, resolvedMovementEventIds, linkedCombatEncounterId);
+        }
+        if (pendingEnvironmentProposal != null && pendingEnvironmentProposal.threatDiscovery() != null) {
+            if (!pendingEnvironmentProposal.threatDiscovery().discovererCharacterSheetIds().contains(discovererId))
+                throw new IllegalArgumentException("sharing actor has not discovered the threat");
+            if (pendingEnvironmentProposal.awareCharacterSheetIds().containsAll(members)) return this;
+            var proposal = pendingEnvironmentProposal.shareWith(members, discovererId, enemiesHeardNotification);
+            return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
+                    environmentPhase, completedEnvironmentCommands, elapsedSeconds, proposal,
+                    completedEnvironmentActions, pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId);
+        }
+        throw new IllegalStateException("no shareable threat discovery is pending");
+    }
+
     public ExplorationCycle linkCombatEncounter(UUID encounterId) {
         Objects.requireNonNull(encounterId);
         if (linkedCombatEncounterId != null && !linkedCombatEncounterId.equals(encounterId))
@@ -227,7 +317,8 @@ public record ExplorationCycle(
             throw new IllegalStateException("environment encounter is linked to combat");
         EnvironmentProposal resolved = new EnvironmentProposal(pendingEnvironmentProposal.narration(),
                 pendingEnvironmentProposal.enemyMoves(), pendingEnvironmentProposal.featureInteractions(),
-                pendingEnvironmentProposal.expectedMapVersion(), false, null);
+                pendingEnvironmentProposal.expectedMapVersion(), false, null, pendingEnvironmentProposal.threatDiscovery(),
+                pendingEnvironmentProposal.awareCharacterSheetIds());
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
                 environmentPhase, completedEnvironmentCommands, elapsedSeconds, resolved, completedEnvironmentActions,
                 pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId);

@@ -2,10 +2,25 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["narration", "enemyMoves", "featureInteractions", "encounterRequested"],
+  "required": ["narration", "enemyMoves", "featureInteractions", "encounterRequested", "threatDiscovery"],
   "properties": {
     "narration": { "type": "string", "minLength": 1 },
     "encounterRequested": { "type": "boolean" },
+    "threatDiscovery": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["discovererCharacterSheetIds", "enemyDiscoveredFirst", "enemyHeardNotification", "bothSidesNotHidden"],
+          "properties": {
+            "discovererCharacterSheetIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "uuid" } },
+            "enemyDiscoveredFirst": { "type": "boolean" },
+            "enemyHeardNotification": { "type": "boolean" },
+            "bothSidesNotHidden": { "type": "boolean" }
+          }
+        }
+      ]
+    },
     "featureInteractions": {
       "type": "array", "maxItems": 100,
       "items": {

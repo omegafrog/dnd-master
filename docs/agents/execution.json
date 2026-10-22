@@ -567,10 +567,26 @@
       ],
       "prepare": [],
       "verify_config": [
-        ["test", "-x", "src/user-pc-agent/build/install/user-pc-agent/bin/user-pc-agent"],
-        ["test", "-x", "${CODEX_EXECUTABLE}"],
-        ["test", "-d", "${CODEX_CLIENT_DIRECTORY}"],
-        ["curl", "-fsS", "${RELAY_HEALTH_URL}"]
+        [
+          "test",
+          "-x",
+          "src/user-pc-agent/build/install/user-pc-agent/bin/user-pc-agent"
+        ],
+        [
+          "test",
+          "-x",
+          "${CODEX_EXECUTABLE}"
+        ],
+        [
+          "test",
+          "-d",
+          "${CODEX_CLIENT_DIRECTORY}"
+        ],
+        [
+          "curl",
+          "-fsS",
+          "${RELAY_HEALTH_URL}"
+        ]
       ],
       "dependencies": [],
       "timeout_ms": null,
@@ -1080,7 +1096,14 @@
         "--tests",
         "com.dndmaster.adventure.ExplorationCycleTest",
         "--tests",
-        "com.dndmaster.adventure.api.ExplorationEnvironmentControllerTest"
+        "com.dndmaster.adventure.combat.CombatEncounterPolicyTest",
+        "--tests",
+        "com.dndmaster.adventure.api.ExplorationEnvironmentControllerTest",
+        "--tests",
+        "com.dndmaster.adventure.infrastructure.integration.HttpTypedRuntimeGmAgentPortTest",
+        ":ai-game-master-service:test",
+        "--tests",
+        "com.dndmaster.aigamemaster.api.TypedAgentContractControllerTest"
       ],
       "required_env": [],
       "config_inputs": [
@@ -1094,9 +1117,29 @@
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/MapMovementCoordinator.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatEncounter.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatParticipant.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatStartPolicy.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/MapMovementCoordinatorTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
-        "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java"
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
+        "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
+        "src/ai-game-master-service/src/test/java/com/dndmaster/aigamemaster/api/TypedAgentContractControllerTest.java",
+        "src/contracts/ai-game-master/schemas/exploration-environment-response.json",
+        "docs/contracts/product.md",
+        "docs/contracts/architecture.md",
+        "docs/contracts/diagrams/combat-loop.state.puml",
+        "docs/contracts/diagrams/combat-loop.state.svg",
+        "docs/contracts/diagrams/domain.class.puml",
+        "docs/contracts/diagrams/domain.class.svg",
+        "docs/contracts/diagrams/spatial-movement.sequence.puml",
+        "docs/contracts/diagrams/spatial-movement.sequence.svg",
+        "docs/contracts/diagrams/spatial-movement.state.puml",
+        "docs/contracts/diagrams/spatial-movement.state.svg"
       ],
       "prepare": [],
       "verify_config": [

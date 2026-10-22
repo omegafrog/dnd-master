@@ -117,15 +117,17 @@ class ExplorationEnvironmentControllerTest {
         UUID groupId = UUID.randomUUID(), playerTokenId = UUID.randomUUID(), enemyTokenId = UUID.randomUUID();
         UUID featureId = UUID.randomUUID(), hostileTokenId = UUID.randomUUID(), movementOperationId = UUID.randomUUID();
         UUID combatId = UUID.randomUUID();
+        UUID characterSheetId = UUID.randomUUID();
         var group = new ExplorationGroup(groupId, playerTokenId, List.of(
-                new ExplorationGroup.Member(UUID.randomUUID(), ExplorationGroup.Formation.FRONT, 30)));
+                new ExplorationGroup.Member(characterSheetId, ExplorationGroup.Formation.FRONT, 30)));
         var cycle = new ExplorationCycle(UUID.randomUUID(), 1, Map.of(groupId, 13), List.of(groupId), Set.of(groupId),
                 ExplorationCycle.Phase.ENVIRONMENT, ExplorationCycle.EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION,
                 Set.of(), 6, new ExplorationCycle.EnvironmentProposal("안전한 상황 서술", List.of(
                         new ExplorationCycle.EnemyMove(enemyTokenId, List.of(new ExplorationCycle.Position(3, 4)))),
                         List.of(new ExplorationCycle.FeatureInteraction(featureId)), 27, false, null), Set.of(),
                 new ExplorationCycle.MovementStopEvent(UUID.randomUUID(), groupId, movementOperationId,
-                        "HOSTILE_OBSERVED", List.of("HOSTILE_OBSERVED"), new ExplorationCycle.Position(2, 1), hostileTokenId),
+                        "HOSTILE_OBSERVED", List.of("HOSTILE_OBSERVED"), new ExplorationCycle.Position(2, 1), hostileTokenId,
+                        Set.of(characterSheetId), Set.of(characterSheetId), false),
                 Set.of(), combatId);
 
         String json = new ObjectMapper().writeValueAsString(
@@ -138,7 +140,8 @@ class ExplorationEnvironmentControllerTest {
         assertTrue(json.contains("currentPhaseCommandId"));
         for (String privateField : List.of("initiativeByGroup", "completedEnvironmentCommands", "enemyMoves", "path",
                 "tokenId", "featureInteractions", "featureId", "expectedMapVersion", "movementOperationId",
-                "hostileTokenId", "linkedCombatEncounterId", "resolvedMovementEventIds")) {
+                "hostileTokenId", "linkedCombatEncounterId", "resolvedMovementEventIds", "discoveredByCharacterSheetIds",
+                "awareCharacterSheetIds", "enemiesAware", "threatDiscovery")) {
             assertFalse(json.contains("\"" + privateField + "\""), privateField);
             assertFalse(environmentJson.contains("\"" + privateField + "\""), privateField);
         }
@@ -165,6 +168,69 @@ class ExplorationEnvironmentControllerTest {
         assertFalse(json.contains("hidden-enemy-token-identifier"));
         assertFalse(json.contains("private-map-feature-identifier"));
         assertFalse(json.contains(event.hostileTokenId().toString()));
+    }
+
+    @Test void notificationSharesPrivateAwarenessAndRetriesWithoutExposingDiscovererIds() throws Exception {
+        UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), groupId = UUID.randomUUID();
+        UUID discoverer = UUID.randomUUID(), companion = UUID.randomUUID(), commandId = UUID.randomUUID();
+        var party = List.of(
+                new AdventurePartyMember(new CharacterSheetId(discoverer), ControlMode.DIRECT, true, true, true, true, true, true),
+                new AdventurePartyMember(new CharacterSheetId(companion), ControlMode.DIRECT, true, true, true, true, true, true));
+        Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), party, new AdventureContext("복도", "", "", ""));
+        var group = new ExplorationGroup(groupId, UUID.randomUUID(), List.of(
+                new ExplorationGroup.Member(discoverer, ExplorationGroup.Formation.FRONT, 30),
+                new ExplorationGroup.Member(companion, ExplorationGroup.Formation.REAR, 25)));
+        var event = new ExplorationCycle.MovementStopEvent(UUID.randomUUID(), groupId, UUID.randomUUID(), "HOSTILE_OBSERVED",
+                List.of("HOSTILE_OBSERVED"), new ExplorationCycle.Position(1, 1), null,
+                Set.of(discoverer), Set.of(discoverer), false);
+        var cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(groupId, 10)).interruptGroupTurn(groupId, event);
+        adventure.updateExplorationState(new OwnerPlayerId(owner), adventure.version(), new ExplorationState(List.of(group), cycle));
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findByIdForUpdate(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        when(players.playerId()).thenReturn(owner);
+        RuntimeTurnApplicationService runtime = mock(RuntimeTurnApplicationService.class);
+        when(runtime.planExplorationEnvironmentPhase(any(), any(), any(), any(), any())).thenReturn(
+                new ExplorationCycle.EnvironmentProposal("알림", List.of(), List.of(), -1, false, null,
+                        new ExplorationCycle.ThreatDiscovery(Set.of(), false, true, false), Set.of()));
+        CombatMapViewPort views = mock(CombatMapViewPort.class);
+        when(views.playerView(eq(adventureId), eq(owner))).thenReturn(Optional.of(new CombatMapViewPort.View(
+                UUID.randomUUID(), new CombatMapViewPort.Grid(10, 10, 70, 5), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), 0)));
+        when(views.gmEnvironmentView(any(), eq(owner))).thenReturn("{\"tokens\":[]}\n GM_MAP_STATE={\"tokens\":[]}");
+        AdventureController controller = controller(adventures, runtime,
+                mock(CombatMapPort.class), views, players,
+                mock(AppliedRuleSetApplicationService.class));
+        var request = new AdventureController.ExplorationThreatNotificationRequest(adventure.version(), commandId, groupId, discoverer);
+        String previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        Logger logger = (Logger) LoggerFactory.getLogger(AdventureController.class);
+        var appender = new ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            var response = controller.notifyExplorationThreat(adventureId, request);
+            assertEquals(Set.of(discoverer, companion), storedCycle(adventure).pendingMovementEvent().awareCharacterSheetIds());
+            assertTrue(storedCycle(adventure).pendingMovementEvent().enemiesAware());
+            String publicJson = new ObjectMapper().writeValueAsString(response);
+            assertFalse(publicJson.contains("discoveredByCharacterSheetIds"));
+            assertFalse(publicJson.contains("awareCharacterSheetIds"));
+            var retry = controller.notifyExplorationThreat(adventureId, request);
+            assertEquals(response.version(), retry.version());
+            verify(adventures, times(1)).save(adventure);
+        } finally {
+            logger.detachAppender(appender);
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
+        String logs = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                .reduce("", (left, right) -> left + "\n" + right);
+        assertTrue(logs.contains("commandId=" + commandId));
+        assertTrue(logs.contains("memberCount=2"));
+        assertTrue(logs.contains("result=shared"));
+        assertTrue(logs.contains("result=already_shared"));
+            assertTrue(logs.contains("enemiesHeard=true"));
     }
 
     @Test void hiddenMapFactInEnvironmentNarrationIsRejectedBeforeProposalPersistence() {
@@ -313,6 +379,8 @@ class ExplorationEnvironmentControllerTest {
         when(views.playerView(eq(adventureId), eq(owner))).thenReturn(Optional.of(new CombatMapViewPort.View(
                 mapId, new CombatMapViewPort.Grid(10, 10, 70, 5), List.of(), List.of(), List.of(), List.of(),
                 List.of(), List.of(), 0)));
+        when(views.gmEnvironmentView(eq(mapId), eq(owner))).thenReturn("{\"tokens\":[]}\n GM_MAP_STATE={\"tokens\":[]}");
+        when(views.gmEnvironmentView(eq(mapId), eq(owner))).thenReturn("{\"tokens\":[]}\n GM_MAP_STATE={\"tokens\":[]}");
         CombatMapPort mapPort = mock(CombatMapPort.class);
         AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
         when(players.playerId()).thenReturn(owner);
@@ -493,6 +561,8 @@ class ExplorationEnvironmentControllerTest {
         when(views.playerView(eq(adventureId), eq(owner))).thenReturn(Optional.of(new CombatMapViewPort.View(
                 mapId, new CombatMapViewPort.Grid(10, 10, 70, 5), List.of(), List.of(), List.of(), List.of(),
                 List.of(), List.of(), 0)));
+        when(views.gmEnvironmentView(eq(mapId), eq(owner))).thenReturn("{\"tokens\":[]}\n GM_MAP_STATE={\"tokens\":[]}");
+        when(views.gmEnvironmentView(eq(mapId), eq(owner))).thenReturn("{\"tokens\":[]}\n GM_MAP_STATE={\"tokens\":[]}");
         RuntimeTurnApplicationService runtime = mock(RuntimeTurnApplicationService.class);
         when(runtime.planExplorationEnvironmentPhase(any(), any(), any(), any(), any())).thenReturn(
                 new ExplorationCycle.EnvironmentProposal("지원되지 않는 환경 단계", List.of(),

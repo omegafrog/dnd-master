@@ -395,7 +395,7 @@ public class AdventureController {
                         CombatStartTransitionPolicy.requireCommittedCombatSituation(committedAdventure.currentSituation(),
                                 result.turn().plan().combatEnemies());
                         combat = combatLifecycleService.startPreparingFromCommittedGmTurn(adventureId, committedTurn,
-                                        CombatStartParticipantFactory.preparingFromPartyAndGmProposal(adventureId, adventure.party(),
+                                        CombatStartParticipantFactory.applyExplorationAwareness(CombatStartParticipantFactory.preparingFromPartyAndGmProposal(adventureId, adventure.party(),
                                                 result.turn().plan().combatEnemies(), member -> characterCombatPort.displayName(
                                                         member.characterSheetId().value(), adventure.ownerPlayerId().value(),
                                                         adventure.sessionId().value()),
@@ -408,6 +408,7 @@ public class AdventureController {
                                                 (participantId, scope) -> initiativeDicePorts.rollInitiative(adventureId,
                                                         adventure.ruleSetId().value(), adventure.sessionId().value(),
                                                         committedTurn.turnId(), participantId, adventure.version(), scope)),
+                                                storedExplorationState(committedAdventure).cycle()),
                                         result.enemySheetPreparationRequest());
                     } else {
                         LOGGER.warn("gm_turn_combat_start_skipped adventureId={} reason=ACTIVE_COMBAT_ALREADY_EXISTS turnId={}",
@@ -497,7 +498,7 @@ public class AdventureController {
             if (activeEncounter.isEmpty() || activeEncounter.orElseThrow().status()
                     == com.dndmaster.adventure.domain.combat.CombatEncounter.Status.PREPARING) {
                 var encounter = combatLifecycleService.startPreparingFromCommittedGmTurn(adventureId, committed,
-                                CombatStartParticipantFactory.preparingFromPartyAndGmProposal(adventureId, adventure.party(),
+                                CombatStartParticipantFactory.applyExplorationAwareness(CombatStartParticipantFactory.preparingFromPartyAndGmProposal(adventureId, adventure.party(),
                                         result.turn().plan().combatEnemies(), member -> characterCombatPort.displayName(
                                                 member.characterSheetId().value(), adventure.ownerPlayerId().value(),
                                                 adventure.sessionId().value()),
@@ -510,6 +511,7 @@ public class AdventureController {
                                                 (participantId, scope) -> initiativeDicePorts.rollInitiative(adventureId,
                                                         adventure.ruleSetId().value(), adventure.sessionId().value(),
                                                         result.turn().turnId(), participantId, adventure.version(), scope)),
+                                        storedExplorationState(adventure).cycle()),
                                 result.enemySheetPreparationRequest());
             }
             combatLifecycleService.findActiveEncounter(adventureId)
@@ -872,11 +874,37 @@ public class AdventureController {
             var proposal = cycle.pendingEnvironmentProposal();
             if (proposal == null) {
                 String gmMap = combatMapViewPort.gmEnvironmentView(map.mapId(), owner);
+                var groupFacts = state.groups().stream().map(group -> Map.of("groupId", group.id(),
+                        "members", group.members().stream().map(member -> Map.of("characterSheetId", member.characterSheetId(),
+                                "formation", member.formation(), "speed", member.speed())).toList())).toList();
+                int mapStateOffset = gmMap.indexOf(" GM_MAP_STATE=");
+                String discoveryContext = mapStateOffset < 0
+                        ? gmMap + "\nEXPLORATION_GROUPS=" + objectMapper.valueToTree(groupFacts)
+                        : gmMap.substring(0, mapStateOffset) + "EXPLORATION_GROUPS=" + objectMapper.valueToTree(groupFacts)
+                                + "\n" + gmMap.substring(mapStateOffset);
                 var generated = runtimeTurnService.planExplorationEnvironmentPhase(new AdventureId(adventureId),
-                        new OwnerPlayerId(owner), phaseId, cycle.environmentPhase(), gmMap);
+                        new OwnerPlayerId(owner), phaseId, cycle.environmentPhase(), discoveryContext);
                 proposal = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal(
                         generated.narration(), generated.enemyMoves(), generated.featureInteractions(), map.version(),
                         generated.encounterRequested(), null);
+                if (generated.threatDiscovery() != null) {
+                    var typed = generated.threatDiscovery();
+                    if (typed.enemyHeardNotification()) {
+                        throw new ApiRequestGuard.ApiContractException(502, "ENEMY_AWARENESS_REQUIRES_EXPLICIT_NOTIFICATION");
+                    }
+                    var discovery = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.ThreatDiscovery(
+                            new java.util.HashSet<>(typed.discovererCharacterSheetIds()), typed.enemyDiscoveredFirst(),
+                            typed.enemyHeardNotification(), typed.bothSidesNotHidden());
+                    var partyIds = adventure.party().stream().map(member -> member.characterSheetId().value())
+                            .collect(java.util.stream.Collectors.toSet());
+                    proposal = proposal.withDiscovery(discovery, partyIds);
+                    LOGGER.info("dev_exploration_threat_discovery outcome=accepted adventureId={} phaseId={} discovererCount={} enemyDiscoveredFirst={} enemyHeardNotification={} bothSidesNotHidden={} encounterRequested={} result=private_state_saved",
+                            adventureId, phaseId, discovery.discovererCharacterSheetIds().size(), discovery.enemyDiscoveredFirst(),
+                            discovery.enemyHeardNotification(), discovery.bothSidesNotHidden(), generated.encounterRequested());
+                } else {
+                    LOGGER.info("dev_exploration_threat_discovery outcome=not_found adventureId={} phaseId={} result=awareness_unchanged",
+                            adventureId, phaseId);
+                }
                 expectedFeatureIds = proposal.featureInteractions().stream()
                         .map(com.dndmaster.adventure.domain.runtime.ExplorationCycle.FeatureInteraction::featureId).toList();
                 if (cycle.environmentPhase() != com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION
@@ -1162,6 +1190,86 @@ public class AdventureController {
     record ExplorationCycleStartRequest(Long expectedVersion, UUID commandId) { }
     record ExplorationCycleFinishRequest(Long expectedVersion, UUID commandId, Boolean interrupted) { }
     record ExplorationMovementEventResolveRequest(Long expectedVersion) { }
+    record ExplorationThreatNotificationRequest(Long expectedVersion, UUID commandId, UUID groupId, UUID discovererCharacterSheetId) { }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/exploration/notify-threat")
+    ExplorationGroupsResponse notifyExplorationThreat(@PathVariable UUID adventureId,
+            @RequestBody ExplorationThreatNotificationRequest request) {
+        if (request == null || request.expectedVersion() == null || request.commandId() == null
+                || request.groupId() == null || request.discovererCharacterSheetId() == null)
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_EXPLORATION_THREAT_NOTIFICATION");
+        Adventure adventure = adventureRepository.findByIdForUpdate(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner))
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        var state = storedExplorationState(adventure);
+        if (state.cycle() == null) throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_CYCLE_NOT_STARTED");
+        var group = state.groups().stream().filter(candidate -> candidate.id().equals(request.groupId())).findFirst()
+                .orElseThrow(() -> new ApiRequestGuard.ApiContractException(400, "EXPLORATION_GROUP_NOT_FOUND"));
+        var members = group.members().stream().map(com.dndmaster.adventure.domain.runtime.ExplorationGroup.Member::characterSheetId)
+                .collect(java.util.stream.Collectors.toSet());
+        long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "exploration_threat_notification", "adventureId=" + adventureId + " commandId=" + request.commandId()
+                        + " groupId=" + group.id() + " memberCount=" + members.size());
+        try {
+            var pendingEvent = state.cycle().pendingMovementEvent();
+            var pendingProposal = state.cycle().pendingEnvironmentProposal();
+            boolean validDiscoverer = members.contains(request.discovererCharacterSheetId())
+                    && ((pendingEvent != null && pendingEvent.groupId().equals(group.id())
+                            && pendingEvent.discoveredByCharacterSheetIds().contains(request.discovererCharacterSheetId()))
+                    || (pendingProposal != null && pendingProposal.threatDiscovery() != null
+                            && pendingProposal.threatDiscovery().discovererCharacterSheetIds().contains(request.discovererCharacterSheetId())));
+            if (!validDiscoverer) throw new ApiRequestGuard.ApiContractException(400, "CHARACTER_HAS_NOT_DISCOVERED_THREAT");
+            boolean alreadyShared = (pendingEvent != null && pendingEvent.groupId().equals(group.id())
+                    && pendingEvent.awareCharacterSheetIds().containsAll(members))
+                    || (pendingProposal != null && pendingProposal.awareCharacterSheetIds().containsAll(members));
+            if (alreadyShared) {
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                        "exploration_threat_notification", "adventureId=" + adventureId + " commandId=" + request.commandId()
+                                + " expectedVersion=" + request.expectedVersion() + " actualVersion=" + adventure.version()
+                                + " memberCount=" + members.size() + " result=already_shared", started);
+                return new ExplorationGroupsResponse(adventure.version(), state.groups(), state.cycle());
+            }
+            var map = combatMapViewPort.playerView(adventureId, owner)
+                    .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "EXPLORATION_MAP_UNAVAILABLE"));
+            String mapState = combatMapViewPort.gmEnvironmentView(map.mapId(), owner);
+            var groupFacts = state.groups().stream().map(item -> Map.of("groupId", item.id(), "members", item.members().stream()
+                    .map(member -> Map.of("characterSheetId", member.characterSheetId(), "formation", member.formation(), "speed", member.speed())).toList())).toList();
+            int mapStateOffset = mapState.indexOf(" GM_MAP_STATE=");
+            String notificationInput = "EXPLICIT_PARTY_NOTIFICATION=the discoverer explicitly tells this group about the discovered threat; judge only whether nearby enemies hear the notification.\n"
+                    + "NOTIFYING_CHARACTER=" + request.discovererCharacterSheetId() + "\nNOTIFYING_GROUP=" + objectMapper.valueToTree(groupFacts)
+                    + (mapStateOffset < 0 ? "\n" + mapState : "\n" + mapState.substring(0, mapStateOffset) + mapState.substring(mapStateOffset));
+            var audibility = runtimeTurnService.planExplorationEnvironmentPhase(new AdventureId(adventureId),
+                    new OwnerPlayerId(owner), request.commandId(), state.cycle().environmentPhase(), notificationInput).threatDiscovery();
+            boolean enemiesHeard = audibility != null && audibility.enemyHeardNotification();
+            if (adventure.version() != request.expectedVersion())
+                throw new ApiRequestGuard.ApiContractException(409, "STALE_EXPLORATION_THREAT_NOTIFICATION");
+            var cycle = state.cycle().shareThreatWithGroup(group.id(), request.discovererCharacterSheetId(), members, enemiesHeard);
+            if (cycle == state.cycle()) {
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                        "exploration_threat_notification", "adventureId=" + adventureId + " commandId=" + request.commandId()
+                                + " expectedVersion=" + request.expectedVersion() + " actualVersion=" + adventure.version()
+                                + " memberCount=" + members.size() + " enemiesHeard=" + enemiesHeard + " result=already_shared", started);
+                return new ExplorationGroupsResponse(adventure.version(), state.groups(), cycle);
+            }
+            if (adventure.version() != request.expectedVersion())
+                throw new ApiRequestGuard.ApiContractException(409, "STALE_EXPLORATION_THREAT_NOTIFICATION");
+            adventure.updateExplorationState(new OwnerPlayerId(owner), adventure.version(), state.withCycle(cycle));
+            adventureRepository.save(adventure);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "exploration_threat_notification", "adventureId=" + adventureId + " commandId=" + request.commandId()
+                            + " expectedVersion=" + request.expectedVersion() + " memberCount=" + members.size()
+                            + " enemiesHeard=" + enemiesHeard
+                            + " result=shared", started);
+            return new ExplorationGroupsResponse(adventure.version(), state.groups(), cycle);
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "exploration_threat_notification", "adventureId=" + adventureId + " commandId=" + request.commandId()
+                            + " expectedVersion=" + request.expectedVersion() + " memberCount=" + members.size()
+                            + " recoveryAction=retry_same_command", started, failure);
+            throw failure;
+        }
+    }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat-map/movement-preview")
     CombatMapMovementPreviewResponse previewMovement(@PathVariable UUID adventureId,

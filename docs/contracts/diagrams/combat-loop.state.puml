@@ -5,6 +5,7 @@
  ACTIVE --> REACTION_PENDING : 반응 발동 조건 발생
  REACTION_PENDING --> ACTIVE : 반응 선택 해결
  ACTIVE --> ACTIVE : 행동 확정·차례 진행
+ ACTIVE --> ACTIVE : 현재 참가자가 surprised이면 첫 차례 건너뜀
  ACTIVE --> ENDED : 전투 종료 확정
  ENDED --> [*]
 @enduml

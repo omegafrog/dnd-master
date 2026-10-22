@@ -140,8 +140,10 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
     public com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal planEnvironmentPhase(
             GmContextEnvelope context) {
         String operationKey = context.operationKey();
+        boolean notification = context.action().contains("EXPLICIT_PARTY_NOTIFICATION=");
         long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
-                "exploration_environment_agent_request", "operationKey=" + operationKey + " mapContextChars=" + context.action().length());
+                "exploration_environment_agent_request", "operationKey=" + operationKey + " mapContextChars=" + context.action().length()
+                        + " branch=" + (notification ? "notification_audibility" : "environment_discovery"));
         try {
             var selection = context.requestedSelection();
             String selectionBody = mapper.writeValueAsString(new RuntimeEndpointRequest(
@@ -155,9 +157,14 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
             EnvironmentMapInput mapInput = environmentMapInput(context.action());
             devLog("dev_environment_image_input outcome=prepared operationKey={} originalChars={} textChars={} imageAttached={} imageChars={}",
                     operationKey, context.action().length(), mapInput.text().length(), !mapInput.imageDataUri().isBlank(), mapInput.imageDataUri().length());
-            String prompt = "ROLE=EXPLORATION_ENVIRONMENT_PHASE\nTASK=Judge nearby enemy movement and supported environment changes for one six-second phase. Set encounterRequested=true only when hostile contact or an event requires handing off this paused exploration cycle to normal combat startup. featureInteractions may name only a map spatial feature whose triggers include INTERACT; runtime applies that existing feature interaction and validates its current state. Return only the fixed schema. Do not invent feature IDs, map positions, or unsupported state changes.\n"
+            String prompt = "ROLE=EXPLORATION_ENVIRONMENT_PHASE\nTASK="
+                    + (notification
+                            ? "This request is an explicit party notification. Judge only whether nearby enemies hear the notifying character. Set threatDiscovery.enemyHeardNotification accordingly; leave enemyMoves and featureInteractions empty and encounterRequested=false. Do not report new discoverers or a new discovery."
+                            : "Judge nearby enemy movement and supported environment changes for one six-second phase. Set encounterRequested=true only when hostile contact or an event requires handing off this paused exploration cycle to normal combat startup. For threat discovery, account for each party member's supplied formation, movement, available character facts and hiding information. Do not invent a character roll when its numeric inputs are unavailable; adjudicate the result and return the character sheet IDs of discoverers. If both sides are not hidden, mark bothSidesNotHidden=true so both automatically notice. If enemies discovered the party first, set enemyDiscoveredFirst=true. Set enemyHeardNotification=false unless this input describes an explicit notification. Return threatDiscovery=null when there is no threat discovery.")
+                    + " featureInteractions may name only a map spatial feature whose triggers include INTERACT; runtime applies that existing feature interaction and validates its current state. Return only the fixed schema. Do not invent feature IDs, map positions, or unsupported state changes.\n"
                     + "CURRENT_SITUATION=" + context.currentSituation() + "\nESTABLISHED_SCENE="
                     + context.currentContext().currentScene() + "\nMAP_IMAGE=" + (mapInput.imageDataUri().isBlank() ? "not provided" : "attached separately; inspect the full image using GM_MAP_STATE grid, GRID_BOUNDS and MAP_CROP; return grid coordinates")
+                    + "\nPARTY_CHARACTER_FACTS=" + context.characterSnapshots()
                     + "\nPHASE_INPUT=" + mapInput.text();
             String body = mapper.writeValueAsString(new ExplorationEnvironmentRequest(context.ownerPlayerId().value(),
                     context.operationKey(), selection.endpointId(), selection.provider(), selection.model(), selection.reasoning(),
@@ -170,13 +177,17 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
             var proposal = mapper.readValue(response.body(), com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal.class);
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
                     "exploration_environment_agent_request", "operationKey=" + operationKey + " enemyMoveCount=" + proposal.enemyMoves().size()
-                            + " encounterRequested=" + proposal.encounterRequested(), started);
+                            + " encounterRequested=" + proposal.encounterRequested() + " discovererCount="
+                            + (proposal.threatDiscovery() == null ? 0 : proposal.threatDiscovery().discovererCharacterSheetIds().size())
+                            + " enemyHeardNotification=" + (proposal.threatDiscovery() != null && proposal.threatDiscovery().enemyHeardNotification())
+                            + " branch=" + (notification ? "notification_audibility" : "environment_discovery"), started);
             return proposal;
         } catch (Exception failure) {
             devLog("dev_agent_environment_phase outcome=failed operationKey={} failureClass={} recoveryAction=retry_same_phase_id",
                     operationKey, failure.getClass().getSimpleName());
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
-                    "exploration_environment_agent_request", "operationKey=" + operationKey + " mapContextChars=" + context.action().length(), started, failure);
+                    "exploration_environment_agent_request", "operationKey=" + operationKey + " mapContextChars=" + context.action().length()
+                            + " branch=" + (notification ? "notification_audibility" : "environment_discovery"), started, failure);
             throw new IllegalStateException("typed exploration environment request failed", failure);
         }
     }

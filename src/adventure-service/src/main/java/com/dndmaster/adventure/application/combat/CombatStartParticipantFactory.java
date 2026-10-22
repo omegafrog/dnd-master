@@ -16,6 +16,34 @@ import java.util.UUID;
 public final class CombatStartParticipantFactory {
     private CombatStartParticipantFactory() {}
 
+    public static List<CombatParticipant> applyExplorationAwareness(List<CombatParticipant> participants,
+            com.dndmaster.adventure.domain.runtime.ExplorationCycle cycle) {
+        if (cycle == null) return participants;
+        java.util.Set<UUID> aware = java.util.Set.of();
+        boolean enemiesAware = false;
+        boolean hasDiscovery = false;
+        var event = cycle.pendingMovementEvent();
+        if (event != null && !event.discoveredByCharacterSheetIds().isEmpty()) {
+            aware = event.awareCharacterSheetIds();
+            enemiesAware = event.enemiesAware();
+            hasDiscovery = true;
+        }
+        var proposal = cycle.pendingEnvironmentProposal();
+        if (!hasDiscovery && proposal != null && proposal.threatDiscovery() != null) {
+            aware = proposal.awareCharacterSheetIds();
+            enemiesAware = proposal.enemiesAware();
+            hasDiscovery = true;
+        }
+        if (!hasDiscovery) return participants;
+        final java.util.Set<UUID> known = aware;
+        final boolean hostileSideAware = enemiesAware;
+        return participants.stream().map(participant -> {
+            boolean hostile = participant.enemyKind() != null || participant.statBlock() != null;
+            boolean isAware = hostile ? hostileSideAware : known.contains(participant.participantId());
+            return participant.withSurprised(!isAware);
+        }).toList();
+    }
+
     public static List<CombatParticipant> fromPartyAndGmProposal(UUID adventureId,
             List<AdventurePartyMember> party, List<CombatEnemyProposal> enemies) {
         if (enemies == null || enemies.isEmpty()) throw new IllegalArgumentException("combat start requires at least one structured enemy");

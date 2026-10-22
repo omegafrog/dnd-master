@@ -158,7 +158,7 @@ class HttpTypedRuntimeGmAgentPortTest {
                 .withBody("{\"endpointId\":\"" + endpointId + "\",\"endpointVersion\":\"1970-01-01T00:00:00Z\","
                         + "\"provider\":\"codex-cli\",\"model\":\"gpt-5.6-luna\",\"reasoning\":\"medium\"}")));
         server.stubFor(post(urlEqualTo("/internal/gm/exploration-environment")).willReturn(aResponse().withStatus(200)
-                .withBody("{\"narration\":\"적대적 접촉이 발생해 전투로 넘어갑니다.\",\"enemyMoves\":[],\"featureInteractions\":[],\"encounterRequested\":true}")));
+                .withBody("{\"narration\":\"적대적 접촉이 발생해 전투로 넘어갑니다.\",\"enemyMoves\":[],\"featureInteractions\":[],\"encounterRequested\":true,\"threatDiscovery\":{\"discovererCharacterSheetIds\":[\"00000000-0000-0000-0000-000000000001\"],\"enemyDiscoveredFirst\":false,\"enemyHeardNotification\":false,\"bothSidesNotHidden\":false}}")));
         String image = "data:image/png;base64," + "A".repeat(1_100_000);
         var map = new ObjectMapper().createObjectNode();
         map.putObject("grid").put("width", 22).put("height", 23);
@@ -179,6 +179,8 @@ class HttpTypedRuntimeGmAgentPortTest {
         var proposal = port.planEnvironmentPhase(context);
 
         org.junit.jupiter.api.Assertions.assertTrue(proposal.encounterRequested());
+        org.junit.jupiter.api.Assertions.assertEquals(UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                proposal.threatDiscovery().discovererCharacterSheetIds().iterator().next());
         org.junit.jupiter.api.Assertions.assertTrue(proposal.narration().contains("적대적 접촉"));
         var sent = server.findAll(postRequestedFor(urlEqualTo("/internal/gm/exploration-environment"))).getFirst();
         var request = new ObjectMapper().readTree(sent.getBodyAsString());

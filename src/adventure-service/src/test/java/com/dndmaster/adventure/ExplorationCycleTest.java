@@ -201,4 +201,38 @@ class ExplorationCycleTest {
         assertEquals(ExplorationCycle.EnvironmentPhase.HAZARDS_AND_ENVIRONMENT,
                 resolved.completeEnvironmentPhase(phaseId).environmentPhase());
     }
+
+    @Test void threatDiscoveryStaysWithDiscovererUntilExplicitGroupNotification() {
+        UUID first = UUID.randomUUID(), second = UUID.randomUUID(), groupId = UUID.randomUUID();
+        var event = new ExplorationCycle.MovementStopEvent(UUID.randomUUID(), groupId, UUID.randomUUID(),
+                "HOSTILE_OBSERVED", java.util.List.of("HOSTILE_OBSERVED"), new ExplorationCycle.Position(1, 1), null,
+                java.util.Set.of(first), java.util.Set.of(first), false);
+        var cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(groupId, 10));
+        cycle = cycle.interruptGroupTurn(groupId, event);
+
+        assertEquals(java.util.Set.of(first), cycle.pendingMovementEvent().awareCharacterSheetIds());
+        var shared = cycle.shareThreatWithGroup(groupId, first, java.util.Set.of(first, second), false);
+        assertEquals(java.util.Set.of(first, second), shared.pendingMovementEvent().awareCharacterSheetIds());
+        assertSame(shared, shared.shareThreatWithGroup(groupId, first, java.util.Set.of(first, second), false));
+        ExplorationCycle persisted = cycle;
+        assertThrows(IllegalArgumentException.class, () -> persisted.shareThreatWithGroup(groupId, second, java.util.Set.of(first, second), false));
+    }
+
+    @Test void bothUnhiddenSidesAutomaticallyKnowAndEnemyHeardNotificationTransfersAwareness() {
+        UUID group = UUID.randomUUID(), first = UUID.randomUUID(), second = UUID.randomUUID();
+        var cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(group, 10)).finishGroupTurn(group, false);
+        var bothUnhidden = new ExplorationCycle.ThreatDiscovery(java.util.Set.of(first), false, false, true);
+        var proposal = new ExplorationCycle.EnvironmentProposal("", java.util.List.of())
+                .withDiscovery(bothUnhidden, java.util.Set.of(first, second));
+        assertEquals(java.util.Set.of(first, second), proposal.awareCharacterSheetIds());
+        assertTrue(proposal.enemiesAware());
+
+        var notificationHeard = new ExplorationCycle.ThreatDiscovery(java.util.Set.of(first), false, true, false);
+        proposal = new ExplorationCycle.EnvironmentProposal("", java.util.List.of()).withDiscovery(
+                notificationHeard, java.util.Set.of(first, second));
+        cycle = cycle.withEnvironmentProposal(proposal);
+        var shared = cycle.shareThreatWithGroup(group, first, java.util.Set.of(first, second), true);
+        assertTrue(shared.pendingEnvironmentProposal().enemiesAware());
+        assertEquals(java.util.Set.of(first, second), shared.pendingEnvironmentProposal().awareCharacterSheetIds());
+    }
 }
