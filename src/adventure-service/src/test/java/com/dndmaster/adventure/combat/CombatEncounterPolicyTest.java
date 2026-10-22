@@ -186,4 +186,28 @@ class CombatEncounterPolicyTest {
         assertEquals(GOBLIN, afterHero.currentParticipantId());
         assertFalse(afterHero.participants().stream().filter(p -> p.participantId().equals(unawareHero)).findFirst().orElseThrow().surprised());
     }
+
+    @Test
+    void hostileAwarenessIsAppliedPerMapTokenWithinTheSameSide() {
+        UUID groupId = UUID.randomUUID(), unawareHero = UUID.randomUUID(), awareEnemy = UUID.randomUUID(), unawareEnemy = UUID.randomUUID();
+        var proposal = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal("", List.of())
+                .withDiscovery(new com.dndmaster.adventure.domain.runtime.ExplorationCycle.ThreatDiscovery(
+                        java.util.Set.of(HERO), false, false, false, java.util.Set.of(awareEnemy)), java.util.Set.of(HERO));
+        var cycle = com.dndmaster.adventure.domain.runtime.ExplorationCycle.start(UUID.randomUUID(),
+                java.util.Map.of(groupId, 10)).finishGroupTurn(groupId, false).withEnvironmentProposal(proposal);
+        var roster = List.of(
+                new CombatParticipant(HERO, "Aware hero", CombatParticipant.Controller.PLAYER, 10, null),
+                new CombatParticipant(unawareHero, "Unaware hero", CombatParticipant.Controller.PLAYER, 8, null),
+                new CombatParticipant(awareEnemy, "Aware enemy", CombatParticipant.Controller.AI, 15, "enemy",
+                        TurnResources.initial(), GOBLIN_STATS),
+                new CombatParticipant(unawareEnemy, "Unaware enemy", CombatParticipant.Controller.AI, 12, "enemy",
+                        TurnResources.initial(), GOBLIN_STATS));
+
+        var participants = CombatStartParticipantFactory.applyExplorationAwareness(roster, cycle);
+
+        assertFalse(participants.stream().filter(p -> p.participantId().equals(HERO)).findFirst().orElseThrow().surprised());
+        assertTrue(participants.stream().filter(p -> p.participantId().equals(unawareHero)).findFirst().orElseThrow().surprised());
+        assertFalse(participants.stream().filter(p -> p.participantId().equals(awareEnemy)).findFirst().orElseThrow().surprised());
+        assertTrue(participants.stream().filter(p -> p.participantId().equals(unawareEnemy)).findFirst().orElseThrow().surprised());
+    }
 }

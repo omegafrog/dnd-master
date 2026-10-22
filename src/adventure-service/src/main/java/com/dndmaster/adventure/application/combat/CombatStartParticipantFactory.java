@@ -25,7 +25,7 @@ public final class CombatStartParticipantFactory {
         var event = cycle.pendingMovementEvent();
         if (event != null && !event.discoveredByCharacterSheetIds().isEmpty()) {
             aware = event.awareCharacterSheetIds();
-            enemiesAware = event.enemiesAware();
+            enemiesAware = event.enemiesAware() && event.awareEnemyTokenIds().isEmpty() && event.hostileTokenId() == null;
             hasDiscovery = true;
         }
         var proposal = cycle.pendingEnvironmentProposal();
@@ -37,9 +37,19 @@ public final class CombatStartParticipantFactory {
         if (!hasDiscovery) return participants;
         final java.util.Set<UUID> known = aware;
         final boolean hostileSideAware = enemiesAware;
+        java.util.Set<UUID> awareEnemies = java.util.Set.of();
+        if (event == null && proposal != null && proposal.threatDiscovery() != null)
+            awareEnemies = proposal.threatDiscovery().awareEnemyTokenIds();
+        else if (event != null) {
+            var eventAwareEnemies = new java.util.HashSet<>(event.awareEnemyTokenIds());
+            if (event.enemiesAware() && event.hostileTokenId() != null) eventAwareEnemies.add(event.hostileTokenId());
+            awareEnemies = java.util.Set.copyOf(eventAwareEnemies);
+        }
+        final java.util.Set<UUID> knownEnemies = awareEnemies;
         return participants.stream().map(participant -> {
             boolean hostile = participant.enemyKind() != null || participant.statBlock() != null;
-            boolean isAware = hostile ? hostileSideAware : known.contains(participant.participantId());
+            boolean isAware = hostile ? hostileSideAware || knownEnemies.contains(participant.participantId())
+                    : known.contains(participant.participantId());
             return participant.withSurprised(!isAware);
         }).toList();
     }

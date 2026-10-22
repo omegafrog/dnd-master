@@ -1,6 +1,12 @@
 @startuml
  title 전투 진행 상태 (combat-loop)
  [*] --> PREPARING : 전투 준비
+ note right of PREPARING
+   #367 탐험 중 발견만으로 전투를 준비하지 않는다.
+   검증된 hostileActionStarted가 참일 때 적대 행동으로 전환한다.
+   개체별 인지 상태를 기습 판정에 사용하며,
+   미인지 참가자에게 CombatParticipant.surprised를 설정한다.
+ end note
  PREPARING --> ACTIVE : 초기 자료 준비 완료
  ACTIVE --> REACTION_PENDING : 반응 발동 조건 발생
  REACTION_PENDING --> ACTIVE : 반응 선택 해결

@@ -2,21 +2,23 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["narration", "enemyMoves", "featureInteractions", "encounterRequested", "threatDiscovery"],
+  "required": ["narration", "enemyMoves", "featureInteractions", "encounterRequested", "hostileActionStarted", "threatDiscovery"],
   "properties": {
     "narration": { "type": "string", "minLength": 1 },
     "encounterRequested": { "type": "boolean" },
+    "hostileActionStarted": { "type": "boolean" },
     "threatDiscovery": {
       "oneOf": [
         { "type": "null" },
         {
           "type": "object", "additionalProperties": false,
-          "required": ["discovererCharacterSheetIds", "enemyDiscoveredFirst", "enemyHeardNotification", "bothSidesNotHidden"],
+          "required": ["discovererCharacterSheetIds", "enemyDiscoveredFirst", "enemyHeardNotification", "bothSidesNotHidden", "awareEnemyTokenIds"],
           "properties": {
             "discovererCharacterSheetIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "uuid" } },
             "enemyDiscoveredFirst": { "type": "boolean" },
             "enemyHeardNotification": { "type": "boolean" },
-            "bothSidesNotHidden": { "type": "boolean" }
+            "bothSidesNotHidden": { "type": "boolean" },
+            "awareEnemyTokenIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "uuid" } }
           }
         }
       ]

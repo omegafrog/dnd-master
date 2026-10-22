@@ -172,7 +172,7 @@ class ExplorationEnvironmentControllerTest {
 
     @Test void notificationSharesPrivateAwarenessAndRetriesWithoutExposingDiscovererIds() throws Exception {
         UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), groupId = UUID.randomUUID();
-        UUID discoverer = UUID.randomUUID(), companion = UUID.randomUUID(), commandId = UUID.randomUUID();
+        UUID discoverer = UUID.randomUUID(), companion = UUID.randomUUID(), commandId = UUID.randomUUID(), hostileTokenId = UUID.randomUUID();
         var party = List.of(
                 new AdventurePartyMember(new CharacterSheetId(discoverer), ControlMode.DIRECT, true, true, true, true, true, true),
                 new AdventurePartyMember(new CharacterSheetId(companion), ControlMode.DIRECT, true, true, true, true, true, true));
@@ -193,12 +193,12 @@ class ExplorationEnvironmentControllerTest {
         RuntimeTurnApplicationService runtime = mock(RuntimeTurnApplicationService.class);
         when(runtime.planExplorationEnvironmentPhase(any(), any(), any(), any(), any())).thenReturn(
                 new ExplorationCycle.EnvironmentProposal("알림", List.of(), List.of(), -1, false, null,
-                        new ExplorationCycle.ThreatDiscovery(Set.of(), false, true, false), Set.of()));
+                        new ExplorationCycle.ThreatDiscovery(Set.of(), false, true, false, Set.of(hostileTokenId)), Set.of()));
         CombatMapViewPort views = mock(CombatMapViewPort.class);
         when(views.playerView(eq(adventureId), eq(owner))).thenReturn(Optional.of(new CombatMapViewPort.View(
                 UUID.randomUUID(), new CombatMapViewPort.Grid(10, 10, 70, 5), List.of(), List.of(), List.of(), List.of(),
                 List.of(), List.of(), 0)));
-        when(views.gmEnvironmentView(any(), eq(owner))).thenReturn("{\"tokens\":[]}\n GM_MAP_STATE={\"tokens\":[]}");
+        when(views.gmEnvironmentView(any(), eq(owner))).thenReturn("{} GM_MAP_STATE={\"tokens\":[{\"id\":\"" + hostileTokenId + "\",\"type\":\"ENEMY\"}]}");
         AdventureController controller = controller(adventures, runtime,
                 mock(CombatMapPort.class), views, players,
                 mock(AppliedRuleSetApplicationService.class));
@@ -284,7 +284,7 @@ class ExplorationEnvironmentControllerTest {
         var model = new com.dndmaster.adventure.domain.scenario.ScenarioModel(1, List.of(), List.of(), List.of(),
                 List.of(), List.of(enemy), List.of(), List.of(), "");
         var fixture = narrationSafetyFixture("고블린 정찰병이 3,4에 숨어 있습니다.",
-                "{\"tokens\":[{\"id\":\"hidden-enemy-token-id\",\"type\":\"ENEMY\",\"x\":3,\"y\":4,\"discovery\":\"HIDDEN\"}]}",
+                "{\"tokens\":[{\"id\":\"00000000-0000-0000-0000-000000000099\",\"type\":\"ENEMY\",\"x\":3,\"y\":4,\"discovery\":\"HIDDEN\"}]}",
                 model);
 
         assertThrows(IllegalStateException.class, () -> fixture.controller().advanceExplorationEnvironmentPhase(

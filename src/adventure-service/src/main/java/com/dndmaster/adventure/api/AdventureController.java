@@ -878,32 +878,51 @@ public class AdventureController {
                         "members", group.members().stream().map(member -> Map.of("characterSheetId", member.characterSheetId(),
                                 "formation", member.formation(), "speed", member.speed())).toList())).toList();
                 int mapStateOffset = gmMap.indexOf(" GM_MAP_STATE=");
+                var eligibleEnemyTokenIds = hostileTokenIds(gmMap);
                 String discoveryContext = mapStateOffset < 0
                         ? gmMap + "\nEXPLORATION_GROUPS=" + objectMapper.valueToTree(groupFacts)
                         : gmMap.substring(0, mapStateOffset) + "EXPLORATION_GROUPS=" + objectMapper.valueToTree(groupFacts)
                                 + "\n" + gmMap.substring(mapStateOffset);
+                discoveryContext += "\nELIGIBLE_HOSTILE_TOKEN_IDS=" + objectMapper.valueToTree(eligibleEnemyTokenIds);
                 var generated = runtimeTurnService.planExplorationEnvironmentPhase(new AdventureId(adventureId),
                         new OwnerPlayerId(owner), phaseId, cycle.environmentPhase(), discoveryContext);
+                if (generated.encounterRequested() != generated.hostileActionStarted())
+                {
+                    if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled())
+                        LOGGER.info("dev_exploration_threat_discovery outcome=failed adventureId={} phaseId={} expectedHandoffMatchesHostileAction=true actualEncounterRequested={} actualHostileActionStarted={} failure=handoff_mismatch recovery=retry_same_phase",
+                                adventureId, phaseId, generated.encounterRequested(), generated.hostileActionStarted());
+                    throw new ApiRequestGuard.ApiContractException(502, "COMBAT_HANDOFF_REQUIRES_HOSTILE_ACTION");
+                }
                 proposal = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal(
                         generated.narration(), generated.enemyMoves(), generated.featureInteractions(), map.version(),
-                        generated.encounterRequested(), null);
+                        generated.encounterRequested(), null, null, java.util.Set.of(),
+                        generated.hostileActionStarted());
                 if (generated.threatDiscovery() != null) {
                     var typed = generated.threatDiscovery();
+                    if (!eligibleEnemyTokenIds.containsAll(typed.awareEnemyTokenIds())
+                            || (typed.bothSidesNotHidden() && !new java.util.HashSet<>(typed.awareEnemyTokenIds()).equals(eligibleEnemyTokenIds))
+                            || (typed.enemyDiscoveredFirst() && typed.awareEnemyTokenIds().isEmpty()))
+                        throw new ApiRequestGuard.ApiContractException(502, "UNKNOWN_AWARE_ENEMY_TOKEN_ID");
                     if (typed.enemyHeardNotification()) {
                         throw new ApiRequestGuard.ApiContractException(502, "ENEMY_AWARENESS_REQUIRES_EXPLICIT_NOTIFICATION");
                     }
                     var discovery = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.ThreatDiscovery(
                             new java.util.HashSet<>(typed.discovererCharacterSheetIds()), typed.enemyDiscoveredFirst(),
-                            typed.enemyHeardNotification(), typed.bothSidesNotHidden());
+                            typed.enemyHeardNotification(), typed.bothSidesNotHidden(),
+                            new java.util.HashSet<>(typed.awareEnemyTokenIds()));
                     var partyIds = adventure.party().stream().map(member -> member.characterSheetId().value())
                             .collect(java.util.stream.Collectors.toSet());
                     proposal = proposal.withDiscovery(discovery, partyIds);
-                    LOGGER.info("dev_exploration_threat_discovery outcome=accepted adventureId={} phaseId={} discovererCount={} enemyDiscoveredFirst={} enemyHeardNotification={} bothSidesNotHidden={} encounterRequested={} result=private_state_saved",
-                            adventureId, phaseId, discovery.discovererCharacterSheetIds().size(), discovery.enemyDiscoveredFirst(),
-                            discovery.enemyHeardNotification(), discovery.bothSidesNotHidden(), generated.encounterRequested());
+                    if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                        LOGGER.info("dev_exploration_threat_discovery outcome=accepted adventureId={} phaseId={} discovererCount={} awareEnemyCount={} enemyDiscoveredFirst={} enemyHeardNotification={} bothSidesNotHidden={} encounterRequested={} result=private_state_saved",
+                                adventureId, phaseId, discovery.discovererCharacterSheetIds().size(), discovery.awareEnemyTokenIds().size(),
+                                discovery.enemyDiscoveredFirst(), discovery.enemyHeardNotification(), discovery.bothSidesNotHidden(), generated.encounterRequested());
+                    }
                 } else {
-                    LOGGER.info("dev_exploration_threat_discovery outcome=not_found adventureId={} phaseId={} result=awareness_unchanged",
-                            adventureId, phaseId);
+                    if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                        LOGGER.info("dev_exploration_threat_discovery outcome=not_found adventureId={} phaseId={} result=awareness_unchanged",
+                                adventureId, phaseId);
+                    }
                 }
                 expectedFeatureIds = proposal.featureInteractions().stream()
                         .map(com.dndmaster.adventure.domain.runtime.ExplorationCycle.FeatureInteraction::featureId).toList();
@@ -1031,6 +1050,26 @@ public class AdventureController {
     private static UUID environmentFeatureActionId(UUID phaseId, UUID featureId) {
         return UUID.nameUUIDFromBytes((phaseId + ":feature-interaction:" + featureId).getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
+    private static java.util.Set<UUID> hostileTokenIds(String gmMap) {
+        try {
+            int marker = gmMap.indexOf(" GM_MAP_STATE=");
+            if (marker < 0) return java.util.Set.of();
+            var root = new ObjectMapper().readTree(gmMap.substring(marker + " GM_MAP_STATE=".length()));
+            var tokens = root.path("tokens");
+            if (!tokens.isArray()) throw new IllegalArgumentException("current map has no token list");
+            var ids = new java.util.LinkedHashSet<UUID>();
+            for (var token : tokens) {
+                String type = token.path("type").asText("");
+                if (!"ENEMY".equalsIgnoreCase(type) && !"BOSS".equalsIgnoreCase(type)) continue;
+                UUID id = UUID.fromString(token.path("id").asText());
+                if (!ids.add(id)) throw new IllegalArgumentException("current map has duplicate hostile token ids");
+            }
+            return java.util.Set.copyOf(ids);
+        } catch (java.io.IOException | IllegalArgumentException failure) {
+            throw new ApiRequestGuard.ApiContractException(502, "CURRENT_HOSTILE_TOKEN_LIST_INVALID");
+        }
+    }
+
     private static com.dndmaster.adventure.application.combat.CombatMapEnemyMovementCommand environmentMovementCommand(UUID mapId, UUID owner,
             com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnemyMove move, int distance, String edition,
             long expectedMapVersion, UUID phaseId) {
@@ -1236,20 +1275,32 @@ public class AdventureController {
             var groupFacts = state.groups().stream().map(item -> Map.of("groupId", item.id(), "members", item.members().stream()
                     .map(member -> Map.of("characterSheetId", member.characterSheetId(), "formation", member.formation(), "speed", member.speed())).toList())).toList();
             int mapStateOffset = mapState.indexOf(" GM_MAP_STATE=");
+            var eligibleEnemyTokenIds = hostileTokenIds(mapState);
             String notificationInput = "EXPLICIT_PARTY_NOTIFICATION=the discoverer explicitly tells this group about the discovered threat; judge only whether nearby enemies hear the notification.\n"
                     + "NOTIFYING_CHARACTER=" + request.discovererCharacterSheetId() + "\nNOTIFYING_GROUP=" + objectMapper.valueToTree(groupFacts)
+                    + "\nELIGIBLE_HOSTILE_TOKEN_IDS=" + objectMapper.valueToTree(eligibleEnemyTokenIds)
                     + (mapStateOffset < 0 ? "\n" + mapState : "\n" + mapState.substring(0, mapStateOffset) + mapState.substring(mapStateOffset));
             var audibility = runtimeTurnService.planExplorationEnvironmentPhase(new AdventureId(adventureId),
                     new OwnerPlayerId(owner), request.commandId(), state.cycle().environmentPhase(), notificationInput).threatDiscovery();
+            if (audibility != null && (!eligibleEnemyTokenIds.containsAll(audibility.awareEnemyTokenIds())
+                    || audibility.enemyHeardNotification() != !audibility.awareEnemyTokenIds().isEmpty())) {
+                if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled())
+                    LOGGER.info("dev_exploration_threat_notification outcome=failed adventureId={} commandId={} expectedHostileCount={} actualAwareCount={} failure=unknown_hostile_id recovery=retry_same_command",
+                            adventureId, request.commandId(), eligibleEnemyTokenIds.size(), audibility.awareEnemyTokenIds().size());
+                throw new ApiRequestGuard.ApiContractException(502, "UNKNOWN_AWARE_ENEMY_TOKEN_ID");
+            }
             boolean enemiesHeard = audibility != null && audibility.enemyHeardNotification();
             if (adventure.version() != request.expectedVersion())
                 throw new ApiRequestGuard.ApiContractException(409, "STALE_EXPLORATION_THREAT_NOTIFICATION");
-            var cycle = state.cycle().shareThreatWithGroup(group.id(), request.discovererCharacterSheetId(), members, enemiesHeard);
+            var cycle = state.cycle().shareThreatWithGroup(group.id(), request.discovererCharacterSheetId(), members, enemiesHeard,
+                    audibility == null ? java.util.Set.of() : java.util.Set.copyOf(audibility.awareEnemyTokenIds()));
             if (cycle == state.cycle()) {
                 com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
                         "exploration_threat_notification", "adventureId=" + adventureId + " commandId=" + request.commandId()
                                 + " expectedVersion=" + request.expectedVersion() + " actualVersion=" + adventure.version()
-                                + " memberCount=" + members.size() + " enemiesHeard=" + enemiesHeard + " result=already_shared", started);
+                                + " memberCount=" + members.size() + " enemiesHeard=" + enemiesHeard
+                                + " awareEnemyCount=" + (audibility == null ? 0 : audibility.awareEnemyTokenIds().size())
+                                + " result=already_shared", started);
                 return new ExplorationGroupsResponse(adventure.version(), state.groups(), cycle);
             }
             if (adventure.version() != request.expectedVersion())
@@ -1259,7 +1310,7 @@ public class AdventureController {
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
                     "exploration_threat_notification", "adventureId=" + adventureId + " commandId=" + request.commandId()
                             + " expectedVersion=" + request.expectedVersion() + " memberCount=" + members.size()
-                            + " enemiesHeard=" + enemiesHeard
+                            + " enemiesHeard=" + enemiesHeard + " awareEnemyCount=" + (audibility == null ? 0 : audibility.awareEnemyTokenIds().size())
                             + " result=shared", started);
             return new ExplorationGroupsResponse(adventure.version(), state.groups(), cycle);
         } catch (RuntimeException | Error failure) {

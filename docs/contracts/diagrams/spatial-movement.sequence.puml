@@ -1,5 +1,5 @@
 @startuml
- title 지도에서 이동과 조우 해결 (spatial-movement)
+ title 지도에서 이동과 조우 해결 (spatial-movement, #367)
  actor "플레이어" as Player
  participant "지도 화면" as UI
  participant "모험 런타임" as Runtime
@@ -28,6 +28,17 @@
        Encounter --> Runtime : 계속 이동
      else 사건 발생
        Encounter --> Runtime : 이동 중단과 사건 결과
+       Runtime -> Map : 현재 지도의 적 토큰 식별자 확인
+       Map --> Runtime : 서버가 확인한 적 토큰 식별자 목록
+       Runtime -> GM : 발견 사실·개체별 인지 상태·서버가 제공한 적 토큰 식별자 목록
+       GM --> Runtime : 고정 구조 응답 / awareEnemyTokenIds·hostileActionStarted·서술
+       Runtime -> Runtime : awareEnemyTokenIds가 제공 목록의 부분집합이며\n현재 지도에 속한 적인지 검증
+       note right of Runtime
+         awareEnemyTokenIds는 플레이어를 인지한 적 토큰 식별자다.
+         hostileActionStarted는 적대 행동 시작 여부다.
+         유효하지 않은 식별자는 반영하지 않는다.
+         발견 사실이나 서술만으로 전투에 넘기지 않는다.
+       end note
        opt 캐릭터가 위협을 먼저 발견
          Runtime -> Runtime : 발견 상태를 발견한 캐릭터에게만 기록
          note right of Runtime
@@ -47,15 +58,18 @@
          end
        end
        opt 적이 먼저 발견
-         Runtime -> GM : 적의 행동 제안 요청
-         GM --> Runtime : 적 행동과 서술
+         Runtime -> GM : 적이 먼저 인지한 사실에 따른 행동·서술 요청
+         GM --> Runtime : 적 행동 서술과 고정 구조 판정 결과
          Runtime -> UI : 적 행동 제시·플레이어 대응 요청
+       end
+       opt 적이 먼저 발견했고 적대 행동을 시작하지 않음
+         Runtime -> Runtime : 플레이어 대응을 기다리며 탐험 상태 유지
        end
        Runtime -> Map : 해당 위치까지 공개 상태 갱신
        break
      end
    end
-   alt 사건이 적대 행동으로 전투에 이어짐
+   alt 검증된 hostileActionStarted가 참이며 적대 행동으로 전투 시작
      Runtime -> Encounter : 각 참가자의 인지 상태와 기습 판정으로 전투 시작
      Encounter -> Encounter : 미인지 CombatParticipant.surprised 설정
      note right of Encounter
