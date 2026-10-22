@@ -19,33 +19,36 @@ public final class CombatStartParticipantFactory {
     public static List<CombatParticipant> applyExplorationAwareness(List<CombatParticipant> participants,
             com.dndmaster.adventure.domain.runtime.ExplorationCycle cycle) {
         if (cycle == null) return participants;
-        java.util.Set<UUID> aware = java.util.Set.of();
+        var currentHostileIds = participants.stream()
+                .filter(participant -> participant.enemyKind() != null || participant.statBlock() != null)
+                .map(CombatParticipant::participantId).collect(java.util.stream.Collectors.toSet());
+        var durable = cycle.threatAwareness();
+        var aware = new java.util.HashSet<UUID>();
+        durable.awareCharactersByHostileTokenId().forEach((hostileId, characters) -> {
+            if (currentHostileIds.contains(hostileId)) aware.addAll(characters);
+        });
+        var awareEnemies = new java.util.HashSet<>(durable.awareHostileTokenIds());
+        awareEnemies.retainAll(currentHostileIds);
         boolean enemiesAware = false;
-        boolean hasDiscovery = false;
         var event = cycle.pendingMovementEvent();
         if (event != null && !event.discoveredByCharacterSheetIds().isEmpty()) {
-            aware = event.awareCharacterSheetIds();
-            enemiesAware = event.enemiesAware() && event.awareEnemyTokenIds().isEmpty() && event.hostileTokenId() == null;
-            hasDiscovery = true;
+            for (UUID hostileId : event.threatHostileTokenIds()) if (currentHostileIds.contains(hostileId))
+                aware.addAll(event.awareCharacterSheetIds());
+            awareEnemies.addAll(event.awareEnemyTokenIds());
+            if (event.enemiesAware() && event.awareEnemyTokenIds().isEmpty() && event.hostileTokenId() == null)
+                enemiesAware = true;
         }
         var proposal = cycle.pendingEnvironmentProposal();
-        if (!hasDiscovery && proposal != null && proposal.threatDiscovery() != null) {
-            aware = proposal.awareCharacterSheetIds();
-            enemiesAware = proposal.enemiesAware();
-            hasDiscovery = true;
+        if (proposal != null && proposal.threatDiscovery() != null) {
+            for (UUID hostileId : proposal.threatDiscovery().threatHostileTokenIds()) if (currentHostileIds.contains(hostileId))
+                aware.addAll(proposal.awareCharacterSheetIds());
+            awareEnemies.addAll(proposal.threatDiscovery().awareEnemyTokenIds());
+            if (proposal.enemiesAware() && proposal.threatDiscovery().awareEnemyTokenIds().isEmpty()
+                    && proposal.threatDiscovery().threatHostileTokenIds().isEmpty()) enemiesAware = true;
         }
-        if (!hasDiscovery) return participants;
-        final java.util.Set<UUID> known = aware;
+        final java.util.Set<UUID> known = java.util.Set.copyOf(aware);
+        final java.util.Set<UUID> knownEnemies = java.util.Set.copyOf(awareEnemies);
         final boolean hostileSideAware = enemiesAware;
-        java.util.Set<UUID> awareEnemies = java.util.Set.of();
-        if (event == null && proposal != null && proposal.threatDiscovery() != null)
-            awareEnemies = proposal.threatDiscovery().awareEnemyTokenIds();
-        else if (event != null) {
-            var eventAwareEnemies = new java.util.HashSet<>(event.awareEnemyTokenIds());
-            if (event.enemiesAware() && event.hostileTokenId() != null) eventAwareEnemies.add(event.hostileTokenId());
-            awareEnemies = java.util.Set.copyOf(eventAwareEnemies);
-        }
-        final java.util.Set<UUID> knownEnemies = awareEnemies;
         return participants.stream().map(participant -> {
             boolean hostile = participant.enemyKind() != null || participant.statBlock() != null;
             boolean isAware = hostile ? hostileSideAware || knownEnemies.contains(participant.participantId())

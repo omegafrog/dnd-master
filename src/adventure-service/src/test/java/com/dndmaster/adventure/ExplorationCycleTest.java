@@ -9,6 +9,20 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class ExplorationCycleTest {
+    @Test void olderPersistedCycleJsonDefaultsThreatAwarenessWithoutMigration() throws Exception {
+        UUID cycleId = UUID.randomUUID(), groupId = UUID.randomUUID();
+        String json = "{\"id\":\"" + cycleId + "\",\"cycleNumber\":1,\"initiativeByGroup\":{\""
+                + groupId + "\":10},\"groupOrder\":[\"" + groupId
+                + "\"],\"completedGroups\":[],\"phase\":\"GROUP_TURNS\","
+                + "\"environmentPhase\":\"ENEMIES_PATROLS_AND_DETECTION\",\"completedEnvironmentCommands\":[],"
+                + "\"elapsedSeconds\":0,\"pendingEnvironmentProposal\":null,\"completedEnvironmentActions\":[],"
+                + "\"pendingMovementEvent\":null,\"resolvedMovementEventIds\":[],\"linkedCombatEncounterId\":null}";
+
+        var cycle = new com.fasterxml.jackson.databind.ObjectMapper().readValue(json, ExplorationCycle.class);
+
+        assertEquals(ExplorationCycle.ThreatAwareness.empty(), cycle.threatAwareness());
+    }
+
     @Test void groupTurnsPauseWorldTimeAndThenAdvanceThroughSixSecondEnvironmentPhases() {
         UUID first = UUID.randomUUID(), second = UUID.randomUUID();
         ExplorationCycle cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(first, 18, second, 7));

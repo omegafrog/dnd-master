@@ -909,7 +909,7 @@ public class AdventureController {
                     var discovery = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.ThreatDiscovery(
                             new java.util.HashSet<>(typed.discovererCharacterSheetIds()), typed.enemyDiscoveredFirst(),
                             typed.enemyHeardNotification(), typed.bothSidesNotHidden(),
-                            new java.util.HashSet<>(typed.awareEnemyTokenIds()));
+                            new java.util.HashSet<>(typed.awareEnemyTokenIds()), eligibleEnemyTokenIds);
                     var partyIds = adventure.party().stream().map(member -> member.characterSheetId().value())
                             .collect(java.util.stream.Collectors.toSet());
                     proposal = proposal.withDiscovery(discovery, partyIds);
@@ -1727,7 +1727,7 @@ public class AdventureController {
         if (state.cycle() == null) return;
         var group = state.groups().stream().filter(candidate -> candidate.mapTokenId().equals(tokenId)).findFirst()
                 .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "MOVEMENT_TOKEN_NOT_IN_EXPLORATION_GROUP"));
-        persistMovementStopEvent(adventure, state, group, result);
+        persistMovementStopEvent(adventure, mapId, state, group, result);
     }
 
     private void persistMovementStopEvent(Adventure adventure, UUID mapId, CombatMapMoveResult result, boolean resolvePending) {
@@ -1740,7 +1740,8 @@ public class AdventureController {
         pending.ifPresent(item -> persistMovementStopEvent(adventure, item.mapId(), item.tokenId(), result));
     }
 
-    private void persistMovementStopEvent(Adventure adventure, com.dndmaster.adventure.domain.runtime.ExplorationState state,
+    private void persistMovementStopEvent(Adventure adventure, UUID mapId,
+            com.dndmaster.adventure.domain.runtime.ExplorationState state,
             com.dndmaster.adventure.domain.runtime.ExplorationGroup group, CombatMapMoveResult result) {
         if (result.operationId() == null || result.finalPosition() == null)
             throw new ApiRequestGuard.ApiContractException(502, "MAP_INTERRUPTION_RESULT_INCOMPLETE");
@@ -1752,10 +1753,7 @@ public class AdventureController {
                         + " groupId=" + group.id() + " resultStatus=" + result.status()
                         + " publicEventCount=" + result.publicEvents().size());
         try {
-        var event = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.MovementStopEvent(eventId, group.id(),
-                result.operationId(), result.interruptionReason(), result.publicEvents(),
-                new com.dndmaster.adventure.domain.runtime.ExplorationCycle.Position(result.finalPosition().x(), result.finalPosition().y()),
-                result.hostileTokenId());
+        var event = adjudicateMovementThreatDiscovery(adventure, mapId, state, group, result, eventId);
         var cycle = state.cycle().interruptGroupTurn(group.id(), event);
         if (cycle == state.cycle()) {
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
@@ -1778,6 +1776,80 @@ public class AdventureController {
                             + state.cycle().id() + " eventId=" + eventId + " operationId=" + result.operationId()
                             + " groupId=" + group.id() + " resultStatus=" + result.status()
                             + " publicEventCount=" + result.publicEvents().size() + " result=failed recoveryAction=retry_same_operation", started, failure);
+            throw failure;
+        }
+    }
+
+    com.dndmaster.adventure.domain.runtime.ExplorationCycle.MovementStopEvent adjudicateMovementThreatDiscovery(
+            Adventure adventure, UUID mapId, com.dndmaster.adventure.domain.runtime.ExplorationState state,
+            com.dndmaster.adventure.domain.runtime.ExplorationGroup group, CombatMapMoveResult result, UUID eventId) {
+        var position = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.Position(
+                result.finalPosition().x(), result.finalPosition().y());
+        if (!result.publicEvents().contains("HOSTILE_OBSERVED"))
+            return new com.dndmaster.adventure.domain.runtime.ExplorationCycle.MovementStopEvent(eventId, group.id(),
+                    result.operationId(), result.interruptionReason(), result.publicEvents(), position, result.hostileTokenId());
+        long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "exploration_movement_threat_discovery", "adventureId=" + adventure.id().value() + " eventId=" + eventId
+                        + " operationId=" + result.operationId() + " groupId=" + group.id()
+                        + " memberCount=" + group.members().size() + " publicEventCount=" + result.publicEvents().size());
+        try {
+            if (result.hostileTokenId() == null)
+                throw new ApiRequestGuard.ApiContractException(502, "MOVEMENT_HOSTILE_TOKEN_ID_MISSING");
+            UUID owner = adventure.ownerPlayerId().value();
+            var map = combatMapViewPort.playerView(adventure.id().value(), owner)
+                    .filter(view -> view.mapId().equals(mapId))
+                    .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "EXPLORATION_MAP_UNAVAILABLE"));
+            String gmMap = combatMapViewPort.gmEnvironmentView(mapId, owner);
+            var eligibleHostileIds = hostileTokenIds(gmMap);
+            if (!eligibleHostileIds.contains(result.hostileTokenId()))
+                throw new ApiRequestGuard.ApiContractException(502, "MOVEMENT_HOSTILE_NOT_IN_CURRENT_MAP");
+            var groupFacts = state.groups().stream().map(item -> Map.of("groupId", item.id(), "members", item.members().stream()
+                    .map(member -> Map.of("characterSheetId", member.characterSheetId(), "formation", member.formation(), "speed", member.speed())).toList())).toList();
+            int mapStateOffset = gmMap.indexOf(" GM_MAP_STATE=");
+            String movementContext = "MOVEMENT_THREAT_DISCOVERY=true\nMOVEMENT_OPERATION_ID=" + result.operationId()
+                    + "\nMOVEMENT_INTERRUPTION_CAUSE=" + (result.interruptionReason() == null ? "unspecified" : result.interruptionReason())
+                    + "\nMOVEMENT_FINAL_POSITION=" + objectMapper.valueToTree(position)
+                    + "\nHOSTILE_TOKEN_ID=" + result.hostileTokenId() + "\nEXPLORATION_GROUPS=" + objectMapper.valueToTree(groupFacts)
+                    + "\nELIGIBLE_HOSTILE_TOKEN_IDS=" + objectMapper.valueToTree(eligibleHostileIds)
+                    + (mapStateOffset < 0 ? "\n" + gmMap : "\n" + gmMap.substring(0, mapStateOffset) + gmMap.substring(mapStateOffset));
+            UUID discoveryCommandId = UUID.nameUUIDFromBytes((eventId + ":typed-threat-discovery")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            var generated = runtimeTurnService.planExplorationEnvironmentPhase(new AdventureId(adventure.id().value()),
+                    new OwnerPlayerId(owner), discoveryCommandId,
+                    com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION,
+                    movementContext);
+            if (generated.encounterRequested() || generated.hostileActionStarted()
+                    || !generated.enemyMoves().isEmpty() || !generated.featureInteractions().isEmpty())
+                throw new ApiRequestGuard.ApiContractException(502, "MOVEMENT_DISCOVERY_MUST_NOT_START_COMBAT_OR_APPLY_ENVIRONMENT");
+            var discovery = generated.threatDiscovery();
+            if (discovery == null || discovery.discovererCharacterSheetIds().isEmpty() && !discovery.enemyDiscoveredFirst())
+                throw new ApiRequestGuard.ApiContractException(502, "MOVEMENT_THREAT_DISCOVERY_RESULT_MISSING");
+            var groupMemberIds = group.members().stream().map(member -> member.characterSheetId()).collect(java.util.stream.Collectors.toSet());
+            if (!groupMemberIds.containsAll(discovery.discovererCharacterSheetIds())
+                    || !eligibleHostileIds.containsAll(discovery.awareEnemyTokenIds())
+                    || discovery.enemyHeardNotification()
+                    || (discovery.bothSidesNotHidden() && (discovery.enemyDiscoveredFirst()
+                            || !new java.util.HashSet<>(discovery.awareEnemyTokenIds()).equals(eligibleHostileIds)))
+                    || (discovery.enemyDiscoveredFirst() && !discovery.awareEnemyTokenIds().contains(result.hostileTokenId())))
+                throw new ApiRequestGuard.ApiContractException(502, "MOVEMENT_THREAT_DISCOVERY_IDS_INVALID");
+            var discovered = new java.util.HashSet<>(discovery.discovererCharacterSheetIds());
+            var awareCharacters = discovery.bothSidesNotHidden() ? groupMemberIds : discovered;
+            var event = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.MovementStopEvent(eventId, group.id(),
+                    result.operationId(), result.interruptionReason(), result.publicEvents(), position, result.hostileTokenId(),
+                    discovered, awareCharacters, false, discovery.awareEnemyTokenIds(), eligibleHostileIds);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "exploration_movement_threat_discovery", "adventureId=" + adventure.id().value() + " eventId=" + eventId
+                            + " operationId=" + result.operationId() + " groupId=" + group.id()
+                            + " eligibleHostileCount=" + eligibleHostileIds.size()
+                            + " discovererCount=" + discovered.size() + " awareHostileCount=" + discovery.awareEnemyTokenIds().size()
+                            + " result=private_discovery_saved", started);
+            return event;
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "exploration_movement_threat_discovery", "adventureId=" + adventure.id().value() + " eventId=" + eventId
+                            + " operationId=" + result.operationId() + " groupId=" + group.id()
+                            + " memberCount=" + group.members().size() + " publicEventCount=" + result.publicEvents().size()
+                            + " result=failed recoveryAction=retry_same_movement_operation", started, failure);
             throw failure;
         }
     }

@@ -25,10 +25,37 @@ public record ExplorationCycle(
         Set<UUID> completedEnvironmentActions,
         MovementStopEvent pendingMovementEvent,
         Set<UUID> resolvedMovementEventIds,
-        UUID linkedCombatEncounterId) {
+        UUID linkedCombatEncounterId,
+        ThreatAwareness threatAwareness) {
 
     public enum Phase { GROUP_TURNS, ENVIRONMENT }
     public enum EnvironmentPhase { ENEMIES_PATROLS_AND_DETECTION, HAZARDS_AND_ENVIRONMENT, DURATIONS_AND_DEADLINES }
+
+    public record ThreatAwareness(Map<UUID, Set<UUID>> awareCharactersByHostileTokenId,
+            Set<UUID> awareHostileTokenIds) {
+        public ThreatAwareness {
+            var copy = new java.util.HashMap<UUID, Set<UUID>>();
+            Objects.requireNonNullElse(awareCharactersByHostileTokenId, Map.<UUID, Set<UUID>>of())
+                    .forEach((hostileId, characters) -> copy.put(Objects.requireNonNull(hostileId),
+                            Set.copyOf(Objects.requireNonNullElse(characters, Set.of()))));
+            awareCharactersByHostileTokenId = Map.copyOf(copy);
+            awareHostileTokenIds = Set.copyOf(Objects.requireNonNullElse(awareHostileTokenIds, Set.of()));
+        }
+        public static ThreatAwareness empty() { return new ThreatAwareness(Map.of(), Set.of()); }
+        public ThreatAwareness merge(Set<UUID> hostileTokenIds, Set<UUID> awareCharacterIds,
+                Set<UUID> newlyAwareHostileIds) {
+            if (hostileTokenIds == null || hostileTokenIds.isEmpty()) return this;
+            var characters = new java.util.HashMap<>(awareCharactersByHostileTokenId);
+            for (UUID hostileId : hostileTokenIds) {
+                var merged = new java.util.HashSet<>(characters.getOrDefault(hostileId, Set.of()));
+                merged.addAll(Objects.requireNonNullElse(awareCharacterIds, Set.of()));
+                if (!merged.isEmpty()) characters.put(hostileId, Set.copyOf(merged));
+            }
+            var enemies = new java.util.HashSet<>(awareHostileTokenIds);
+            enemies.addAll(Objects.requireNonNullElse(newlyAwareHostileIds, Set.of()));
+            return new ThreatAwareness(characters, enemies);
+        }
+    }
 
     @JsonCreator public ExplorationCycle(
             @JsonProperty("id") UUID id,
@@ -44,7 +71,8 @@ public record ExplorationCycle(
             @JsonProperty("completedEnvironmentActions") Set<UUID> completedEnvironmentActions,
             @JsonProperty("pendingMovementEvent") MovementStopEvent pendingMovementEvent,
             @JsonProperty("resolvedMovementEventIds") Set<UUID> resolvedMovementEventIds,
-            @JsonProperty("linkedCombatEncounterId") UUID linkedCombatEncounterId) {
+            @JsonProperty("linkedCombatEncounterId") UUID linkedCombatEncounterId,
+            @JsonProperty("threatAwareness") ThreatAwareness threatAwareness) {
         this.id = Objects.requireNonNull(id, "cycle id must not be null");
         if (cycleNumber < 1 || elapsedSeconds < 0 || elapsedSeconds % 6 != 0)
             throw new IllegalArgumentException("cycle number and elapsed time are invalid");
@@ -61,6 +89,7 @@ public record ExplorationCycle(
         this.pendingMovementEvent = pendingMovementEvent;
         this.resolvedMovementEventIds = Set.copyOf(Objects.requireNonNullElse(resolvedMovementEventIds, Set.of()));
         this.linkedCombatEncounterId = linkedCombatEncounterId;
+        this.threatAwareness = Objects.requireNonNullElse(threatAwareness, ThreatAwareness.empty());
         if (this.groupOrder.isEmpty() || this.groupOrder.size() != this.initiativeByGroup.size()
                 || !new HashSet<>(this.groupOrder).equals(this.initiativeByGroup.keySet())
                 || this.groupOrder.stream().anyMatch(Objects::isNull)
@@ -68,6 +97,16 @@ public record ExplorationCycle(
             throw new IllegalArgumentException("cycle group order must include each scored group exactly once");
         if (phase != Phase.ENVIRONMENT && pendingEnvironmentProposal != null)
             throw new IllegalArgumentException("environment proposal requires environment phase");
+    }
+
+    public ExplorationCycle(UUID id, long cycleNumber, Map<UUID, Integer> initiativeByGroup, List<UUID> groupOrder,
+            Set<UUID> completedGroups, Phase phase, EnvironmentPhase environmentPhase,
+            Set<UUID> completedEnvironmentCommands, long elapsedSeconds, EnvironmentProposal pendingEnvironmentProposal,
+            Set<UUID> completedEnvironmentActions, MovementStopEvent pendingMovementEvent,
+            Set<UUID> resolvedMovementEventIds, UUID linkedCombatEncounterId) {
+        this(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase, environmentPhase,
+                completedEnvironmentCommands, elapsedSeconds, pendingEnvironmentProposal, completedEnvironmentActions,
+                pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId, ThreatAwareness.empty());
     }
 
     public ExplorationCycle(UUID id, long cycleNumber, Map<UUID, Integer> initiativeByGroup, List<UUID> groupOrder,
@@ -106,12 +145,21 @@ public record ExplorationCycle(
     public record MovementStopEvent(UUID id, UUID groupId, UUID movementOperationId, String cause,
             List<String> publicEvents, Position finalPosition, UUID hostileTokenId,
             Set<UUID> discoveredByCharacterSheetIds, Set<UUID> awareCharacterSheetIds, boolean enemiesAware,
-            Set<UUID> awareEnemyTokenIds) {
+            Set<UUID> awareEnemyTokenIds, Set<UUID> threatHostileTokenIds) {
         public MovementStopEvent(UUID id, UUID groupId, UUID movementOperationId, String cause,
                 List<String> publicEvents, Position finalPosition, UUID hostileTokenId,
                 Set<UUID> discoveredByCharacterSheetIds, Set<UUID> awareCharacterSheetIds, boolean enemiesAware) {
             this(id, groupId, movementOperationId, cause, publicEvents, finalPosition, hostileTokenId,
-                    discoveredByCharacterSheetIds, awareCharacterSheetIds, enemiesAware, Set.of());
+                    discoveredByCharacterSheetIds, awareCharacterSheetIds, enemiesAware, Set.of(),
+                    hostileTokenId == null ? Set.of() : Set.of(hostileTokenId));
+        }
+        public MovementStopEvent(UUID id, UUID groupId, UUID movementOperationId, String cause,
+                List<String> publicEvents, Position finalPosition, UUID hostileTokenId,
+                Set<UUID> discoveredByCharacterSheetIds, Set<UUID> awareCharacterSheetIds, boolean enemiesAware,
+                Set<UUID> awareEnemyTokenIds) {
+            this(id, groupId, movementOperationId, cause, publicEvents, finalPosition, hostileTokenId,
+                    discoveredByCharacterSheetIds, awareCharacterSheetIds, enemiesAware, awareEnemyTokenIds,
+                    hostileTokenId == null ? Set.of() : Set.of(hostileTokenId));
         }
         public MovementStopEvent(UUID id, UUID groupId, UUID movementOperationId, String cause,
                 List<String> publicEvents, Position finalPosition, UUID hostileTokenId) {
@@ -127,6 +175,8 @@ public record ExplorationCycle(
             discoveredByCharacterSheetIds = Set.copyOf(Objects.requireNonNullElse(discoveredByCharacterSheetIds, Set.of()));
             awareCharacterSheetIds = Set.copyOf(Objects.requireNonNullElse(awareCharacterSheetIds, Set.of()));
             awareEnemyTokenIds = Set.copyOf(Objects.requireNonNullElse(awareEnemyTokenIds, Set.of()));
+            threatHostileTokenIds = Set.copyOf(Objects.requireNonNullElse(threatHostileTokenIds,
+                    hostileTokenId == null ? Set.of() : Set.of(hostileTokenId)));
             if (!awareCharacterSheetIds.containsAll(discoveredByCharacterSheetIds))
                 throw new IllegalArgumentException("discoverers must be aware of the threat");
         }
@@ -142,19 +192,28 @@ public record ExplorationCycle(
             var awareEnemies = new HashSet<>(awareEnemyTokenIds);
             awareEnemies.addAll(heardEnemyTokenIds);
             return new MovementStopEvent(id, groupId, movementOperationId, cause, publicEvents, finalPosition,
-                    hostileTokenId, discoveredByCharacterSheetIds, shared, enemiesAware || enemiesHeardNotification, awareEnemies);
+                    hostileTokenId, discoveredByCharacterSheetIds, shared, enemiesAware || enemiesHeardNotification,
+                    awareEnemies, threatHostileTokenIds);
         }
     }
 
     public record ThreatDiscovery(Set<UUID> discovererCharacterSheetIds, boolean enemyDiscoveredFirst,
-            boolean enemyHeardNotification, boolean bothSidesNotHidden, Set<UUID> awareEnemyTokenIds) {
+            boolean enemyHeardNotification, boolean bothSidesNotHidden, Set<UUID> awareEnemyTokenIds,
+            Set<UUID> threatHostileTokenIds) {
         public ThreatDiscovery(Set<UUID> discovererCharacterSheetIds, boolean enemyDiscoveredFirst,
                 boolean enemyHeardNotification, boolean bothSidesNotHidden) {
-            this(discovererCharacterSheetIds, enemyDiscoveredFirst, enemyHeardNotification, bothSidesNotHidden, Set.of());
+            this(discovererCharacterSheetIds, enemyDiscoveredFirst, enemyHeardNotification, bothSidesNotHidden,
+                    Set.of(), Set.of());
+        }
+        public ThreatDiscovery(Set<UUID> discovererCharacterSheetIds, boolean enemyDiscoveredFirst,
+                boolean enemyHeardNotification, boolean bothSidesNotHidden, Set<UUID> awareEnemyTokenIds) {
+            this(discovererCharacterSheetIds, enemyDiscoveredFirst, enemyHeardNotification, bothSidesNotHidden,
+                    awareEnemyTokenIds, Set.of());
         }
         public ThreatDiscovery {
             discovererCharacterSheetIds = Set.copyOf(Objects.requireNonNullElse(discovererCharacterSheetIds, Set.of()));
             awareEnemyTokenIds = Set.copyOf(Objects.requireNonNullElse(awareEnemyTokenIds, Set.of()));
+            threatHostileTokenIds = Set.copyOf(Objects.requireNonNullElse(threatHostileTokenIds, Set.of()));
             if (enemyDiscoveredFirst && !discovererCharacterSheetIds.isEmpty())
                 throw new IllegalArgumentException("enemy-first discovery cannot name party discoverers");
             if (bothSidesNotHidden && enemyDiscoveredFirst)
@@ -223,7 +282,8 @@ public record ExplorationCycle(
             var awareEnemies = new HashSet<>(threatDiscovery.awareEnemyTokenIds());
             awareEnemies.addAll(heardEnemyTokenIds);
             var discovery = new ThreatDiscovery(threatDiscovery.discovererCharacterSheetIds(),
-                    threatDiscovery.enemyDiscoveredFirst(), enemiesHeardNotification, threatDiscovery.bothSidesNotHidden(), awareEnemies);
+                    threatDiscovery.enemyDiscoveredFirst(), enemiesHeardNotification, threatDiscovery.bothSidesNotHidden(),
+                    awareEnemies, threatDiscovery.threatHostileTokenIds());
             return new EnvironmentProposal(narration, enemyMoves, featureInteractions, expectedMapVersion,
                     encounterRequested, linkedCombatEncounterId, discovery, shared, hostileActionStarted);
         }
@@ -290,9 +350,13 @@ public record ExplorationCycle(
             throw new IllegalArgumentException("spatial feature interactions are allowed only during the hazards and environment phase");
         if (pendingEnvironmentProposal != null && !pendingEnvironmentProposal.equals(proposal))
             throw new IllegalStateException("environment proposal is already persisted");
+        ThreatAwareness awareness = threatAwareness;
+        if (proposal.threatDiscovery() != null) awareness = awareness.merge(
+                proposal.threatDiscovery().threatHostileTokenIds(), proposal.awareCharacterSheetIds(),
+                proposal.threatDiscovery().awareEnemyTokenIds());
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
                 environmentPhase, completedEnvironmentCommands, elapsedSeconds, proposal, completedEnvironmentActions,
-                pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId);
+                pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId, awareness);
     }
 
     public ExplorationCycle shareThreatWithGroup(UUID groupId, UUID discovererId, Set<UUID> groupMemberIds,
@@ -310,18 +374,20 @@ public record ExplorationCycle(
                 throw new IllegalArgumentException("sharing actor has not discovered the threat");
             if (pendingMovementEvent.awareCharacterSheetIds().containsAll(members)) return this;
             var event = pendingMovementEvent.shareWith(members, discovererId, enemiesHeardNotification, heardEnemyTokenIds);
+            var awareness = threatAwareness.merge(event.threatHostileTokenIds(), members, heardEnemyTokenIds);
             return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
                     environmentPhase, completedEnvironmentCommands, elapsedSeconds, pendingEnvironmentProposal,
-                    completedEnvironmentActions, event, resolvedMovementEventIds, linkedCombatEncounterId);
+                    completedEnvironmentActions, event, resolvedMovementEventIds, linkedCombatEncounterId, awareness);
         }
         if (pendingEnvironmentProposal != null && pendingEnvironmentProposal.threatDiscovery() != null) {
             if (!pendingEnvironmentProposal.threatDiscovery().discovererCharacterSheetIds().contains(discovererId))
                 throw new IllegalArgumentException("sharing actor has not discovered the threat");
             if (pendingEnvironmentProposal.awareCharacterSheetIds().containsAll(members)) return this;
             var proposal = pendingEnvironmentProposal.shareWith(members, discovererId, enemiesHeardNotification, heardEnemyTokenIds);
+            var awareness = threatAwareness.merge(proposal.threatDiscovery().threatHostileTokenIds(), members, heardEnemyTokenIds);
             return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
                     environmentPhase, completedEnvironmentCommands, elapsedSeconds, proposal,
-                    completedEnvironmentActions, pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId);
+                    completedEnvironmentActions, pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId, awareness);
         }
         throw new IllegalStateException("no shareable threat discovery is pending");
     }
@@ -335,7 +401,7 @@ public record ExplorationCycle(
             linked = linked.linkCombatEncounter(encounterId);
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
                 environmentPhase, completedEnvironmentCommands, elapsedSeconds, linked, completedEnvironmentActions,
-                pendingMovementEvent, resolvedMovementEventIds, encounterId);
+                pendingMovementEvent, resolvedMovementEventIds, encounterId, ThreatAwareness.empty());
     }
 
     public ExplorationCycle resumeAfterCombat(UUID encounterId) {
@@ -344,7 +410,7 @@ public record ExplorationCycle(
             throw new IllegalArgumentException("combat encounter does not match the suspended exploration cycle");
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
                 environmentPhase, completedEnvironmentCommands, elapsedSeconds, pendingEnvironmentProposal,
-                completedEnvironmentActions, pendingMovementEvent, resolvedMovementEventIds, null);
+                completedEnvironmentActions, pendingMovementEvent, resolvedMovementEventIds, null, ThreatAwareness.empty());
     }
 
     public ExplorationCycle resolveEncounterWithoutCombat() {
@@ -358,7 +424,7 @@ public record ExplorationCycle(
                 pendingEnvironmentProposal.awareCharacterSheetIds(), pendingEnvironmentProposal.hostileActionStarted());
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
                 environmentPhase, completedEnvironmentCommands, elapsedSeconds, resolved, completedEnvironmentActions,
-                pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId);
+                pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId, threatAwareness);
     }
 
     public ExplorationCycle completeEnvironmentAction(UUID actionId) {
@@ -370,7 +436,7 @@ public record ExplorationCycle(
         completed.add(actionId);
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, phase,
                 environmentPhase, completedEnvironmentCommands, elapsedSeconds, pendingEnvironmentProposal, completed,
-                pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId);
+                pendingMovementEvent, resolvedMovementEventIds, linkedCombatEncounterId, threatAwareness);
     }
 
     /** A stopping event closes this group's movement turn; no remaining route is replayed. */
@@ -387,7 +453,7 @@ public record ExplorationCycle(
         Phase nextPhase = completed.size() == groupOrder.size() ? Phase.ENVIRONMENT : Phase.GROUP_TURNS;
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completed, nextPhase,
                 environmentPhase, completedEnvironmentCommands, elapsedSeconds, null, Set.of(), null,
-                resolvedMovementEventIds, linkedCombatEncounterId);
+                resolvedMovementEventIds, linkedCombatEncounterId, threatAwareness);
     }
 
     public ExplorationCycle interruptGroupTurn(UUID groupId, MovementStopEvent event) {
@@ -406,7 +472,8 @@ public record ExplorationCycle(
         completed.add(groupId);
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completed, Phase.GROUP_TURNS,
                 environmentPhase, completedEnvironmentCommands, elapsedSeconds, pendingEnvironmentProposal,
-                completedEnvironmentActions, event, resolvedMovementEventIds, linkedCombatEncounterId);
+                completedEnvironmentActions, event, resolvedMovementEventIds, linkedCombatEncounterId,
+                threatAwareness.merge(event.threatHostileTokenIds(), event.awareCharacterSheetIds(), event.awareEnemyTokenIds()));
     }
 
     public ExplorationCycle resolveMovementEvent(UUID eventId) {
@@ -420,7 +487,7 @@ public record ExplorationCycle(
         resolved.add(eventId);
         return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, nextPhase,
                 environmentPhase, completedEnvironmentCommands, elapsedSeconds, null, Set.of(), null, resolved,
-                linkedCombatEncounterId);
+                linkedCombatEncounterId, threatAwareness);
     }
 
     public boolean movementEventResolved(UUID eventId) { return resolvedMovementEventIds.contains(eventId); }
@@ -441,9 +508,10 @@ public record ExplorationCycle(
         if (nextIndex < phases.length) {
             return new ExplorationCycle(id, cycleNumber, initiativeByGroup, groupOrder, completedGroups, Phase.ENVIRONMENT,
                     phases[nextIndex], completed, elapsedSeconds, null, Set.of(), null, resolvedMovementEventIds,
-                    linkedCombatEncounterId);
+                    linkedCombatEncounterId, threatAwareness);
         }
         return new ExplorationCycle(id, cycleNumber + 1, initiativeByGroup, groupOrder, Set.of(), Phase.GROUP_TURNS,
-                EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION, completed, elapsedSeconds + 6, null, Set.of());
+                EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION, completed, elapsedSeconds + 6, null, Set.of(), null,
+                Set.of(), null, threatAwareness);
     }
 }
