@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "revision": 52,
+  "revision": 54,
   "updated_at": "2026-10-22",
-  "change_summary": "최종 계획 색인을 스펙 브랜치 기준으로 정리했다.",
+  "change_summary": "Plan-367 verification profile, execution guidance, and requirement evidence; no product or architecture contract behavior changed.",
   "source_roots": [
     "src",
     ".github",
@@ -301,7 +301,7 @@
       "reason": "폐기된 검색 설계에는 현행 상태와 전이가 없다."
     }
   ],
-  "no_contract_change": "변경은 계획 색인의 브랜치 참조와 문서 동기화다. 제품 동작과 소유 경계는 바뀌지 않았다.",
+  "no_contract_change": "No application source, model, API or business behavior changed; only a focused unit-test profile, its operator note, and requirement evidence were added.",
   "hashes": {
     "@model": "54537ebc81dcd515399470ca544adf583339dd963d8c0c6890e8c5ff69d8de80",
     ".github/pull_request_template.md": "4a773c8b13e402f6e7b2c5fe02d78f74cf2dc094045b7952f45b3021eb62f552",
@@ -311,8 +311,8 @@
     "CONTEXT-MAP.md": "38ad518112129eedbbd581013513cee47f81bc2d98a5637d674f40d6a3bdc273",
     "CONTEXT.md": "2b16537ddd8358011cbbdc72379526b8fe19645f871ce9fde1bcd9f5018e6185",
     "docs/agents/BROWSER.md": "40ca720ba1ff22d1f350a9ba460bdca201257d2ae75782f4223c681504f4f186",
-    "docs/agents/EXEC.md": "84359225145d50d807687f406de8979fac25a72d54d934d2b4b5ee5737530f45",
-    "docs/agents/execution.json": "885531fdf9c02b6b26e3b33b5640a23cc2958a2dbce97e92b2f64074d345cc21",
+    "docs/agents/EXEC.md": "a6b96b829e328c13978640ac311b134d7a678e3369cf133089b98cf49e29e678",
+    "docs/agents/execution.json": "185b23ed8ae9a93303a3e5a3c6c0a246c8c31977ca5394a41d50b90dc486b82d",
     "docs/agents/implementation-guidance.md": "2e68cac4b5bc186c6fd408458b056dbbb88aa7f782ddcaf0379aed2c5e5810a8",
     "docs/agents/plan-status.md": "da3a90debca2185a8015e3df913acd49a64ef13b8eafc34acb84904940a10ae4",
     "docs/agents/testing-guidance.md": "ae5a4cf5657181bfe215bec55185e772a2f9886042a84abf5209cc89e7dc1783",
@@ -371,7 +371,7 @@
     "docs/plans/combat-movement-spell-range/map-entry-flow.md": "82a867389d52f4c1019ce279b9dd9fa97e537491792c65b26d4637e2bd872906",
     "docs/plans/combat-movement-spell-range/plans.md": "d061110a127892723e0149d709911fb8cd7dc8207c6b6e7a7bf09151c92374e4",
     "docs/plans/combat-movement-spell-range/rulebook-action-extraction.md": "821e856fe9f70233dcf4fa234d74cbd08efcfe7fae4ab74a8fc5a6b19c0d0cc4",
-    "docs/plans/combat-movement-spell-range/traceability.json": "515965bc8bdb899bd2c63fb40f9bb24327e6c1d94e41e89b685fa3cd4eae4a31",
+    "docs/plans/combat-movement-spell-range/traceability.json": "0ac579a6aefc03d8cd45df0519bfb0ad1f5201aec58bf5cc50bd3f7686afd741",
     "docs/plans/document-preprocessing-pivot.md": "98788bbd0ad536b93250561d667945e6012365c277f3b426822b5fd5e6acc4c6",
     "docs/plans/gm-context-compaction/plans.md": "f03a210e67086da62ed8c2641ca36dce9cf30d87490a96fa969702a8fd3ed538",
     "docs/plans/hybrid-rag-evidence-selection/plans.md": "d04bfc0f239d5dcaa44ecbd942b43a63838f9f22deaf3b756a4bb83cd69844d5",

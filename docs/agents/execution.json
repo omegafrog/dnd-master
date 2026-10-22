@@ -1068,6 +1068,52 @@
       "timeout_ms": 5700000,
       "readiness_timeout_ms": 180000,
       "poll_interval_ms": 2000
+    },
+    "adventure-exploration-cycle-unit": {
+      "command": [
+        "./src/gradlew",
+        "-p",
+        "src",
+        ":adventure-service:test",
+        "--tests",
+        "com.dndmaster.adventure.MapMovementCoordinatorTest",
+        "--tests",
+        "com.dndmaster.adventure.ExplorationCycleTest",
+        "--tests",
+        "com.dndmaster.adventure.api.ExplorationEnvironmentControllerTest"
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "docs/agents/EXEC.md",
+        "docs/agents/execution.json",
+        "src/gradlew",
+        "src/gradle/wrapper/gradle-wrapper.properties",
+        "src/settings.gradle.kts",
+        "src/build.gradle.kts",
+        "src/adventure-service/build.gradle.kts",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/MapMovementCoordinator.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/MapMovementCoordinatorTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java"
+      ],
+      "prepare": [],
+      "verify_config": [
+        [
+          "test",
+          "-x",
+          "src/gradlew"
+        ],
+        [
+          "java",
+          "-version"
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 600000,
+      "readiness_timeout_ms": 5000,
+      "poll_interval_ms": 250
     }
   }
 }

@@ -10,6 +10,8 @@ Run the #367 movement-coordinator, map-image source, exploration-cycle rules and
 
 The matching Harness profile is `adventure-focused-unit` in `docs/agents/execution.json`.
 
+The plan-scoped Harness profile `adventure-exploration-cycle-unit` runs only the #367 movement coordinator, exploration cycle, and exploration environment controller tests. Use this profile for plan-367 verification; its behavior is covered by focused unit and policy tests, while the integrated agent-driven journey is reserved for #375.
+
 ## 에이전트 응답 기반 모험 E2E
 
 실제 브라우저 실행 전 [브라우저 실행·연결 절차](BROWSER.md)를 읽는다. 수동 모험 E2E는 headed Chromium에서 실제 화면을 캡처하고 한 단계씩 조작한다. 이 절차에서는 CUA Driver를 사용하지 않는다.
