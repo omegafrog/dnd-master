@@ -2366,10 +2366,10 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java",
-              "sha256": "1bc6dfedeb63a6580ed9b15bf233762efdf0ffb9e84967f1b32c20a96d763345"
+              "sha256": "848ba60b9fe2fd303093a360d0a68ab52c90bd1f11cb483de2e350f4ee9c6eeb"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-c143c93e-b2f4-486d-b6df-02623468300e/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1b7974ab-cee1-48a5-ac47-56abeb657e67/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#AC-35",
@@ -2498,10 +2498,10 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java",
-              "sha256": "1bc6dfedeb63a6580ed9b15bf233762efdf0ffb9e84967f1b32c20a96d763345"
+              "sha256": "848ba60b9fe2fd303093a360d0a68ab52c90bd1f11cb483de2e350f4ee9c6eeb"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-c143c93e-b2f4-486d-b6df-02623468300e/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1b7974ab-cee1-48a5-ac47-56abeb657e67/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#AC-41",
@@ -2630,10 +2630,10 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java",
-              "sha256": "1bc6dfedeb63a6580ed9b15bf233762efdf0ffb9e84967f1b32c20a96d763345"
+              "sha256": "848ba60b9fe2fd303093a360d0a68ab52c90bd1f11cb483de2e350f4ee9c6eeb"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-c143c93e-b2f4-486d-b6df-02623468300e/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1b7974ab-cee1-48a5-ac47-56abeb657e67/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-41",
@@ -2762,10 +2762,10 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java",
-              "sha256": "1bc6dfedeb63a6580ed9b15bf233762efdf0ffb9e84967f1b32c20a96d763345"
+              "sha256": "848ba60b9fe2fd303093a360d0a68ab52c90bd1f11cb483de2e350f4ee9c6eeb"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-c143c93e-b2f4-486d-b6df-02623468300e/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1b7974ab-cee1-48a5-ac47-56abeb657e67/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-42",
@@ -2894,10 +2894,10 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java",
-              "sha256": "1bc6dfedeb63a6580ed9b15bf233762efdf0ffb9e84967f1b32c20a96d763345"
+              "sha256": "848ba60b9fe2fd303093a360d0a68ab52c90bd1f11cb483de2e350f4ee9c6eeb"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-c143c93e-b2f4-486d-b6df-02623468300e/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1b7974ab-cee1-48a5-ac47-56abeb657e67/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-43",
@@ -3026,10 +3026,10 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java",
-              "sha256": "1bc6dfedeb63a6580ed9b15bf233762efdf0ffb9e84967f1b32c20a96d763345"
+              "sha256": "848ba60b9fe2fd303093a360d0a68ab52c90bd1f11cb483de2e350f4ee9c6eeb"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-c143c93e-b2f4-486d-b6df-02623468300e/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1b7974ab-cee1-48a5-ac47-56abeb657e67/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-49",
@@ -3158,10 +3158,10 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java",
-              "sha256": "1bc6dfedeb63a6580ed9b15bf233762efdf0ffb9e84967f1b32c20a96d763345"
+              "sha256": "848ba60b9fe2fd303093a360d0a68ab52c90bd1f11cb483de2e350f4ee9c6eeb"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-c143c93e-b2f4-486d-b6df-02623468300e/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1b7974ab-cee1-48a5-ac47-56abeb657e67/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#G-09",
@@ -3290,10 +3290,10 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java",
-              "sha256": "1bc6dfedeb63a6580ed9b15bf233762efdf0ffb9e84967f1b32c20a96d763345"
+              "sha256": "848ba60b9fe2fd303093a360d0a68ab52c90bd1f11cb483de2e350f4ee9c6eeb"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-c143c93e-b2f4-486d-b6df-02623468300e/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1b7974ab-cee1-48a5-ac47-56abeb657e67/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#G-10",
@@ -3422,10 +3422,10 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java",
-              "sha256": "1bc6dfedeb63a6580ed9b15bf233762efdf0ffb9e84967f1b32c20a96d763345"
+              "sha256": "848ba60b9fe2fd303093a360d0a68ab52c90bd1f11cb483de2e350f4ee9c6eeb"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-c143c93e-b2f4-486d-b6df-02623468300e/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1b7974ab-cee1-48a5-ac47-56abeb657e67/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#UC-005",
@@ -3554,10 +3554,10 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java",
-              "sha256": "1bc6dfedeb63a6580ed9b15bf233762efdf0ffb9e84967f1b32c20a96d763345"
+              "sha256": "848ba60b9fe2fd303093a360d0a68ab52c90bd1f11cb483de2e350f4ee9c6eeb"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-c143c93e-b2f4-486d-b6df-02623468300e/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1b7974ab-cee1-48a5-ac47-56abeb657e67/receipt.json"
         }
       ]
     }

@@ -59,7 +59,7 @@ class CombatStartParticipantFactoryDiagnosticsTest {
 
     @Test
     void disabled_diagnostics_emit_no_awareness_transfer_logs() {
-        System.clearProperty(DevelopmentDiagnostics.FLAG);
+        System.setProperty(DevelopmentDiagnostics.FLAG, "false");
         UUID groupId = UUID.randomUUID();
         CombatStartParticipantFactory.applyExplorationAwareness(
                 List.of(new CombatParticipant(UUID.randomUUID(), "Hero", CombatParticipant.Controller.PLAYER, 10, null)),
