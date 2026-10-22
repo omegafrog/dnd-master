@@ -1,7 +1,7 @@
 # 전투 이동·주문 사거리 Architecture Spec
 
 - 범위 ID: `combat-movement-spell-range`
-- 문서 상태: **READY** — 적대적 리뷰와 다이어그램 게이트 통과; 애플리케이션 테스트는 수행하지 않음
+- 문서 상태: **READY** — Product·Architecture의 새 독립 리뷰, `system_targets_complete`, `harness-spec-review check` 통과; 통합 계약 revision 42 봉인 및 다이어그램 렌더·링크·해시 확인 완료; 애플리케이션 테스트·E2E는 실행하지 않음
 - 입력: [Product Spec](product-spec.md), [runtime decisions](runtime-decisions.md), `CONTEXT.md`, `CONTEXT-MAP.md`, ADR-001, ADR-003, ADR-012, ADR-013, ADR-018, ADR-019, [ADR-024](../../adr/ADR-024-agent-driven-runtime-e2e.md), code-research 결과
 - Engineering Decision metadata: 승인된 ID 기반 decision workflow opt-in이 아니므로 decision ID, 승인 ID, Principle/Evidence ID를 만들지 않는다.
 
@@ -259,7 +259,7 @@ Adventure Runtime은 정의·그룹 실행과 기존 `CombatEncounter`를 조정
 
 목록: [UC-001·UC-002·UC-004·UC-005·UC-006 능력·그룹 이동·파티 통제·대화 클래스 다이어그램](diagrams/architecture/spell-action.class.svg), 원본 `diagrams/architecture/spell-action.class.puml`. 파티 구성원(`AdventurePartyMember`), 인증된 Solo Player의 기존 모험 세션(`AdventureSession`, 기존 세션 자료형) 소유자, 구성원별 제어 권한 관계를 구분한다. 기존 `ControlMode=AGENT` 값(파티 제어 방식 표기)은 보존되는 저장값이며 AI 파티 차례를 뜻하지 않는다.
 
-설계 상태 다이어그램은 추가하지 않는다. UC-006 활동 다이어그램이 사용자 흐름을 표현하며, 별도 저장 선택 상태가 없다. 현재 상태 다이어그램은 능력·탐험의 기존 상태만 표현한다.
+이번 전투 이동 중단 보완에는 새 클래스 다이어그램이 해당 없음이다. 기존 소유자와 자료형을 재사용하며 새 모델 클래스를 도입하지 않는다. UC-006에는 별도 저장 선택 상태가 없다. 전투 이동 예약·판정 대기·최종 반영은 아래 설계 상태 다이어그램으로 구분한다.
 
 ## 3.5 Value Objects
 
@@ -337,6 +337,8 @@ Adventure Runtime은 정의·그룹 실행과 기존 `CombatEncounter`를 조정
 ## 3.8.1 State Diagram
 
 [실행 상태 다이어그램](diagrams/architecture/spell-action-execution.state.svg)은 능력 습득·복구·사용 및 탐험 그룹 순환·사건 중단을 나타낸다. 원본은 `diagrams/architecture/spell-action-execution.state.puml`이다. UC-006에는 별도 저장 선택 상태가 없으므로 새로운 설계 상태 다이어그램은 해당 없음이다.
+
+[전투 이동 중단 설계 상태 다이어그램](diagrams/architecture/combat-movement-interruption.state.svg)은 이동 예약, 필수 판정 대기, 사건 판정, 실제 통과 경로의 최종 반영과 같은 플레이어 차례의 입력 대기를 나타낸다. 원본은 `diagrams/architecture/combat-movement-interruption.state.puml`이다. 연결 요구사항은 UC-002, BR-05/08/16/18/19, AC-05/08/16/20, ST-UC-002-01~03이다. Product 업무 흐름과 달리 저장·판정 경계의 책임을 나타낸다.
 
 ## 3.9 Repository Boundaries
 
@@ -422,6 +424,32 @@ Adventure Runtime은 정의·그룹 실행과 기존 `CombatEncounter`를 조정
 2. 실행 확정은 미리보기 결과를 권위 자료로 사용하지 않는다. Adventure Runtime이 현재 턴·권한·정의 revision·캐릭터 자원·전투/지도 버전과 대상·선택을 다시 확인하고, Combat Map이 공간 규칙을 다시 검증한다. 이전 버전이면 비용 없이 거부하고 최신 공개 미리보기를 돌려준다.
 3. 실행 가능한 능력은 전투 실행 경계에서 효과와 필요한 자원 변경을 명령 ID당 한 번 확정한다. 엔진이 효과를 처리하지 못하면 GM이 효과와 상태 변경 전체를 대체 해결하고, 결과는 기존 상태 소유 경계에서 검증·저장한다.
 4. 환경 응용은 기본 주문 효과와 비용 확정 뒤 별도 단계로 처리한다. GM은 실행 전에 허용 작업 목록·입력 형식·제약을 받고, 목록의 작업만 호출한다. 판정이 필요하면 기존 플레이어 굴림 제출 흐름을 사용한다. 호출 실패는 오류와 제약을 GM에 돌려 재시도할 수 있게 하며 고정 재시도 횟수를 두지 않는다. 재시도는 기본 효과나 비용을 반복하지 않는다.
+
+### 전투 이동 중단과 같은 플레이어 차례의 재개
+
+이 보완은 **accepted-target**이다. UC-002, BR-05/08/16/18/19, AC-05/08/16/20 및 ST-UC-002-01~03을 기존 Adventure Runtime의 `CombatEncounter`와 Combat Map 안에서 구현한다. 새 aggregate·context·module·배포 단위는 만들지 않는다.
+
+1. 플레이어는 자기 차례의 행동 전·사이·후에 남은 이동량과 규칙이 허용하는 경로를 확인한다. `CombatActionApplicationService.submitMovement`는 현재 참가자·차례·권한·이동 예산을 검증하고 기존 `MapMovementCoordinator`와 `CombatMapPort`로 이동을 조정한다. `CombatEncounter`는 이동 사용량과 남은 예산 및 차례의 정본이고, Combat Map은 실제 위치·경로·시야의 정본이다.
+2. ADR-018에 따라 Combat Map은 확인된 경로를 장기 실행 이동 예약에 보존하고 칸 순서로 검증한다. GM 처리가 필요한 발견·함정·반응 등 사건에 도달하면 그 칸에서 경로 진행을 멈추고 실제 통과 경로·중단 이유·공개 가능한 사건 사실을 Adventure Runtime에 전달한다. 칸별 진행은 각 칸을 개별 영속 저장한다는 뜻이 아니다. 필수 판정이 모두 준비될 때까지 공개 지도 변경을 보류하고, 실제 통과한 최종 위치·공간 요소·시야를 하나의 로컬 트랜잭션으로 반영한다.
+3. Adventure Runtime은 백엔드가 발급한 기존 작업·차례 식별자와 중단 사실을 GM 요청에 결합한다. GM은 아래 전용 고정 응답 계약으로 사건을 판정·서술한다. 백엔드는 전용 스키마와 현재 작업·차례를 검증한 뒤 기존 상태 소유자에게 필요한 변경만 적용한다. GM은 이동 소비량·토큰 위치·턴 종료를 결정하지 않는다.
+4. 지도 최종 반영과 필수 후속 변경은 ADR-003의 기존 멱등 처리로 완료한다. 확정된 실제 이동량만 `CombatEncounter`에 한 번 반영한다. 지도 반영 뒤 후속 실패는 지도를 되돌리거나 비용을 다시 적용하지 않고 같은 작업을 복구한다. 필수 변경이 끝나기 전 성공 서술은 확정하지 않는다.
+5. 사건 해결 후 같은 플레이어 차례에서 입력을 기다린다. 플레이어는 남은 이동량으로 새 합법 경로를 확인하거나, 다른 가능한 행동을 하거나, 명시적으로 턴 종료를 선택한다. 중단된 경로의 나머지는 자동 실행하지 않는다. GM 서술은 토큰 이동이나 턴 종료 명령이 아니다. 탐험 사건 뒤 사건 그룹의 차례를 끝내는 기존 규칙을 전투 플레이어 차례에 적용하지 않는다.
+
+직접 UI 지도 행동과 `/combat/actions`(전투 행동 제출 경로)는 별도 호출자이므로 두 진입 경로 모두 위 중단·전용 GM 계약·재시도 규칙에 연결한다. 한 경로만 보완해 다른 경로가 일반 이동 서술로 우회하지 않도록 검증한다.
+
+### 현재 구현 근거와 목표 차이
+
+현재 지도 반영·전투 이동 예산 갱신·작업 완료는 하나의 원자적 저장으로 보장되지 않는다. `committedDistance`(실제 확정 이동 거리)는 로컬 값이고 저장은 순차적이므로, 지도만 반영된 뒤 중단되면 전투 예산과 어긋날 구조적 위험이 있다. 목표는 분산 원자성을 주장하는 것이 아니라 같은 장기 실행 작업 기록에서 지도 확정 결과를 재조회해 미완료 전투 예산·완료 기록만 한 번 복구하는 것이다. 지도 반영 직후·예산 저장 직후·완료 기록 직전의 장애를 각각 주입하여 사용량 누락·중복이 없는지 확인해야 한다.
+
+다음은 제공된 domain-baseline 조사(commit `65db32352eec348e9b23d7c1691607539b856c56`)의 **implemented** 사실이며 목표 완료를 뜻하지 않는다.
+
+| 기존 소유자·메서드 | 현재 근거 | accepted-target 변경 책임 |
+|---|---|---|
+| `CombatActionApplicationService.submitMovement` | `src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java:562-627`; 이동은 현재 참가자를 넘기지 않고 실제 이동량을 반영하나, 598-625의 직접 이동 응답은 중단 이유·공개 사건을 GM에 전달하지 않고 `MOVE_COMMITTED`(이동 확정 기록) 서술로 처리 | 중단 사실을 전용 GM 처리로 연결하고 같은 작업·차례에서 검증·복구; 일반 이동 완료와 사건 처리 구분 |
+| `CombatEncounter` | `src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatEncounter.java:98-110`; 이동 예산과 차례 소유 | 실제 이동 사용량만 한 번 적용; 사건 서술 뒤에도 명시적 종료 전 현재 플레이어 유지 |
+| `CombatMapMovementService` | `src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/movement/CombatMapMovementService.java:366-381`; 칸별 이동·중단 처리 | ADR-018 예약과 실제 통과 경로의 원자적 최종 반영 유지; 중단 이유·공개 사건 전달 |
+| `CombatMapRuntimeTurnCommandAdapter`, `TypedRuntimeContinuationCommandAdapter` | 기존 이어 처리에서 `HOSTILE_OBSERVED`(적에게 발견됨)만 전투로 연결하고 `hostileTokenId`(적 토큰 식별자)를 필수로 요구함; 각각 116-131, 59 및 `AdventureApiConfiguration.java:426-429` | 적 발견 이외의 GM 처리 사건도 전달하도록 기존 이어 처리 경계 확장; 모든 사건에 적 토큰을 요구하지 않음 |
+| 기존 AI 응답 계약 | `combat-turn-decision-response.json`은 행동·턴 종료 판단, `runtime-turn-response.json`은 비전투 진행 서술 범위 | 어느 계약도 전투 이동 중단 전용 계약으로 간주하지 않고 아래 전용 스키마 검증 경계 구현 |
 
 ## 4.4 Component Call Contracts
 
@@ -644,6 +672,20 @@ No new asynchronous message channel is required by the settled contract.
 | 파티원 행동 명령 | 기존 명령 결과 또는 권한 거부 | 인증된 Solo Player, 기존 모험 세션(`AdventureSession`, 기존 세션 자료형)의 소유자 및 파티 구성원 관계를 검증; 기존 명령 ID/명령 소유자 검증 재사용; `ControlMode=AGENT` 값(과거 파티 제어 방식 표기)은 권한으로 쓰지 않음 |
 | 동료 대화 응답 | 대사; 선택지/입력 프롬프트; 근거 있는 성격 충돌 설명 | 기존 대화 응답을 반환하고 다음 기존 사용자 입력을 기다림; 새 요청 경로나 저장 선택 상태를 추가하지 않음; 응답만으로 파티 상태를 변경하지 않음 |
 
+### 전투 이동 중단 GM 전용 고정 응답 계약
+
+사용자가 확인한 전용 계약의 의미 항목은 다음과 같다. 구체적인 JSON 키·자료형·실행 가능한 스키마 모양은 이 문서에서 새로 정하지 않으며, 아래 의미를 만족하도록 구현 산출물에서 설계한다.
+
+| 의미 항목 | 책임·검증 |
+|---|---|
+| 사건 판정 결과 | 백엔드가 제공한 중단 사실에 대한 결과를 고정 구조로 반환; 허용된 상태 변경만 기존 소유자가 검증·적용 |
+| 플레이어에게 공개할 서술 | 한국어 공개 서술; 숨겨진 지도 정보는 제거; 자유로운 서술 텍스트를 상태 변경으로 해석하지 않음 |
+| 필요한 플레이어 판정·선택 | 필요한 경우 기존 굴림·선택 입력 대기로 연결; 응답만으로 대신 선택하거나 이동·차례를 완료하지 않음 |
+| 사건으로 전투가 시작되는지 | 기존 Adventure Runtime 전투 시작 처리에 전달할 판정 결과; 지도 소유자가 전투 시작을 결정하지 않음 |
+| 요청과 결과의 연결 | 백엔드가 발급한 작업·차례 식별자에 연결하고 현재 대기 작업과 일치하는지 검증; AI가 식별자를 생성하지 않음 |
+
+전용 스키마 검증 실패·GM 호출의 재시도 가능한 실패에는 장기 실행 작업 기록과 같은 플레이어 차례를 보존한다. 검증되지 않은 응답으로 위치·사용량·턴을 바꾸지 않는다. 이미 확정한 작업·비용은 다시 실행하지 않고, 저장된 진행 지점에서 미완료 GM 처리·후속 변경만 재개한다. ADR-018의 최종 지도 반영 전 검증·판정·연동 실패로 예약을 취소하는 규칙은 유지하며, 취소된 예약과 미확정 공개 지도 상태를 성공으로 보고하지 않는다. 작업 보존은 취소된 예약을 최종 반영한 것으로 취급한다는 뜻이 아니다.
+
 ## 5.6 Asynchronous Communication
 
 | Producer | Consumer | Channel | Message | Delivery | Ordering |
@@ -783,7 +825,8 @@ Scenario Preparation: situation map-needed attribute + entry-time map setup and 
 | 원격 자원/지도 결과 불명 | 일부 단계 완료 후 결과 미확정 | 같은 명령/단계 ID로 저장 결과 조회 후 이어서 처리 |
 | 능력 효과 엔진 미지원 | delegated adjudication | GM이 전체 효과와 상태 변화를 대신 처리; 자원 규칙 유지 |
 | 이동 중 벽·차단 | movement stop | 실제 도달 셀과 비용만 저장; 나머지 경로 미실행 |
-| 이동 중 사건 | interruption | 모든 이동 정지, 사건 처리; triggering group 차례 종료, 경로 수동 재확정 |
+| 탐험 그룹 이동 중 사건 | interruption | 모든 그룹 이동 정지, 사건 처리; 사건 그룹 차례 종료, 경로 수동 재확정 |
+| 전투 이동 중 GM 사건·응답 계약 실패 | 재시도 가능한 GM/계약 실패 | 장기 실행 작업 기록과 같은 플레이어 차례 보존; 검증 전 상태 변경 금지; 미완료 단계만 재시도하고 확정 이동·비용 중복 적용 금지 |
 | 맵 준비 실패 | 상황 준비 실패 | 맵 필요 속성이 참이면 Situation 활성화 보류 |
 
 AI가 파티 행동 제안을 내면 검증 경계에서 거부하고 상태를 변경하지 않으며, 개발 진단에는 식별자·기대/실제 권한·결과를 남긴다. 복구 과정에서 원문 프롬프트·응답, 인증 정보, 비공개 지도 정보는 로그에 남기지 않는다. 상태 변경 결과가 불명확할 때 환불이나 새 명령 ID 생성을 추측하지 않는다.
@@ -923,6 +966,7 @@ AI가 파티 행동 제안을 내면 검증 경계에서 거부하고 상태를 
 | AI 파티 차례 차단 | AI가 파티 턴/행동을 제출하도록 제안 | 거부하고 파티 상태·턴·자원 변경 없음; 적 참가자 자동 진행은 계속 가능 |
 | 대화의 무상태성 | 일상 대화 응답·중요 선택지 응답을 반환 | 파티·턴·자원·그룹 상태 변경 없음; 별도 선택 대기 상태/저장 자료 없음 |
 | 근거 있는 대화 거절 | 현재 문맥에 근거가 확인된 가치·성격과 자연어 제안이 충돌 | 설명과 기존 대화 입력 대기; 상태 명령을 생성하지 않음; 근거 없는 가치는 거절 근거로 추가하지 않음 |
+| UC-002, BR-05/08/16/18/19, AC-05/08/16/20, ST-UC-002-01~03 | 행동 전·사이·후 이동, 사건 칸 중단·실제 사용량, GM 처리 뒤 같은 플레이어 입력 대기, 새 경로/다른 행동/명시적 종료, 자동 잔여 경로 실행·서술 기반 이동/종료 없음 |
 
 ## 11.2 Program Verification
 
@@ -957,6 +1001,7 @@ AI가 파티 행동 제안을 내면 검증 경계에서 거부하고 상태를 
 | 동료 대화 응답 | 단위 검증 | 일상 대화/선택지 응답만으로 파티 상태가 바뀌지 않고 별도 대기 선택 상태를 저장하지 않음 |
 | 근거 있는 가치와 충돌하는 대화 제안 거절 | 단위 검증 | 현재 맥락에 확인되는 캐릭터 묘사와 충돌한 자연어 제안을 설명·거절하고 상태 명령 없이 다음 사용자 입력 대기 |
 | 파티 행동 권한 | 단위 검증 | 인증 주체가 세션 소유자가 아니거나 구성원 소속이 맞지 않는 명령은 거부; 정당한 세션 소유자 명령은 기존 멱등성 규칙으로 처리 |
+| 전투 이동 중단 전용 GM 응답 | 계약/서비스 간 연동 | 사건 판정 결과·공개 서술·필요한 판정/선택·전투 시작 여부와 서버 작업/차례 연결 검증; 적 토큰 없는 사건 지원; 전용 스키마 실패 시 무변경·복구, AI 식별자 생성 및 서술 기반 상태 변경 거부 |
 
 ## 11.4 Runtime Verification
 
@@ -976,6 +1021,8 @@ AI가 파티 행동 제안을 내면 검증 경계에서 거부하고 상태를 
 | 사건은 경로 중간 셀에서 발생 | cell-by-cell map movement | 모든 그룹 정지, 실제 셀까지 비용 반영, 자동 재개 없음 |
 | 같은 그룹 우선권 | tie resolution | 무작위 순서 |
 | 여러 그룹 차례 완료 | exploration cycle | 이후 환경만 6초 전진 |
+| 전투 이동 예약에 필수 판정 필요 | 칸별 검증 중 판정 대기·재시작 | 최종 반영 전 공개 지도 불변; 판정 완료 후 실제 통과 위치를 원자적으로 한 번 반영 |
+| 전투 이동 중 사건 해결 | 같은 플레이어 차례에서 GM 응답 처리 | 실제 이동량 유지; 다음 입력 대기; 남은 경로·턴 종료 자동 실행 없음 |
 
 ## 11.5 Recovery Verification
 
@@ -989,6 +1036,8 @@ AI가 파티 행동 제안을 내면 검증 경계에서 거부하고 상태를 
 | Combat Map 결과 불명 | 셀 명령 응답 유실 | 동일 step ID로 재조정, 실제 이동만 한 번 반영 |
 | 환경 단계 중 실패 | 각 환경 하위 단계 실패 | 완료 단계 재적용 없이 순환 복구 |
 | 환경 단계 도중 사건 | 하위 단계 반영 뒤 조우로 중단 | 사건 처리 상태 저장 후 다음 미완료 단계부터 재개; 이미 반영한 환경 변화와 6초 경과는 반복하지 않음 |
+| 전투 이동 중 GM 오류·전용 스키마 실패 | GM 호출 실패 또는 잘못된 고정 응답 | 장기 실행 작업 기록·같은 플레이어 차례 유지; 미완료 처리만 재시도; 확정 위치·이동량·비용 중복 적용 없음 |
+| 지도 최종 반영 후 후속 변경 실패 | 후속 소유자 응답 유실 | 같은 작업/명령으로 결과 확인·ADR-003 복구; 확정 지도 롤백 및 이미 처리한 작업·비용 재실행 없음 |
 
 ## 11.6 Agent Verifier Criteria
 
@@ -1053,3 +1102,5 @@ AI가 파티 행동 제안을 내면 검증 경계에서 거부하고 상태를 
 | Alternatives/risks/open questions | SETTLED | 사용자 합의는 완료; 구현 수준 세부사항은 후속 계획에서 확인 |
 
 UC-006 Product 다이어그램과 Architecture 클래스 다이어그램의 원본·SVG 및 링크를 확인했다. Architecture 클래스 다이어그램 제목 인벤토리에 UC-006을 포함했다. 새 상태 다이어그램은 별도 저장 선택 상태가 없고 UC-006 활동 다이어그램이 흐름을 다루므로 해당 없음이다. 애플리케이션 테스트는 실행하지 않았다.
+
+전투 이동 중단 보완의 문서 근거는 Product Spec UC-002와 위 requirement IDs, ADR-018/003 및 제공된 domain-baseline 조사다. Product·Architecture의 새 독립 리뷰, `system_targets_complete`와 `harness-spec-review check`가 통과했다. 통합 계약 seal/check가 통과했고, 다이어그램 렌더와 링크·해시 확인이 완료되었다. 애플리케이션 테스트와 E2E는 실행하지 않았다. 계획 묶음 영향 분석으로 영향받는 기존 계획의 검토는 무효화되므로, 구현 인계 전에 새 계획 리뷰를 통과해야 한다.

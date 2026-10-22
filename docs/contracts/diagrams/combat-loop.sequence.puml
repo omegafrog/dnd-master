@@ -5,6 +5,67 @@
  participant "모험 런타임" as Runtime
  participant "전투 조우" as Encounter
  participant "AI 게임 마스터" as GM
+ participant "전투 지도" as Map
+ loop 같은 플레이어 턴 / 플레이어의 명시적 종료까지
+ alt 행동 전·사이·후에 플레이어가 이동 선택
+   Player -> UI : 새 경로 제출·확인
+   UI -> Runtime : 확인된 경로·현재 버전 제출
+   Runtime -> Encounter : 현재 턴·이동 가능량 검증
+   Encounter --> Runtime : 검증 결과
+   Runtime -> Map : 지도 버전·공간 규칙 재검증 및 이동 예약
+   alt 턴·이동 가능량·지도 버전 검증 통과
+     Map --> Runtime : 장기 이동 예약과 서버가 발급한 작업 식별자
+     loop 경로를 칸 순서대로 평가 / 사건 칸에서 중단
+       Map -> Map : 예약 안에서 칸 평가·진행 상태 보존
+     end
+     opt 새 적 발견·함정·반응 등 GM 사건 발생
+       Map --> Runtime : 중단한 칸과 백엔드 소유 사건 사실
+       Runtime -> GM : 사건 사실·서버가 발급한 작업 및 턴 식별자
+       note right of GM
+         AI는 식별자를 생성하지 않는다.
+       end note
+       GM --> Runtime : 전용 고정 구조의 판정 결과·서술·전투 시작 여부\n선택적 기존 규칙 판정·플레이어 굴림 또는 선택 요청
+       Runtime -> Runtime : 응답 구조·규칙·판정 소유권 검증
+       opt 필수 판정 또는 플레이어 선택 필요
+         opt 플레이어 굴림 또는 선택 필요
+         Runtime -> UI : 필요한 기존 굴림·선택 요청
+         Player -> UI : 필요한 굴림·선택 제출
+         UI -> Runtime : 제출 결과
+         end
+         Runtime -> Runtime : 시스템 판정 또는 플레이어 결과를 소유 경계에서 해결
+       end
+       loop 재시도 가능한 모델·응답 구조·상태 소유자 오류가 남은 경우
+         Runtime -> Runtime : 같은 작업·턴과 저장된 진행 상태로 복구
+         Runtime -> GM : 필요한 응답만 재요청 / 같은 서버 발급 식별자
+         GM --> Runtime : 수정된 고정 구조 응답
+         Runtime -> Runtime : 계약·필수 규칙·플레이어 결과 재검증
+       end
+     end
+     note over Runtime, Map
+       대기 중 작업을 보존하고 공개 지도를 최종 반영하지 않는다.
+       이미 완료한 작업·판정·반영은 재시도에서 반복하지 않는다.
+       칸별 평가는 칸별 DB 최종 반영을 뜻하지 않는다.
+     end note
+     alt 응답 계약과 모든 필수 판정 해결
+       Runtime -> Map : 같은 이동 예약의 필수 판정 결과 전달·최종 반영 요청
+       Map -> Map : 실제 통과한 위치·공간 요소·시야·탐험 상태\n로컬 트랜잭션으로 원자 반영 (ADR-018)
+       Map --> Runtime : 실제 도달 위치·실제 이동 거리
+       Runtime -> Encounter : 같은 작업으로 실제 이동 거리만 한 번 차감
+       Encounter --> Runtime : 현재 참가자를 유지한 이동 예산
+       Runtime -> UI : 확정 위치·소비 이동량·사건 결과 및 서술
+     else 복구 불가능한 검증·판정 실패
+       Runtime -> Map : 예약 취소 / 공개 지도 변경 없음
+       Runtime -> UI : 오류와 복구 안내
+     end
+   else 무효하거나 오래된 이동
+     Runtime -> UI : 비용 없이 거부·최신 공개 상태 표시
+   end
+   note over Player, UI
+     같은 플레이어의 새 경로·다른 행동·명시적 턴 종료 입력을 기다린다.
+     새 경로는 별도로 확인하며 남은 경로를 자동 실행하지 않는다.
+     GM 서술만으로 토큰을 옮기거나 턴을 종료하지 않는다.
+   end note
+ else 플레이어가 전투 행동 선택
  Player -> UI : 전투 행동 선택
  UI -> Runtime : 행동·현재 버전 제출
  Runtime -> Encounter : 차례·자원·버전 검증
@@ -19,10 +80,17 @@
    Encounter --> Runtime : 검증 오류
    Runtime -> UI : 상태 변경 없이 오류 표시
  end
+ end
  opt 반응이 대기 중
    Runtime -> UI : 반응 선택 요청
    Player -> UI : 반응 선택
    UI -> Runtime : 선택 제출
    Runtime -> Encounter : 반응 자원·결과 확정
+ end
+ opt 플레이어가 명시적으로 턴 종료 선택
+   Player -> UI : 턴 종료
+   UI -> Runtime : 명시적 턴 종료 제출
+   Runtime -> Encounter : 현재 턴 종료
+ end
  end
 @enduml

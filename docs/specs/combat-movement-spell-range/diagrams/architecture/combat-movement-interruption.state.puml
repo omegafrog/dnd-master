@@ -1,0 +1,84 @@
+@startuml
+ title 전투 이동 중단과 같은 플레이어 턴 유지\nUC-002 · BR-05 · BR-08 · BR-16 · BR-18 · BR-19 · ADR-018
+ hide empty description
+ skinparam defaultFontName SansSerif
+ state "플레이어 입력 대기" as Input
+ state "경로 제출·확인" as Confirm
+ state "현재 턴·이동 가능량·지도 버전 검증" as Validate
+ state "이동 예약 보존" as Reserve
+ state "예약 안에서 칸 순서대로 평가" as Cell
+ state "사건 발생 칸에서 경로 중단" as Interrupt
+ state "사건 GM 응답 대기" as Gm
+ state "백엔드 응답 계약·필수 판정 검증" as Contract
+ state "필수 플레이어 굴림·선택 또는 시스템 판정 대기" as Pending
+ state "같은 작업·턴으로 재시도 대기" as Retry
+ state "실제 도달 위치 최종 반영" as Commit
+ state "실제 이동 거리 차감" as Charge
+ state "플레이어가 명시적으로 턴 종료" as EndTurn
+ state "예약 취소·오류 안내" as Rejected
+
+ [*] --> Input
+ Input --> Confirm : 플레이어가 새 경로 제출·확인
+ Confirm --> Validate
+ Validate --> Reserve : 검증 통과
+ Validate --> Input : 검증 실패 / 비용 없이 거부
+ Reserve --> Cell : Combat Map이 장기 이동 예약 저장
+ Cell --> Cell : 다음 칸 평가 / 예약 진행 상태 보존
+ Cell --> Commit : 정상 경로 끝 / 필수 판정 해결
+ Cell --> Interrupt : 새 적 발견·함정·반응
+ Interrupt --> Gm : 백엔드 소유 사건 사실과\n서버가 발급한 작업·턴 식별자 전달
+ Gm --> Contract : 전용 고정 구조 응답 수신
+ Contract --> Pending : 필수 판정·플레이어 굴림·선택 필요
+ Pending --> Contract : 규칙과 판정 소유권에 따라 해결
+ Contract --> Commit : 계약 유효 / 필수 판정 해결
+ Gm --> Retry : 재시도 가능한 모델 오류
+ Contract --> Retry : 재시도 가능한 응답 구조·상태 소유자 오류
+ Pending --> Retry : 재시도 가능한 판정 소유자 오류
+ Retry --> Gm : GM 응답 복구
+ Retry --> Pending : 필수 판정 복구
+ Contract --> Rejected : 복구 불가능한 검증 실패
+ Pending --> Rejected : 복구 불가능한 판정·연동 실패
+ Rejected --> Input
+ Commit --> Charge : Combat Map 최종 결과 확인
+ Charge --> Charge : 후속 처리 장애 / 같은 작업으로 복구
+ Charge --> Input : 현재 참가자 유지 / 결과·서술 표시
+ Input --> EndTurn : 플레이어가 턴 종료 선택
+ EndTurn --> [*]
+
+ note right of Reserve
+ Combat Map: 위치·칸별 이동·장기 이동 예약 소유
+ 기존 지도 내부의 작업 기록을 재사용한다.
+ 새 aggregate·context·module·service를 추가하지 않는다.
+ end note
+ note right of Cell
+ 칸별 평가는 DB의 칸별 최종 반영이 아니다.
+ 판정 대기와 재시도 중에는 작업을 보존하고
+ 공개 지도 상태를 최종 반영하지 않는다.
+ end note
+ note right of Gm
+ AI Game Master는 식별자를 만들지 않는다.
+ 응답은 판정 결과·서술·선택적 플레이어 굴림/선택 요청·
+ 전투 시작 여부를 전용 고정 구조로 반환한다.
+ 백엔드는 구조와 규칙·판정 소유권을 검증한다.
+ end note
+ note right of Retry
+ 작업·턴 식별자와 저장된 진행 상태를 유지한다.
+ 이미 완료한 판정·반영·거리 차감을 반복하지 않는다.
+ end note
+ note right of Commit
+ ADR-018: 모든 필수 판정 뒤 실제 통과한 경로의 위치,
+ 공간 요소, 시야·탐험 상태를 로컬 트랜잭션으로 원자 반영한다.
+ 반영 뒤의 후속 상태 변경은 기존 멱등 복구 절차를 따른다.
+ end note
+ note left of Charge
+ Adventure Runtime의 기존 CombatEncounter가
+ 전투 턴과 이동 예산을 소유한다.
+ 실제 이동 거리만 차감하고 현재 참가자를 넘기지 않는다.
+ end note
+ note left of Input
+ 사건 해결 뒤 같은 플레이어의 새 명시적 입력을 기다린다.
+ 새 경로는 별도로 확인하며 남은 경로를 자동 실행하지 않는다.
+ 다른 가능한 행동도 선택할 수 있다.
+ GM 서술만으로 토큰을 이동하거나 턴을 종료하지 않는다.
+ end note
+@enduml

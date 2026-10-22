@@ -1,6 +1,6 @@
 @startuml
 title UC-005 그룹으로 탐험하고 사건을 해결한다
-left to right direction
+top to bottom direction
 actor "플레이어" as Player
 actor "GM" as GM
 rectangle "그룹 탐험과 전술 이동" {

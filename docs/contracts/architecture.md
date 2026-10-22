@@ -24,7 +24,7 @@
 
 <a id="adventure-runtime"></a>
 ## 모험 런타임
-수정일: 2026-10-21
+수정일: 2026-10-22
 
 ### 설명
 시나리오 준비, 모험 세션, 상황 선택, 전투 진행과 턴 확정을 소유하는 `adventure-service` 내부 경계다. 기능: [시츄에이션 기반 모험 진행](product.md#scenario-runtime), [전투 진행](product.md#combat-loop), [GM 입력](product.md#gm-context).
@@ -43,6 +43,7 @@
 - 상황 진행 계약: 준비 API는 허용값 짧게/보통/길게 중 하나의 storyLength를 받아 세션에 저장·복원하고 초기 StoryRuntimeState에 전달한다. 필수 상황은 원문에서 명시한 isEnding 표시와 선행 그래프를 보존한다. RuntimeTurnApplicationService.situationSelectionContext는 활성 선택 상황 종료를 반영한 허용량이 남을 때 자연스럽게 이어지는 같은 단계 선택 상황과, 모든 명시적 선행 노드가 USED이고 아직 UNUSED인 필수 상황만 전체 단계에서 후보로 담는다. 입력은 `RuntimeGmInputBudget`의 실제 구역 배분을 따른다: 전체 80% 한도 안에서 고정 지침·잠긴 자료 최대 40%, 장기 기록 최대 10%, 압축 대화 최대 15%, 최근 대화 최대 20%, 최신 문맥은 실제 잔여량이다. 전체 단계의 선택 가능 후보 전체를 턴 문맥 JSON으로 직렬화한 크기는 8,192 UTF-8 byte 이내이며 후보 개수 자체에는 고정 상한을 두지 않는다. 후보 설명을 자르거나 조용히 생략하지 않는다. 전환 응답은 적격 준비 후보 선택만 허용하며 새 장면 전환 분기는 거부한다. 현재 활성 선택 상황의 종료·`USED` 전환과 사용량 증가는 원자적 턴 확정에서 한 번만 반영한다. 명시적 isEnding 필수 상황 하나가 USED로 확정되면 완료하며 다른 ending은 방문하지 않아도 된다. 필수 후보는 이미 USED인 경우 재선택할 수 없고, 합류 노드는 모든 명시적 선행 상황이 USED여야 한다. 선택한 길이·허용량·사용량은 StoryRuntimeState에, 증가 대기 상태는 PendingRuntimeState에 저장해 기존 원자적 확정과 복원 규칙을 따른다. `RuntimeGmPromptComposer`와 기존 조회·진행 경계를 사용하며 비공개 준비 내용을 플레이어에게 그대로 노출하지 않는다. 구현 완료로 표시하지 않는다.
 - 적 시트 준비는 기존 `enemy-sheet-preparation-response.json`의 `전투수치` 계약을 사용한다. `HttpTypedRuntimeGmAgentPort`가 수치와 근거키를 역직렬화하고 제공된 자료에서 문서·버전·위치를 연결한다. `RuntimeTurnApplicationService`가 검증한 시트를 저장·재사용하고 전투 준비에 전달한다. 계약 단위 검증은 통과했으며 실제 전투 E2E 성공은 아직 확인하지 않았다.
 - 일반 GM 턴의 근거 조회는 [#379 상황 선택·턴 조회·오케스트레이션 계획](https://github.com/omegafrog/dnd-master/issues/379)의 한 번의 혼합 자료 dense 검색과 출처별 최대 다섯 발췌를 사용한다. 이 경로에서는 별도 재정렬·충분성 판단 AI 요청을 추가하지 않는다. 다른 작업의 근거 정책과 구분한다.
+- **전투 중 이동 사건 처리 (accepted-target; [UC-002 명세](../specs/combat-movement-spell-range/architecture-spec.md)):** 기존 `CombatEncounter`가 현재 플레이어 차례와 이동 예산을, Combat Map이 토큰 위치·실제 경로를 소유한다. 이동 사건이 발생하면 Adventure Runtime은 사건 사실과 서버 발급 작업·차례 식별자를 AI Game Master의 전용 고정 응답 계약으로 전달한다. 백엔드는 판정·공개 서술·필요한 플레이어 입력·전투 전환 결과를 구조로 검증하고, 확정 이동량·위치·턴 종료를 대신 결정하게 하지 않는다. 필요한 판정 뒤 실제 통과 위치를 확정하고 실제 이동량만 적용한 후 같은 플레이어의 명시적 다음 입력을 기다린다. 중단 경로의 나머지를 자동 실행하지 않는다. **현재 구현은 아직 이 목표를 충족하지 않는다:** 직접 전투 이동 응답은 일반 이동 완료 서술을 반환하고, 후속 연결은 적 발견 경로만 처리한다. 근거: [CombatActionApplicationService](../../src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java), [CombatMapRuntimeTurnCommandAdapter](../../src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/CombatMapRuntimeTurnCommandAdapter.java), [ADR-018](../adr/ADR-018-staged-combat-map-movement-resolution.md).
 
 ### 배포
 독립 `adventure-service` 부트스트랩과 `app-all` 통합 실행에 포함된다. 런타임 상태와 대화 기록을 소유한다. 분리 배포 시에도 캐릭터·지도 변경은 해당 소유 서비스 API를 통한다. 근거: `src/adventure-service`, `src/app-all`, `src/start-dev.sh`.
@@ -110,7 +111,7 @@
 
 <a id="combat-map"></a>
 ## 전투 지도
-수정일: 2026-10-21
+수정일: 2026-10-22
 
 ### 설명
 맵, 공간 요소, 토큰 이동, 전장의 안개와 플레이어 공개 정보를 소유하는 `combat-map-service`다. 기능: [전장 지도 준비](product.md#map-runtime), [지도 이동과 조우](product.md#spatial-movement).
@@ -122,6 +123,7 @@
 
 ### 내부 구성요소
 - `CombatMap`과 이동 해결 흐름. 모험·소유자에 연결한 지도 정의는 바꾸지 않으며, 같은 정의의 저장된 지도를 재사용한다. 첫 진입에서만 시작 배치를 해결하고 재방문은 저장된 지도 상태를 유지한다. 시작 위치 후보 생성은 후보가 없거나 제공자 요청에 실패하면 최초 요청을 포함해 최대 6회 시도하며, 소진하면 수동 배치 경로를 제공한다. 같은 모험 안에서 동일한 맵 파일에 저장 격자가 있으면 준비 화면에서 사용자에게 재사용 또는 직접 수정을 먼저 묻는다. 재사용은 기존 정렬값을 유지해 대상 지도에 적용하며, 직접 수정은 기존 편집기와 저장 경계를 사용한다. 격자 보정은 [CombatMapViewService.calibrateGrid](../../src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/view/CombatMapViewService.java)의 별도 경로에서 가로·세로 칸 수 변경을 검증한다. 변경 시 새 범위 밖 콘텐츠는 거부하고, 이전 칸 좌표 기준의 `MAP_BOUNDARIES` 레이어는 제거해 다시 그리게 한다. 정렬 전용 API는 칸 수를 변경하지 않는다. 근거: [CombatMapViewService](../../src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/view/CombatMapViewService.java), [CombatMap](../../src/combat-map-service/src/main/java/com/dndmaster/combatmap/domain/CombatMap.java), `src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/movement/`.
+- **전투 이동 중단 (accepted-target; [전투 이동 설계 상태](../specs/combat-movement-spell-range/diagrams/architecture/combat-movement-interruption.state.svg)):** 기존 장기 실행 이동 예약에서 경로를 칸 순서로 검증하고 GM 처리가 필요한 사건 칸에서 멈춘다. 필요한 판정이 끝나면 실제 통과 경로의 최종 위치·공간 상태를 기존 저장 경계에서 한 번 확정한다. 칸별 검증은 각 칸을 데이터베이스에 따로 확정한다는 뜻이 아니다. 현재 이동 서비스는 중단 사실과 실제 도달 경로를 반환하지만, 일반 전투 행동 경로에는 이 결과를 GM 처리에 연결하는 목표 동작이 아직 구현되지 않았다. 기존 지도 소유권과 ADR-018 예약/복구 규칙을 유지하며 새 경계나 서비스를 만들지 않는다.
 
 ### 배포
 독립 `combat-map-service` 부트스트랩 및 `app-all` 통합 실행에 포함된다. 지도와 이동 상태를 소유한다. 근거: `src/combat-map-service`, `src/app-all`.
