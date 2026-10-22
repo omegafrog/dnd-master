@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "revision": 56,
+  "revision": 57,
   "updated_at": "2026-10-22",
-  "change_summary": "Capture threat discovery, audibility, and per-participant surprise contract updates",
+  "change_summary": "Seal final threat-awareness contract snapshot and traceability evidence",
   "source_roots": [
     "src",
     ".github",
@@ -301,7 +301,7 @@
       "reason": "폐기된 검색 설계에는 현행 상태와 전이가 없다."
     }
   ],
-  "no_contract_change": null,
+  "no_contract_change": "The only source changes since contract revision 56 are the plan-367 Issue mirror and requirement-level implementation evidence; contract text and diagrams were already reconciled.",
   "hashes": {
     "@model": "54537ebc81dcd515399470ca544adf583339dd963d8c0c6890e8c5ff69d8de80",
     ".github/pull_request_template.md": "4a773c8b13e402f6e7b2c5fe02d78f74cf2dc094045b7952f45b3021eb62f552",
@@ -371,7 +371,7 @@
     "docs/plans/combat-movement-spell-range/map-entry-flow.md": "82a867389d52f4c1019ce279b9dd9fa97e537491792c65b26d4637e2bd872906",
     "docs/plans/combat-movement-spell-range/plans.md": "d061110a127892723e0149d709911fb8cd7dc8207c6b6e7a7bf09151c92374e4",
     "docs/plans/combat-movement-spell-range/rulebook-action-extraction.md": "821e856fe9f70233dcf4fa234d74cbd08efcfe7fae4ab74a8fc5a6b19c0d0cc4",
-    "docs/plans/combat-movement-spell-range/traceability.json": "c1dbb0f34ac441f872ae490cabdab9dd53b8f0ab1cc7fc853c411d787e159f00",
+    "docs/plans/combat-movement-spell-range/traceability.json": "842c070bd39142627485c49b1ff5aabe3965e9f4bf8b787226f928ec48b0227f",
     "docs/plans/document-preprocessing-pivot.md": "98788bbd0ad536b93250561d667945e6012365c277f3b426822b5fd5e6acc4c6",
     "docs/plans/gm-context-compaction/plans.md": "f03a210e67086da62ed8c2641ca36dce9cf30d87490a96fa969702a8fd3ed538",
     "docs/plans/hybrid-rag-evidence-selection/plans.md": "d04bfc0f239d5dcaa44ecbd942b43a63838f9f22deaf3b756a4bb83cd69844d5",
