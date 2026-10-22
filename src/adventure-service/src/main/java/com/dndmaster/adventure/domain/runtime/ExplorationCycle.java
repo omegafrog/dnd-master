@@ -340,13 +340,16 @@ public record ExplorationCycle(
             if (!partyCharacterIds.containsAll(discovery.discovererCharacterSheetIds()))
                 throw new IllegalArgumentException("threat discoverers must belong to the adventure party");
             Map<UUID, Set<UUID>> perHostile = new java.util.HashMap<>(discovery.awareCharactersByHostileTokenId());
-            if (discovery.bothSidesNotHidden()) for (UUID hostileId : discovery.threatHostileTokenIds())
+            var awareEnemies = new HashSet<>(discovery.awareEnemyTokenIds());
+            if (discovery.bothSidesNotHidden()) for (UUID hostileId : discovery.threatHostileTokenIds()) {
                 perHostile.put(hostileId, Set.copyOf(partyCharacterIds));
+                awareEnemies.add(hostileId);
+            }
             Set<UUID> aware = perHostile.values().stream().flatMap(Set::stream).collect(java.util.stream.Collectors.toSet());
             if (perHostile.isEmpty()) aware = discovery.discovererCharacterSheetIds();
             ThreatDiscovery effectiveDiscovery = new ThreatDiscovery(discovery.discovererCharacterSheetIds(),
                     discovery.enemyDiscoveredFirst(), discovery.enemyHeardNotification(), discovery.bothSidesNotHidden(),
-                    discovery.awareEnemyTokenIds(), discovery.threatHostileTokenIds(), perHostile);
+                    awareEnemies, discovery.threatHostileTokenIds(), perHostile);
             return new EnvironmentProposal(narration, enemyMoves, featureInteractions, expectedMapVersion,
                     encounterRequested, linkedCombatEncounterId, effectiveDiscovery, aware, hostileActionStarted,
                     discovery.enemyDiscoveredFirst() && !hostileActionStarted);

@@ -408,7 +408,9 @@ public class AdventureController {
                                                 (participantId, scope) -> initiativeDicePorts.rollInitiative(adventureId,
                                                         adventure.ruleSetId().value(), adventure.sessionId().value(),
                                                         committedTurn.turnId(), participantId, adventure.version(), scope)),
-                                                storedExplorationState(committedAdventure).cycle()),
+                                                storedExplorationState(committedAdventure).cycle(),
+                                                CombatStartParticipantFactory.hostileMapTokenToParticipantId(adventureId,
+                                                        result.turn().plan().combatEnemies())),
                                         result.enemySheetPreparationRequest());
                     } else {
                         LOGGER.warn("gm_turn_combat_start_skipped adventureId={} reason=ACTIVE_COMBAT_ALREADY_EXISTS turnId={}",
@@ -513,7 +515,9 @@ public class AdventureController {
                                                 (participantId, scope) -> initiativeDicePorts.rollInitiative(adventureId,
                                                         adventure.ruleSetId().value(), adventure.sessionId().value(),
                                                         result.turn().turnId(), participantId, adventure.version(), scope)),
-                                        storedExplorationState(adventure).cycle()),
+                                        storedExplorationState(adventure).cycle(),
+                                        CombatStartParticipantFactory.hostileMapTokenToParticipantId(adventureId,
+                                                result.turn().plan().combatEnemies())),
                                 result.enemySheetPreparationRequest());
             }
             if (!(existing.input() instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput))
