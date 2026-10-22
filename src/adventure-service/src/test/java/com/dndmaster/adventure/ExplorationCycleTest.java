@@ -218,9 +218,11 @@ class ExplorationCycleTest {
 
     @Test void threatDiscoveryStaysWithDiscovererUntilExplicitGroupNotification() {
         UUID first = UUID.randomUUID(), second = UUID.randomUUID(), groupId = UUID.randomUUID();
+        UUID hostile = UUID.randomUUID();
         var event = new ExplorationCycle.MovementStopEvent(UUID.randomUUID(), groupId, UUID.randomUUID(),
                 "HOSTILE_OBSERVED", java.util.List.of("HOSTILE_OBSERVED"), new ExplorationCycle.Position(1, 1), null,
-                java.util.Set.of(first), java.util.Set.of(first), false);
+                java.util.Set.of(first), java.util.Set.of(first), false, java.util.Set.of(), java.util.Set.of(hostile),
+                Map.of(hostile, java.util.Set.of(first)));
         var cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(groupId, 10));
         cycle = cycle.interruptGroupTurn(groupId, event);
 
@@ -235,7 +237,9 @@ class ExplorationCycleTest {
     @Test void bothUnhiddenSidesAutomaticallyKnowAndEnemyHeardNotificationTransfersAwareness() {
         UUID group = UUID.randomUUID(), first = UUID.randomUUID(), second = UUID.randomUUID();
         var cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(group, 10)).finishGroupTurn(group, false);
-        var bothUnhidden = new ExplorationCycle.ThreatDiscovery(java.util.Set.of(first), false, false, true);
+        UUID hostile = UUID.randomUUID();
+        var bothUnhidden = new ExplorationCycle.ThreatDiscovery(java.util.Set.of(first, second), false, false, true,
+                java.util.Set.of(hostile), java.util.Set.of(hostile), Map.of(hostile, java.util.Set.of(first, second)));
         var proposal = new ExplorationCycle.EnvironmentProposal("", java.util.List.of())
                 .withDiscovery(bothUnhidden, java.util.Set.of(first, second));
         assertEquals(java.util.Set.of(first, second), proposal.awareCharacterSheetIds());
@@ -248,5 +252,23 @@ class ExplorationCycleTest {
         var shared = cycle.shareThreatWithGroup(group, first, java.util.Set.of(first, second), true);
         assertTrue(shared.pendingEnvironmentProposal().enemiesAware());
         assertEquals(java.util.Set.of(first, second), shared.pendingEnvironmentProposal().awareCharacterSheetIds());
+    }
+
+    @Test void enemyFirstNarrationStaysPendingUntilCommittedPlayerResponseIsAcknowledged() {
+        UUID group = UUID.randomUUID(), hostile = UUID.randomUUID();
+        var cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(group, 10)).finishGroupTurn(group, false);
+        var discovery = new ExplorationCycle.ThreatDiscovery(java.util.Set.of(), true, false, false,
+                java.util.Set.of(hostile), java.util.Set.of(hostile), Map.of());
+        var proposal = new ExplorationCycle.EnvironmentProposal("적이 먼저 당신들을 발견합니다.", java.util.List.of())
+                .withDiscovery(discovery, java.util.Set.of(UUID.randomUUID()));
+        cycle = cycle.withEnvironmentProposal(proposal);
+        var pending = cycle;
+
+        assertTrue(pending.pendingEnvironmentProposal().playerResponseRequired());
+        assertThrows(IllegalStateException.class, () -> pending.completeEnvironmentPhase(pending.currentPhaseCommandId()));
+        var acknowledged = pending.acknowledgePendingEnvironmentResponse();
+        assertFalse(acknowledged.pendingEnvironmentProposal().playerResponseRequired());
+        assertEquals("적이 먼저 당신들을 발견합니다.", acknowledged.pendingEnvironmentProposal().narration());
+        assertNotNull(acknowledged.completeEnvironmentPhase(acknowledged.currentPhaseCommandId()));
     }
 }

@@ -166,7 +166,8 @@ class CombatEncounterPolicyTest {
         UUID groupId = UUID.randomUUID(), unawareHero = UUID.randomUUID();
         var proposal = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal("", List.of())
                 .withDiscovery(new com.dndmaster.adventure.domain.runtime.ExplorationCycle.ThreatDiscovery(
-                        java.util.Set.of(HERO), false, true, false, java.util.Set.of(GOBLIN), java.util.Set.of(GOBLIN)),
+                        java.util.Set.of(HERO), false, true, false, java.util.Set.of(GOBLIN), java.util.Set.of(GOBLIN),
+                        java.util.Map.of(GOBLIN, java.util.Set.of(HERO))),
                         java.util.Set.of(HERO));
         var cycle = com.dndmaster.adventure.domain.runtime.ExplorationCycle.start(UUID.randomUUID(),
                 java.util.Map.of(groupId, 10)).finishGroupTurn(groupId, false).withEnvironmentProposal(proposal);
@@ -194,7 +195,7 @@ class CombatEncounterPolicyTest {
         var proposal = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal("", List.of())
                 .withDiscovery(new com.dndmaster.adventure.domain.runtime.ExplorationCycle.ThreatDiscovery(
                         java.util.Set.of(HERO), false, false, false, java.util.Set.of(awareEnemy),
-                        java.util.Set.of(awareEnemy, unawareEnemy)), java.util.Set.of(HERO));
+                        java.util.Set.of(awareEnemy, unawareEnemy), java.util.Map.of(awareEnemy, java.util.Set.of(HERO))), java.util.Set.of(HERO));
         var cycle = com.dndmaster.adventure.domain.runtime.ExplorationCycle.start(UUID.randomUUID(),
                 java.util.Map.of(groupId, 10)).finishGroupTurn(groupId, false).withEnvironmentProposal(proposal);
         var roster = List.of(
@@ -220,7 +221,8 @@ class CombatEncounterPolicyTest {
         var threatTokens = java.util.Set.of(awareEnemy, secondEnemy);
         var proposal = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal("", List.of())
                 .withDiscovery(new com.dndmaster.adventure.domain.runtime.ExplorationCycle.ThreatDiscovery(
-                        java.util.Set.of(HERO), false, false, false, java.util.Set.of(awareEnemy), threatTokens), java.util.Set.of(HERO));
+                        java.util.Set.of(HERO), false, false, false, java.util.Set.of(awareEnemy), threatTokens,
+                        java.util.Map.of(awareEnemy, java.util.Set.of(HERO))), java.util.Set.of(HERO));
         var cycle = com.dndmaster.adventure.domain.runtime.ExplorationCycle.start(UUID.randomUUID(),
                 java.util.Map.of(groupId, 10)).finishGroupTurn(groupId, false).withEnvironmentProposal(proposal);
 

@@ -84,7 +84,7 @@ export type ExplorationCycle = {
   phase: 'GROUP_TURNS' | 'ENVIRONMENT'
   environmentPhase: 'ENEMIES_PATROLS_AND_DETECTION' | 'HAZARDS_AND_ENVIRONMENT' | 'DURATIONS_AND_DEADLINES'
   elapsedSeconds: number
-  pendingEnvironmentProposal?: { narration: string; encounterRequested: boolean; combatLinked: boolean } | null
+  pendingEnvironmentProposal?: { narration: string; encounterRequested: boolean; combatLinked: boolean; playerResponseRequired: boolean } | null
   pendingMovementEvent?: { id: string; groupId: string; cause: string; publicEvents: string[]; finalPosition: { x: number; y: number } } | null
   combatLinked: boolean
 }

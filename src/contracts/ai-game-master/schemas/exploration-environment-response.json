@@ -12,13 +12,21 @@
         { "type": "null" },
         {
           "type": "object", "additionalProperties": false,
-          "required": ["discovererCharacterSheetIds", "enemyDiscoveredFirst", "enemyHeardNotification", "bothSidesNotHidden", "awareEnemyTokenIds"],
+          "required": ["discovererCharacterSheetIds", "enemyDiscoveredFirst", "enemyHeardNotification", "bothSidesNotHidden", "awareEnemyTokenIds", "awareCharactersByHostileTokenId"],
           "properties": {
             "discovererCharacterSheetIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "uuid" } },
             "enemyDiscoveredFirst": { "type": "boolean" },
             "enemyHeardNotification": { "type": "boolean" },
             "bothSidesNotHidden": { "type": "boolean" },
-            "awareEnemyTokenIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "uuid" } }
+            "awareEnemyTokenIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "uuid" } },
+            "awareCharactersByHostileTokenId": {
+              "type": "object", "maxProperties": 100, "additionalProperties": false,
+              "patternProperties": {
+                "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$": {
+                  "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "uuid" }
+                }
+              }
+            }
           }
         }
       ]

@@ -968,8 +968,9 @@ public final class TypedAgentContractController {
         ThreatDiscoveryResponse discovery = null;
         if (!discoveryNode.isNull()) {
             requireOnlyFields(discoveryNode, Set.of("discovererCharacterSheetIds", "enemyDiscoveredFirst",
-                    "enemyHeardNotification", "bothSidesNotHidden", "awareEnemyTokenIds"), Set.of("discovererCharacterSheetIds",
-                    "enemyDiscoveredFirst", "enemyHeardNotification", "bothSidesNotHidden", "awareEnemyTokenIds"), "threat discovery");
+                    "enemyHeardNotification", "bothSidesNotHidden", "awareEnemyTokenIds", "awareCharactersByHostileTokenId"), Set.of("discovererCharacterSheetIds",
+                    "enemyDiscoveredFirst", "enemyHeardNotification", "bothSidesNotHidden", "awareEnemyTokenIds",
+                    "awareCharactersByHostileTokenId"), "threat discovery");
             JsonNode discoverers = discoveryNode.path("discovererCharacterSheetIds");
             if (!discoverers.isArray() || discoverers.size() > 100)
                 throw new IllegalArgumentException("discovererCharacterSheetIds must be an array of at most 100 UUIDs");
@@ -992,13 +993,37 @@ public final class TypedAgentContractController {
                 catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("aware enemy token id must be a UUID", invalid); }
                 if (!awareEnemyIds.add(id)) throw new IllegalArgumentException("aware enemy token ids must be unique");
             }
+            JsonNode perHostile = discoveryNode.path("awareCharactersByHostileTokenId");
+            if (!perHostile.isObject() || perHostile.size() > 100)
+                throw new IllegalArgumentException("awareCharactersByHostileTokenId must be an object with at most 100 hostile IDs");
+            var awarenessMappings = new java.util.LinkedHashMap<java.util.UUID, List<java.util.UUID>>();
+            var hostileIds = new java.util.HashSet<java.util.UUID>();
+            var mappingFields = perHostile.fieldNames();
+            while (mappingFields.hasNext()) {
+                String hostileValue = mappingFields.next();
+                java.util.UUID hostileId;
+                try { hostileId = java.util.UUID.fromString(hostileValue); }
+                catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("hostile token id must be a UUID", invalid); }
+                if (!hostileIds.add(hostileId)) throw new IllegalArgumentException("hostile awareness mapping ids must be unique");
+                JsonNode characterIdsNode = perHostile.path(hostileValue);
+                if (!characterIdsNode.isArray() || characterIdsNode.size() > 100)
+                    throw new IllegalArgumentException("characterSheetIds must be an array of at most 100 UUIDs");
+                var characterIds = new java.util.LinkedHashSet<java.util.UUID>();
+                for (JsonNode idNode : characterIdsNode) {
+                    java.util.UUID id;
+                    try { id = java.util.UUID.fromString(idNode.asText()); }
+                    catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("aware character id must be a UUID", invalid); }
+                    if (!characterIds.add(id)) throw new IllegalArgumentException("aware character ids must be unique per hostile");
+                }
+                awarenessMappings.put(hostileId, List.copyOf(characterIds));
+            }
             if (discoveryNode.path("enemyDiscoveredFirst").asBoolean() && !discovererIds.isEmpty())
                 throw new IllegalArgumentException("enemy-first discovery cannot name party discoverers");
             if (discoveryNode.path("bothSidesNotHidden").asBoolean() && discoveryNode.path("enemyDiscoveredFirst").asBoolean())
                 throw new IllegalArgumentException("both sides cannot be unnoticed when enemies discovered first");
             discovery = new ThreatDiscoveryResponse(List.copyOf(discovererIds), discoveryNode.path("enemyDiscoveredFirst").asBoolean(),
                     discoveryNode.path("enemyHeardNotification").asBoolean(), discoveryNode.path("bothSidesNotHidden").asBoolean(),
-                    List.copyOf(awareEnemyIds));
+                    List.copyOf(awareEnemyIds), java.util.Map.copyOf(awarenessMappings));
         }
         return new ExplorationEnvironmentResponse(narration, moves, interactions, encounterRequestedNode.booleanValue(),
                 hostileActionStartedNode.booleanValue(), discovery);
@@ -1022,8 +1047,9 @@ public final class TypedAgentContractController {
         public ExplorationEnvironmentResponse { enemyMoves = List.copyOf(enemyMoves); featureInteractions = List.copyOf(featureInteractions); }
     }
     public record ThreatDiscoveryResponse(List<java.util.UUID> discovererCharacterSheetIds, boolean enemyDiscoveredFirst,
-            boolean enemyHeardNotification, boolean bothSidesNotHidden, List<java.util.UUID> awareEnemyTokenIds) {
-        public ThreatDiscoveryResponse { discovererCharacterSheetIds = List.copyOf(discovererCharacterSheetIds); awareEnemyTokenIds = List.copyOf(awareEnemyTokenIds); }
+            boolean enemyHeardNotification, boolean bothSidesNotHidden, List<java.util.UUID> awareEnemyTokenIds,
+            java.util.Map<java.util.UUID, List<java.util.UUID>> awareCharactersByHostileTokenId) {
+        public ThreatDiscoveryResponse { discovererCharacterSheetIds = List.copyOf(discovererCharacterSheetIds); awareEnemyTokenIds = List.copyOf(awareEnemyTokenIds); awareCharactersByHostileTokenId = java.util.Map.copyOf(awareCharactersByHostileTokenId); }
     }
     public record EnvironmentFeatureInteraction(java.util.UUID featureId) { }
     public record EnvironmentEnemyMove(java.util.UUID tokenId, List<EnvironmentPosition> path) {

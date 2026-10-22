@@ -254,7 +254,8 @@ class ExplorationEnvironmentControllerTest {
         RuntimeTurnApplicationService runtime = mock(RuntimeTurnApplicationService.class);
         when(runtime.planExplorationEnvironmentPhase(any(), any(), any(), any(), any())).thenReturn(
                 new ExplorationCycle.EnvironmentProposal("발견", List.of(), List.of(), -1, false, null,
-                        new ExplorationCycle.ThreatDiscovery(Set.of(discoverer), false, false, false, Set.of(), Set.of(hostileId)),
+                        new ExplorationCycle.ThreatDiscovery(Set.of(discoverer), false, false, false, Set.of(), Set.of(hostileId),
+                                Map.of(hostileId, Set.of(discoverer))),
                         Set.of(discoverer)),
                 new ExplorationCycle.EnvironmentProposal("알림", List.of(), List.of(), -1, false, null,
                         new ExplorationCycle.ThreatDiscovery(Set.of(), false, true, false, Set.of(hostileId)), Set.of()));

@@ -1731,7 +1731,7 @@ class TypedAgentContractControllerTest {
     void exploration_environment_requires_typed_enemy_routes_and_rejects_duplicate_tokens() {
         UUID featureId = UUID.randomUUID();
         String valid = "{\"narration\":\"순찰병이 복도를 따라 이동합니다.\",\"encounterRequested\":false,\"hostileActionStarted\":false,\"threatDiscovery\":{\"discovererCharacterSheetIds\":[\""
-                + SOLO_PLAYER_ID + "\"],\"enemyDiscoveredFirst\":false,\"enemyHeardNotification\":false,\"bothSidesNotHidden\":false,\"awareEnemyTokenIds\":[]},\"featureInteractions\":[{\"featureId\":\""
+                + SOLO_PLAYER_ID + "\"],\"enemyDiscoveredFirst\":false,\"enemyHeardNotification\":false,\"bothSidesNotHidden\":false,\"awareEnemyTokenIds\":[],\"awareCharactersByHostileTokenId\":{}},\"featureInteractions\":[{\"featureId\":\""
                 + featureId + "\"}],\"enemyMoves\":[{\"tokenId\":\"" + UUID.randomUUID()
                 + "\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}]}";
         TypedAgentContractController controller = new TypedAgentContractController(

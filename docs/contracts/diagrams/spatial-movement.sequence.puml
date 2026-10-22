@@ -31,9 +31,11 @@
        Runtime -> Map : 현재 지도의 적 토큰 식별자 확인
        Map --> Runtime : 서버가 확인한 적 토큰 식별자 목록
        Runtime -> GM : 발견 사실·개체별 인지 상태·서버가 제공한 적 토큰 식별자 목록
-       GM --> Runtime : 고정 구조 응답 / awareEnemyTokenIds·hostileActionStarted·서술
+       GM --> Runtime : 고정 구조 응답 / awareCharactersByHostileTokenId·awareEnemyTokenIds·hostileActionStarted·서술
        Runtime -> Runtime : awareEnemyTokenIds가 제공 목록의 부분집합이며\n현재 지도에 속한 적인지 검증
+       Runtime -> Runtime : awareCharactersByHostileTokenId의 적 토큰·캐릭터 식별자 검증
        note right of Runtime
+         awareCharactersByHostileTokenId는 적 토큰별로 그 적을 인지한 캐릭터 식별자를 기록한다.
          awareEnemyTokenIds는 플레이어를 인지한 적 토큰 식별자다.
          hostileActionStarted는 적대 행동 시작 여부다.
          유효하지 않은 식별자는 반영하지 않는다.
@@ -63,7 +65,12 @@
          Runtime -> UI : 적 행동 제시·플레이어 대응 요청
        end
        opt 적이 먼저 발견했고 적대 행동을 시작하지 않음
-         Runtime -> Runtime : 플레이어 대응을 기다리며 탐험 상태 유지
+         Runtime -> Runtime : playerResponseRequired를 저장하고 환경 제안·서술을 유지
+         Runtime -> UI : 환경 제안·적 행동 서술 표시, 환경 단계 진행 차단
+         note over Runtime,UI
+           새로고침 뒤에도 대기 상태와 서술이 유지된다.
+           플레이어의 일반 대화 응답을 제출해야 다음 단계로 갈 수 있다.
+         end note
        end
        Runtime -> Map : 해당 위치까지 공개 상태 갱신
        break
@@ -82,6 +89,14 @@
    else 비전투 사건 또는 이동 완료
      Runtime -> Runtime : 해당 그룹 차례 종료 후 다음 그룹 진행
    end
+ end
+ opt 적이 먼저 발견된 뒤 플레이어 응답 처리
+   Player -> UI : 일반 대화로 대응 행동 제출
+   UI -> Runtime : 플레이어 행동 처리 요청
+   Runtime -> GM : 플레이어 행동 판정 요청
+   GM --> Runtime : 행동 결과
+   Runtime -> Runtime : 비메타 플레이어 차례가 정상 확정된 경우에만 대기 해제
+   Runtime -> Runtime : 제안·서술·인지 상태를 보존하고 환경 단계 재개 허용
  end
  alt 전투로 전환
    note over Runtime : 전술 이동 순서를 끝내고 전투 차례로 전환한다.

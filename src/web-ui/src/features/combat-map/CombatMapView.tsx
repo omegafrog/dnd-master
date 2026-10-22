@@ -1134,6 +1134,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
               {explorationCycle.pendingEnvironmentProposal?.narration && <p>{explorationCycle.pendingEnvironmentProposal.narration}</p>}
               {explorationCycle.pendingEnvironmentProposal?.encounterRequested && !explorationCycle.pendingEnvironmentProposal.combatLinked
                 ? <p role="alert">이 상황을 어떻게 처리할지 모험 대화에 입력해주세요. 다음 GM 응답에서 전투를 시작하거나 전투 없이 상황을 해결합니다. 해결되면 환경 진행을 이어갈 수 있습니다.</p>
+                : explorationCycle.pendingEnvironmentProposal?.playerResponseRequired
+                  ? <p role="alert">적이 먼저 여러분을 발견했습니다. 위 서술에 이어 모험 대화에 응답해주세요. 응답이 반영된 뒤 환경 진행을 이어갈 수 있습니다.</p>
                 : <button type="button" disabled={explorationBusy || submitting || awaitingRuntimeTurnCommit} onClick={() => {
                   void updateExplorationCycle(() => api.advanceExplorationEnvironment!(adventureId, explorationVersion, explorationCycle.currentPhaseCommandId))
                 }}>환경 단계 진행</button>}

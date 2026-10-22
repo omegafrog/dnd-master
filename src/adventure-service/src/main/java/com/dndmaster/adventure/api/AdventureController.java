@@ -414,6 +414,8 @@ public class AdventureController {
                         LOGGER.warn("gm_turn_combat_start_skipped adventureId={} reason=ACTIVE_COMBAT_ALREADY_EXISTS turnId={}",
                                 adventureId, result.turn().turnId());
                     }
+                    if (!(turn.input() instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput))
+                        resolvePendingEnvironmentEncounterWithoutCombat(adventureId, turn.turnId(), "committed_turn_before_combat");
                     combatLifecycleService.findActiveEncounter(adventureId)
                             .ifPresent(encounter -> linkExplorationCycleToCombat(adventureId, encounter.encounterId()));
                 } else if (!(turn.input() instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput)) {
@@ -514,6 +516,8 @@ public class AdventureController {
                                         storedExplorationState(adventure).cycle()),
                                 result.enemySheetPreparationRequest());
             }
+            if (!(existing.input() instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput))
+                resolvePendingEnvironmentEncounterWithoutCombat(adventureId, result.turn().turnId(), "recovered_turn_before_combat");
             combatLifecycleService.findActiveEncounter(adventureId)
                     .ifPresent(encounter -> linkExplorationCycleToCombat(adventureId, encounter.encounterId()));
         } else if (!(existing.input() instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput)) {
@@ -527,14 +531,19 @@ public class AdventureController {
         var snapshotState = storedExplorationState(snapshot);
         var snapshotCycle = snapshotState.cycle();
         var snapshotProposal = snapshotCycle == null ? null : snapshotCycle.pendingEnvironmentProposal();
-        if (snapshotCycle == null || snapshotProposal == null || !snapshotProposal.encounterRequested()
+        if (source.contains("before_combat")
+                && (snapshotProposal == null || !snapshotProposal.playerResponseRequired())) return;
+        if (snapshotCycle == null || snapshotProposal == null
+                || (!snapshotProposal.encounterRequested() && !snapshotProposal.playerResponseRequired())
                 || snapshotCycle.linkedCombatEncounterId() != null
                 || snapshotCycle.phase() != com.dndmaster.adventure.domain.runtime.ExplorationCycle.Phase.ENVIRONMENT) return;
         Adventure adventure = adventureRepository.findByIdForUpdate(new AdventureId(adventureId)).orElseThrow();
         var state = storedExplorationState(adventure);
         var cycle = state.cycle();
         var proposal = cycle == null ? null : cycle.pendingEnvironmentProposal();
-        if (cycle == null || proposal == null || !proposal.encounterRequested()
+        if (source.contains("before_combat") && (proposal == null || !proposal.playerResponseRequired())) return;
+        if (cycle == null || proposal == null
+                || (!proposal.encounterRequested() && !proposal.playerResponseRequired())
                 || cycle.linkedCombatEncounterId() != null
                 || cycle.phase() != com.dndmaster.adventure.domain.runtime.ExplorationCycle.Phase.ENVIRONMENT) return;
         String diagnosticContext = "adventureId=" + adventureId + " turnId=" + turnId + " cycleId=" + cycle.id()
@@ -543,12 +552,13 @@ public class AdventureController {
         long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
                 "pending_environment_encounter_resolve", diagnosticContext);
         try {
-            var resolved = cycle.resolveEncounterWithoutCombat();
+            var resolved = proposal.encounterRequested()
+                    ? cycle.resolveEncounterWithoutCombat() : cycle.acknowledgePendingEnvironmentResponse();
             adventure.updateExplorationState(adventure.ownerPlayerId(), adventure.version(), state.withCycle(resolved));
             adventureRepository.save(adventure);
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
-                    "pending_environment_encounter_resolve", diagnosticContext + " expectedEncounterRequested=true"
-                            + " actualEncounterRequested=" + resolved.pendingEnvironmentProposal().encounterRequested()
+                    "pending_environment_encounter_resolve", diagnosticContext + " expectedResponsePending=true"
+                            + " actualResponsePending=" + resolved.pendingEnvironmentProposal().playerResponseRequired()
                             + " narrationPreserved=true environmentPhase=" + resolved.environmentPhase(), started);
         } catch (RuntimeException | Error failure) {
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
@@ -845,6 +855,8 @@ public class AdventureController {
             throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_ENVIRONMENT_PHASE_NOT_ACTIVE");
         if (cycle.pendingEnvironmentProposal() != null && cycle.pendingEnvironmentProposal().encounterRequested())
             throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_ENCOUNTER_RESOLUTION_PENDING");
+        if (cycle.pendingEnvironmentProposal() != null && cycle.pendingEnvironmentProposal().playerResponseRequired())
+            throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_PLAYER_RESPONSE_PENDING");
         if (combatLifecycleService.findActiveEncounter(adventureId).isPresent())
             throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_CYCLE_SUSPENDED_FOR_COMBAT");
         UUID phaseId = cycle.currentPhaseCommandId();
@@ -899,9 +911,24 @@ public class AdventureController {
                         generated.hostileActionStarted());
                 if (generated.threatDiscovery() != null) {
                     var typed = generated.threatDiscovery();
+                    var partyIds = adventure.party().stream().map(member -> member.characterSheetId().value())
+                            .collect(java.util.stream.Collectors.toSet());
+                    var perHostile = new java.util.HashMap<UUID, java.util.Set<UUID>>();
+                    for (var mapping : typed.awareCharactersByHostileTokenId().entrySet()) {
+                        if (!eligibleEnemyTokenIds.contains(mapping.getKey())
+                                || !partyIds.containsAll(mapping.getValue())
+                                || perHostile.putIfAbsent(mapping.getKey(), new java.util.HashSet<>(mapping.getValue())) != null)
+                            throw new ApiRequestGuard.ApiContractException(502, "INVALID_HOSTILE_AWARENESS_MAPPING");
+                    }
+                    if (typed.bothSidesNotHidden()) for (UUID hostileId : eligibleEnemyTokenIds)
+                        perHostile.put(hostileId, new java.util.HashSet<>(partyIds));
+                    var mappedDiscoverers = perHostile.values().stream().flatMap(java.util.Set::stream)
+                            .collect(java.util.stream.Collectors.toSet());
                     if (!eligibleEnemyTokenIds.containsAll(typed.awareEnemyTokenIds())
                             || (typed.bothSidesNotHidden() && !new java.util.HashSet<>(typed.awareEnemyTokenIds()).equals(eligibleEnemyTokenIds))
-                            || (typed.enemyDiscoveredFirst() && typed.awareEnemyTokenIds().isEmpty()))
+                            || (typed.enemyDiscoveredFirst() && typed.awareEnemyTokenIds().isEmpty())
+                            || (!typed.enemyDiscoveredFirst() && !mappedDiscoverers.equals(new java.util.HashSet<>(typed.discovererCharacterSheetIds())))
+                            || (typed.bothSidesNotHidden() && !new java.util.HashSet<>(typed.discovererCharacterSheetIds()).equals(partyIds)))
                         throw new ApiRequestGuard.ApiContractException(502, "UNKNOWN_AWARE_ENEMY_TOKEN_ID");
                     if (typed.enemyHeardNotification()) {
                         throw new ApiRequestGuard.ApiContractException(502, "ENEMY_AWARENESS_REQUIRES_EXPLICIT_NOTIFICATION");
@@ -909,9 +936,7 @@ public class AdventureController {
                     var discovery = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.ThreatDiscovery(
                             new java.util.HashSet<>(typed.discovererCharacterSheetIds()), typed.enemyDiscoveredFirst(),
                             typed.enemyHeardNotification(), typed.bothSidesNotHidden(),
-                            new java.util.HashSet<>(typed.awareEnemyTokenIds()), eligibleEnemyTokenIds);
-                    var partyIds = adventure.party().stream().map(member -> member.characterSheetId().value())
-                            .collect(java.util.stream.Collectors.toSet());
+                            new java.util.HashSet<>(typed.awareEnemyTokenIds()), eligibleEnemyTokenIds, perHostile);
                     proposal = proposal.withDiscovery(discovery, partyIds);
                     if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
                         LOGGER.info("dev_exploration_threat_discovery outcome=accepted adventureId={} phaseId={} discovererCount={} awareEnemyCount={} enemyDiscoveredFirst={} enemyHeardNotification={} bothSidesNotHidden={} encounterRequested={} result=private_state_saved",
@@ -995,6 +1020,14 @@ public class AdventureController {
                                 + " featureInteractionsApplied=" + actualFeatureInteractions
                                 + " featureIds=" + expectedFeatureIds
                                 + " result=handoff_pending recoveryAction=await_committed_gm_combat_start", started);
+                Adventure latest = ownedAdventure(adventureId);
+                return new ExplorationEnvironmentPhaseResponse(latest.version(), cycle, proposal.narration());
+            }
+            if (proposal.playerResponseRequired()) {
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                        "exploration_environment_phase", "adventureId=" + adventureId + " phaseId=" + phaseId
+                                + " responseRequired=true narrationChars=" + proposal.narration().length()
+                                + " result=await_player_turn recoveryAction=retry_after_committed_player_turn", started);
                 Adventure latest = ownedAdventure(adventureId);
                 return new ExplorationEnvironmentPhaseResponse(latest.version(), cycle, proposal.narration());
             }
@@ -1205,7 +1238,8 @@ public class AdventureController {
             return new ExplorationCycleView(cycle.id(), cycle.cycleNumber(), cycle.groupOrder(), cycle.completedGroups(),
                     cycle.phase(), cycle.environmentPhase(), cycle.currentGroupId(), cycle.currentPhaseCommandId(),
                     cycle.elapsedSeconds(), proposal == null ? null : new PendingEnvironmentProposalView(
-                            proposal.narration(), proposal.encounterRequested(), proposal.linkedCombatEncounterId() != null),
+                            proposal.narration(), proposal.encounterRequested(), proposal.linkedCombatEncounterId() != null,
+                            proposal.playerResponseRequired()),
                     event == null ? null : new MovementStopEventView(event.id(), event.groupId(),
                             publicMovementEventLabel(event.cause()), publicMovementEventLabels(event.publicEvents()),
                             event.finalPosition()), cycle.linkedCombatEncounterId() != null);
@@ -1223,7 +1257,8 @@ public class AdventureController {
             return labels.stream().map(ExplorationCycleView::publicMovementEventLabel).distinct().toList();
         }
     }
-    record PendingEnvironmentProposalView(String narration, boolean encounterRequested, boolean combatLinked) { }
+    record PendingEnvironmentProposalView(String narration, boolean encounterRequested, boolean combatLinked,
+            boolean playerResponseRequired) { }
     record MovementStopEventView(UUID id, UUID groupId, String cause, List<String> publicEvents,
             com.dndmaster.adventure.domain.runtime.ExplorationCycle.Position finalPosition) { }
     record ExplorationCycleStartRequest(Long expectedVersion, UUID commandId) { }
@@ -1825,7 +1860,18 @@ public class AdventureController {
             if (discovery == null || discovery.discovererCharacterSheetIds().isEmpty() && !discovery.enemyDiscoveredFirst())
                 throw new ApiRequestGuard.ApiContractException(502, "MOVEMENT_THREAT_DISCOVERY_RESULT_MISSING");
             var groupMemberIds = group.members().stream().map(member -> member.characterSheetId()).collect(java.util.stream.Collectors.toSet());
+            var perHostile = new java.util.HashMap<UUID, java.util.Set<UUID>>();
+            for (var mapping : discovery.awareCharactersByHostileTokenId().entrySet()) {
+                if (!eligibleHostileIds.contains(mapping.getKey()) || !groupMemberIds.containsAll(mapping.getValue())
+                        || perHostile.putIfAbsent(mapping.getKey(), new java.util.HashSet<>(mapping.getValue())) != null)
+                    throw new ApiRequestGuard.ApiContractException(502, "MOVEMENT_THREAT_DISCOVERY_IDS_INVALID");
+            }
+            if (discovery.bothSidesNotHidden()) for (UUID hostileId : eligibleHostileIds)
+                perHostile.put(hostileId, new java.util.HashSet<>(groupMemberIds));
+            var mappedDiscoverers = perHostile.values().stream().flatMap(java.util.Set::stream)
+                    .collect(java.util.stream.Collectors.toSet());
             if (!groupMemberIds.containsAll(discovery.discovererCharacterSheetIds())
+                    || (!discovery.enemyDiscoveredFirst() && !mappedDiscoverers.equals(new java.util.HashSet<>(discovery.discovererCharacterSheetIds())))
                     || !eligibleHostileIds.containsAll(discovery.awareEnemyTokenIds())
                     || discovery.enemyHeardNotification()
                     || (discovery.bothSidesNotHidden() && (discovery.enemyDiscoveredFirst()
@@ -1833,10 +1879,10 @@ public class AdventureController {
                     || (discovery.enemyDiscoveredFirst() && !discovery.awareEnemyTokenIds().contains(result.hostileTokenId())))
                 throw new ApiRequestGuard.ApiContractException(502, "MOVEMENT_THREAT_DISCOVERY_IDS_INVALID");
             var discovered = new java.util.HashSet<>(discovery.discovererCharacterSheetIds());
-            var awareCharacters = discovery.bothSidesNotHidden() ? groupMemberIds : discovered;
+            var awareCharacters = mappedDiscoverers;
             var event = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.MovementStopEvent(eventId, group.id(),
                     result.operationId(), result.interruptionReason(), result.publicEvents(), position, result.hostileTokenId(),
-                    discovered, awareCharacters, false, discovery.awareEnemyTokenIds(), eligibleHostileIds);
+                    discovered, awareCharacters, false, discovery.awareEnemyTokenIds(), eligibleHostileIds, perHostile);
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
                     "exploration_movement_threat_discovery", "adventureId=" + adventure.id().value() + " eventId=" + eventId
                             + " operationId=" + result.operationId() + " groupId=" + group.id()

@@ -127,6 +127,40 @@ it('starts an exploration cycle and advances group then environment through the 
   expect(await screen.findByText(/지난 시간 6초 · 그룹 이동/)).toBeInTheDocument()
 })
 
+it('shows enemy-first narration and keeps environment progression pending until a player turn is committed', async () => {
+  const api = fakeApi()
+  const group = { id: 'g1', mapTokenId: 'p1', speed: 20, members: [
+    { characterSheetId: 'sheet-1', formation: 'FRONT' as const, speed: 20 },
+  ] }
+  let version = 4
+  let cycle: ExplorationCycle = { id: 'cycle-1', cycleNumber: 1, currentPhaseCommandId: 'phase-1', groupOrder: ['g1'],
+    completedGroups: ['g1'], phase: 'ENVIRONMENT', environmentPhase: 'ENEMIES_PATROLS_AND_DETECTION', elapsedSeconds: 0,
+    pendingEnvironmentProposal: { narration: '적이 먼저 다가와 당신들을 발견합니다.', encounterRequested: false,
+      combatLinked: false, playerResponseRequired: false }, combatLinked: false }
+  api.getExplorationGroups = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.saveExplorationGroups = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.startExplorationCycle = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.finishExplorationGroupTurn = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.resolveExplorationMovementEvent = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.advanceExplorationEnvironment = vi.fn(async () => {
+    version++
+    cycle = { ...cycle, pendingEnvironmentProposal: { ...cycle.pendingEnvironmentProposal!, playerResponseRequired: true } }
+    return { version, groups: [group], cycle }
+  })
+  const user = userEvent.setup()
+  const { rerender } = render(<CombatMapView adventureId="a1" api={api} refreshToken={0} />)
+
+  await user.click(await screen.findByRole('button', { name: '환경 단계 진행' }))
+  expect(await screen.findByText('적이 먼저 다가와 당신들을 발견합니다.')).toBeInTheDocument()
+  expect(await screen.findByRole('alert')).toHaveTextContent('모험 대화에 응답해주세요')
+  expect(screen.queryByRole('button', { name: '환경 단계 진행' })).not.toBeInTheDocument()
+
+  version++
+  cycle = { ...cycle, pendingEnvironmentProposal: { ...cycle.pendingEnvironmentProposal!, playerResponseRequired: false } }
+  rerender(<CombatMapView adventureId="a1" api={api} refreshToken={1} />)
+  expect(await screen.findByRole('button', { name: '환경 단계 진행' })).toBeEnabled()
+})
+
 it('waits for the committed map turn and refreshes the adventure version before finishing the group turn', async () => {
   const diagnostic = vi.spyOn(diagnostics, 'diagnosticEvent')
   const api = fakeApi()
