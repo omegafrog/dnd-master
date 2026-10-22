@@ -1089,7 +1089,7 @@
       "command": [
         "bash",
         "-lc",
-        "./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.MapMovementCoordinatorTest --tests com.dndmaster.adventure.ExplorationCycleTest --tests com.dndmaster.adventure.combat.CombatEncounterPolicyTest --tests com.dndmaster.adventure.api.ExplorationEnvironmentControllerTest --tests com.dndmaster.adventure.infrastructure.integration.HttpTypedRuntimeGmAgentPortTest :combat-map-service:test --tests com.dndmaster.combatmap.SpatialFeatureApplicationServiceTest :ai-game-master-service:test --tests com.dndmaster.aigamemaster.api.TypedAgentContractControllerTest && npm --prefix src/web-ui run test -- --run src/features/combat-map/CombatMapFlow.test.tsx"
+        "./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.MapMovementCoordinatorTest --tests com.dndmaster.adventure.ExplorationCycleTest --tests com.dndmaster.adventure.combat.CombatEncounterPolicyTest --tests com.dndmaster.adventure.application.combat.CombatStartParticipantFactoryDiagnosticsTest --tests com.dndmaster.adventure.api.ExplorationEnvironmentControllerTest --tests com.dndmaster.adventure.infrastructure.integration.HttpTypedRuntimeGmAgentPortTest :combat-map-service:test --tests com.dndmaster.combatmap.SpatialFeatureApplicationServiceTest :ai-game-master-service:test --tests com.dndmaster.aigamemaster.api.TypedAgentContractControllerTest && npm --prefix src/web-ui run test -- --run src/features/combat-map/CombatMapFlow.test.tsx"
       ],
       "required_env": [],
       "config_inputs": [
@@ -1111,6 +1111,7 @@
         "src/adventure-service/src/test/java/com/dndmaster/adventure/MapMovementCoordinatorTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
         "src/web-ui/package.json",
