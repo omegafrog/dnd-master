@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import type { AdventurePlayApi, CombatMapView as CombatMapState, ExplorationCycle, ExplorationGroup, MapBoundary, MapBoundaryProposal, MapMovementResult } from '../saved-adventures/AdventurePlayApi'
-import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './MapInteractionCandidate'
+import { actionCandidate, moveCandidate, type GridCell, type MapInteractionCandidate } from './MapInteractionCandidate'
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 import { MapCropEditor } from './MapCropEditor'
 import { tokenVisualCatalog } from './TokenVisualCatalog'
@@ -17,6 +17,7 @@ export type CombatAimMapInteraction = {
 
 type PendingMovement = { mapId: string; tokenId: string; turnId?: string; commandId?: string; cancelCommandId?: string; result: MapMovementResult }
 type PendingMovementCommand = { candidate: MapInteractionCandidate; turnId: string; commandId: string; expectedVersion: number }
+type MovementStroke = { base: MapInteractionCandidate; cells: GridCell[] }
 
 function pendingMovementKey(adventureId: string) { return `dnd-master:movement-operation:${adventureId}` }
 function pendingMovementCommandKey(adventureId: string) { return `dnd-master:movement-command:${adventureId}` }
@@ -51,18 +52,22 @@ function logMapZoom(previous: number, zoom: number, outcome: 'changed' | 'reset'
   }
 }
 
-export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, movementRemaining, onPreparationComplete, aimInteraction }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; movementRemaining?: number; onPreparationComplete?: () => void | Promise<void>; aimInteraction?: CombatAimMapInteraction }) {
+export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, movementRemaining, onPreparationComplete, onPreparationLoadError, aimInteraction }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; movementRemaining?: number; onPreparationComplete?: () => void | Promise<void>; onPreparationLoadError?: () => void; aimInteraction?: CombatAimMapInteraction }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
   const [explorationGroups, setExplorationGroups] = useState<ExplorationGroup[]>([])
   const [explorationCycle, setExplorationCycle] = useState<ExplorationCycle | null>(null)
   const [explorationVersion, setExplorationVersion] = useState<number | null>(null)
   const [explorationBusy, setExplorationBusy] = useState(false)
+  const [awaitingRuntimeTurnCommit, setAwaitingRuntimeTurnCommit] = useState(false)
+  const previousRefreshToken = useRef(refreshToken)
+  const runtimeTurnExpectedVersion = useRef<number | null>(null)
   const [splitMemberIds, setSplitMemberIds] = useState<Record<string, string>>({})
   const [publicMapImage, setPublicMapImage] = useState<string | null>(null)
   const [selectedToken, setSelectedToken] = useState<string | null>(null)
   const [naturalMovementText, setNaturalMovementText] = useState('')
   const [candidate, setCandidate] = useState<MapInteractionCandidate | null>(() => readPendingMovementCommand(adventureId)?.candidate ?? null)
   const [message, setMessage] = useState('')
+  const movementStroke = useRef<MovementStroke | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [previewing, setPreviewing] = useState(false)
   const [waypointMode, setWaypointMode] = useState(false)
@@ -86,6 +91,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [boundaryTool, setBoundaryTool] = useState<'WALL' | 'DOOR' | 'ERASE'>('WALL')
   const [boundaryDetecting, setBoundaryDetecting] = useState(false)
   const [preparationStarting, setPreparationStarting] = useState(false)
+  const [mapSetupChoice, setMapSetupChoice] = useState<'review' | 'edit' | 'use'>('review')
   const [selectedPlayerStart, setSelectedPlayerStart] = useState<{ x: number; y: number } | null>(null)
   const boundaryStroke = useRef<BoundaryStroke | null>(null)
   const previewSequence = useRef(0)
@@ -100,6 +106,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
 
   useEffect(() => {
     let active = true
+    const started = performance.now()
+    if (preparationMode) diagnosticEvent('combat_map_preparation_load', { outcome: 'started', adventureId })
     void (async () => {
       try {
         const fetchedMap = preparationMode
@@ -111,6 +119,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         const nextMap = fetchedMap
         if (!active) return
         setMap(nextMap)
+        if (preparationMode) diagnosticEvent('combat_map_preparation_load', { outcome: 'completed', adventureId, mapId: nextMap.mapId ?? '', elapsedMs: Math.round(performance.now() - started) })
         const savedMovement = readPendingMovement(adventureId)
         let serverMovement: PendingMovement | null = null
         let terminalMovement: MapMovementResult | null = null
@@ -162,7 +171,6 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         if (bounds?.length === 6 && bounds.every(Number.isFinite)) {
           setAlignment({ mapId: nextMap.mapId ?? '', version: 0, imageRevision: '', cellSize: bounds[2] / nextGrid.width, originX: bounds[0], originY: bounds[1] })
         }
-        try { const current = await (api.getMapGridAlignment?.(adventureId) ?? Promise.reject(new Error('unavailable'))); if (active) { setAlignment(current); setAlignmentAvailable(true); if (current.version > 0) setGridConfirmed(true); if (preparationMode) setLayoutSaved(layoutConfirmedForAlignment(nextMap, current)); diagnosticEvent('combat_map_alignment_restore', { outcome: current.version > 0 ? 'restored' : 'not_saved', version: current.version, gridConfirmed: current.version > 0 }) } } catch { if (active) { setAlignmentAvailable(false); setLayoutSaved(false); setGridMessage('저장된 격자 정렬을 불러오지 못했습니다.'); diagnosticEvent('combat_map_alignment_restore', { outcome: 'failed', version: null, gridConfirmed: false }) } }
         try {
           let image: string | null = null
           if (preparationMode) {
@@ -195,22 +203,56 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         } catch {
           if (active) { setPublicMapImage(null); setGridMessage('공개된 지도 이미지를 불러오지 못했습니다.') }
         }
-      } catch {
-        if (active) { setMap(null); setPublicMapImage(null) }
+        try { const current = await (api.getMapGridAlignment?.(adventureId) ?? Promise.reject(new Error('unavailable'))); if (active) { setAlignment(current); setAlignmentAvailable(true); if (current.version > 0) setGridConfirmed(true); if (preparationMode) setLayoutSaved(layoutConfirmedForAlignment(nextMap, current)); diagnosticEvent('combat_map_alignment_restore', { outcome: current.version > 0 ? 'restored' : 'not_saved', version: current.version, gridConfirmed: current.version > 0 }) } } catch { if (active) { setAlignmentAvailable(false); setLayoutSaved(false); setGridMessage('저장된 격자 정렬을 불러오지 못했습니다.'); diagnosticEvent('combat_map_alignment_restore', { outcome: 'failed', version: null, gridConfirmed: false }) } }
+      } catch (error) {
+        if (active) {
+          setMap(null)
+          setPublicMapImage(null)
+          if (preparationMode) {
+            diagnosticEvent('combat_map_preparation_load', { outcome: 'failed', adventureId, failureClass: error instanceof Error ? error.name : 'UnknownError', elapsedMs: Math.round(performance.now() - started), recoveryAction: 'offer_manual_resume' })
+            onPreparationLoadError?.()
+          }
+        }
       }
     })()
     return () => { active = false }
   // Loading is keyed by external inputs. Movement application deliberately
   // stays inside this request lifecycle and must not retrigger the load.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adventureId, api, preparationMode, refreshToken])
+  }, [adventureId, api, onPreparationLoadError, preparationMode, refreshToken])
 
   useEffect(() => {
     if (preparationMode || !api.getExplorationGroups) return
+    const committedTurnRefresh = previousRefreshToken.current !== refreshToken
+    previousRefreshToken.current = refreshToken
     let active = true
     void api.getExplorationGroups(adventureId).then(result => {
-      if (active) { setExplorationGroups(result.groups); setExplorationVersion(result.version); setExplorationCycle(result.cycle ?? null) }
-    }).catch(error => { if (active) setMessage(error instanceof Error ? error.message : '탐험 그룹을 불러오지 못했습니다.') })
+      if (active) {
+        setExplorationGroups(result.groups)
+        setExplorationVersion(result.version)
+        setExplorationCycle(result.cycle ?? null)
+        if (committedTurnRefresh && runtimeTurnExpectedVersion.current !== null) {
+          const expectedVersion = runtimeTurnExpectedVersion.current
+          if (result.version > expectedVersion) {
+            runtimeTurnExpectedVersion.current = null
+            setAwaitingRuntimeTurnCommit(false)
+            diagnosticEvent('exploration_cycle_runtime_turn_wait', { outcome: 'completed', expectedVersion, actualVersion: result.version })
+          } else {
+            diagnosticEvent('exploration_cycle_runtime_turn_wait', { outcome: 'waiting', expectedVersion, actualVersion: result.version })
+          }
+        }
+      }
+    }).catch(error => {
+      if (active) {
+        setMessage(error instanceof Error ? error.message : '탐험 그룹을 불러오지 못했습니다.')
+        if (committedTurnRefresh && runtimeTurnExpectedVersion.current !== null) {
+          diagnosticEvent('exploration_cycle_runtime_turn_wait', {
+            outcome: 'failed', expectedVersion: runtimeTurnExpectedVersion.current,
+            failureClass: error instanceof Error ? error.name : 'UnknownError', recoveryAction: 'keep_cycle_controls_disabled',
+          })
+        }
+      }
+    })
     return () => { active = false }
   }, [adventureId, api, preparationMode, refreshToken])
 
@@ -236,7 +278,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   }
 
   async function updateExplorationCycle(action: () => Promise<{ version: number; groups: ExplorationGroup[]; cycle?: ExplorationCycle | null }>) {
-    if (explorationBusy) return
+    if (explorationBusy || submitting || awaitingRuntimeTurnCommit) return
     const started = performance.now()
     setExplorationBusy(true)
     diagnosticEvent('exploration_cycle_ui', { outcome: 'started', phase: explorationCycle?.phase ?? 'NOT_STARTED', elapsedSeconds: explorationCycle?.elapsedSeconds ?? 0 })
@@ -298,11 +340,55 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     await previewMovement(token.id, cell, [], next)
   }
 
+  function startMovementStroke(tokenId: string, from: GridCell) {
+    if (!map?.mapId || preparationMode || aimInteraction) return
+    const base = moveCandidate(map.mapId, map.version ?? 0, tokenId, from, from)
+    movementStroke.current = { base, cells: [] }
+    setSelectedToken(tokenId)
+    setCandidate(base)
+    diagnosticEvent('combat_map_movement_stroke', { outcome: 'started', mapId: map.mapId, tokenId, fromX: from.x, fromY: from.y })
+  }
+
+  function extendMovementStroke(cell: GridCell) {
+    const stroke = movementStroke.current
+    if (!stroke || !map || !isPlayableGridCell(map, previewGrid, cell)) return
+    const known = !hasVisibilityMetadata || map.current?.some(item => item.x === cell.x && item.y === cell.y)
+      || map.explored?.some(item => item.x === cell.x && item.y === cell.y)
+    const blocked = map.obstacles?.some(item => item.x === cell.x && item.y === cell.y)
+      || map.doors?.some(item => item.x === cell.x && item.y === cell.y && !item.open)
+      || map.tokens?.some(item => item.id !== stroke.base.tokenId && item.x === cell.x && item.y === cell.y)
+    if (!known || blocked) return
+    const cells = appendMovementCell(stroke.cells, cell)
+    if (cells === stroke.cells) return
+    stroke.cells = cells
+    const destination = cells[cells.length - 1]
+    setCandidate({ ...stroke.base, to: destination, path: [stroke.base.from!, ...cells], waypoints: cells.slice(0, -1) })
+  }
+
+  function finishMovementStroke() {
+    const stroke = movementStroke.current
+    if (!stroke) return
+    movementStroke.current = null
+    const destination = stroke.cells[stroke.cells.length - 1]
+    if (!destination || !stroke.base.from) {
+      setCandidate(null)
+      diagnosticEvent('combat_map_movement_stroke', { outcome: 'cancelled', mapId: stroke.base.mapId, tokenId: stroke.base.tokenId, pathCells: 0 })
+      return
+    }
+    const base = moveCandidate(stroke.base.mapId, stroke.base.mapVersion, stroke.base.tokenId, stroke.base.from, destination)
+    const waypoints = stroke.cells.slice(0, -1)
+    setCandidate({ ...base, path: [base.from!, ...stroke.cells], waypoints })
+    diagnosticEvent('combat_map_movement_stroke', { outcome: 'completed', mapId: base.mapId, tokenId: base.tokenId, pathCells: stroke.cells.length, waypoints: waypoints.length, toX: destination.x, toY: destination.y })
+    void previewMovement(base.tokenId, destination, waypoints, base)
+  }
+
   async function previewMovement(tokenId: string, destination: { x: number; y: number }, waypoints: { x: number; y: number }[], base: MapInteractionCandidate, sourceMap = map, retryStale = true) {
     if (!sourceMap?.mapId) return
+    const startedAt = performance.now()
     const sequence = previewSequence.current + 1
     previewSequence.current = sequence
     setPreviewing(true)
+    diagnosticEvent('combat_map_movement_preview', { outcome: 'started', mapId: sourceMap.mapId, tokenId, mapVersion: sourceMap.version ?? 0, toX: destination.x, toY: destination.y, waypoints: waypoints.length })
     try {
       if (!api.previewMapMovement) throw new Error('서버 이동 경로 미리보기를 사용할 수 없습니다.')
       const preview = await api.previewMapMovement(adventureId, { mapId: sourceMap.mapId, mapVersion: sourceMap.version ?? 0, tokenId, destination, waypoints,
@@ -312,11 +398,14 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         ? { ...base, mapVersion: preview.baseMapVersion, path: preview.orderedPositions, distance: preview.distance, fingerprint: preview.fingerprint, waypoints }
         : current)
       setMessage(`이동 경로를 미리 보았습니다. 거리: ${preview.distance}`)
+      diagnosticEvent('combat_map_movement_preview', { outcome: 'completed', mapId: sourceMap.mapId, tokenId, pathCells: preview.orderedPositions.length, distance: preview.distance, elapsedMs: Math.round(performance.now() - startedAt) })
     } catch (error) {
       if (sequence !== previewSequence.current) return
       const status = error && typeof error === 'object' && 'status' in error ? (error as { status?: unknown }).status : undefined
-      if (status === 409 && retryStale && base.to && api.previewMapMovement) {
+      const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: unknown }).code : undefined
+      if (status === 409 && code === 'STALE_MOVEMENT_PROPOSAL' && retryStale && base.to && api.previewMapMovement) {
         try {
+          diagnosticEvent('combat_map_movement_preview', { outcome: 'retry_started', mapId: sourceMap.mapId, tokenId, expectedVersion: sourceMap.version ?? 0, failureStatus: 409, failureCode: code, recoveryAction: 'refresh_and_retry' })
           const refreshed = await api.getCombatMap(adventureId)
           setMap(refreshed)
           await previewMovement(tokenId, destination, waypoints, { ...base, mapVersion: refreshed.version ?? 0 }, refreshed, false)
@@ -324,8 +413,12 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           return
         } catch { /* preserve the original request error */ }
       }
-      setCandidate(current => current === base ? null : current)
-      setMessage(error instanceof Error ? error.message : '이동 경로를 미리 보지 못했습니다.')
+      setCandidate(current => current === base || (current?.action === 'MOVE' && current.mapId === base.mapId
+        && current.tokenId === tokenId && current.to?.x === destination.x && current.to.y === destination.y) ? null : current)
+      diagnosticEvent('combat_map_movement_preview', { outcome: 'failed', mapId: sourceMap.mapId, tokenId, toX: destination.x, toY: destination.y, waypoints: waypoints.length, failureClass: error instanceof Error ? error.name : 'UnknownError', failureStatus: typeof status === 'number' ? status : null, failureCode: typeof code === 'string' ? code : null, recoveryAction: 'show_error', elapsedMs: Math.round(performance.now() - startedAt) })
+      setMessage(code === 'EXPLORATION_MOVEMENT_BUDGET_EXCEEDED'
+        ? '이번 탐험 차례에 남은 이동량을 초과합니다.'
+        : error instanceof Error ? error.message : '이동 경로를 미리 보지 못했습니다.')
     } finally { if (sequence === previewSequence.current) setPreviewing(false) }
   }
 
@@ -378,6 +471,10 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         return
       }
       if (!api.submitMapAction) throw new Error('맵 행동 API를 사용할 수 없습니다.')
+      const expectedVersion = map?.sessionVersion ?? map?.version ?? 0
+      runtimeTurnExpectedVersion.current = expectedVersion
+      setAwaitingRuntimeTurnCommit(true)
+      diagnosticEvent('exploration_cycle_runtime_turn_wait', { outcome: 'started', expectedVersion })
       const turn = await api.submitMapAction(adventureId, {
         mapId: confirmedCandidate.mapId, mapVersion: confirmedCandidate.mapVersion, tokenId: confirmedCandidate.tokenId,
         action: confirmedCandidate.action, path: confirmedCandidate.action === 'MOVE' ? (confirmedCandidate.path ?? (confirmedCandidate.from && confirmedCandidate.to ? gridPath(confirmedCandidate.from, confirmedCandidate.to) : undefined)) : undefined,
@@ -388,26 +485,44 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       const refreshed = await api.getCombatMap(adventureId)
       if (candidate.action === 'MOVE' && turn.movementResult) {
         await applyMovementResult(turn.movementResult, confirmedCandidate.mapId, confirmedCandidate.tokenId, turn.turnId, command.commandId, map, refreshed)
+        if (turn.movementResult.status !== 'RETRY_REQUIRED' && turn.movementResult.status !== 'CHECK_REQUIRED') {
+          runtimeTurnExpectedVersion.current = null
+          setAwaitingRuntimeTurnCommit(false)
+          diagnosticEvent('exploration_cycle_runtime_turn_wait', { outcome: 'completed', expectedVersion, actualVersion: turn.version })
+        }
       } else {
         setMap(refreshed)
         clearPendingMovementCommand(adventureId)
         setCandidate(null); setSelectedToken(null); setMessage('맵 행동을 GM 턴으로 전송했습니다.')
       }
     } catch (error) {
+      if (runtimeTurnExpectedVersion.current !== null) {
+        diagnosticEvent('exploration_cycle_runtime_turn_wait', {
+          outcome: 'failed', expectedVersion: runtimeTurnExpectedVersion.current,
+          failureClass: error instanceof Error ? error.name : 'UnknownError', recoveryAction: 'wait_for_commit_refresh_or_reload',
+        })
+      }
       // The runtime can commit the map command before the HTTP request sees
       // a concurrent-version response. Reconcile that response with the
       // authoritative map before showing an error to the player.
       const status = error && typeof error === 'object' && 'status' in error ? (error as { status?: unknown }).status : undefined
-      if (status === 409 && candidate.action === 'MOVE' && candidate.to && api.previewMapMovement) {
+      const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: unknown }).code : undefined
+      if (status === 409 && code === 'STALE_MOVEMENT_PROPOSAL' && candidate.action === 'MOVE' && candidate.to && api.previewMapMovement) {
         try {
           const refreshed = await api.getCombatMap(adventureId)
+          const moved = refreshed.tokens?.some(token => token.id === candidate.tokenId && token.x === candidate.to?.x && token.y === candidate.to?.y)
           setMap(refreshed)
+          if (moved) {
+            setCandidate(null); setSelectedToken(null); setMessage('맵 이동이 반영되었습니다.')
+            diagnosticEvent('combat_map_stale_movement', { outcome: 'committed_map_reconciled', mapId: candidate.mapId, tokenId: candidate.tokenId, toX: candidate.to.x, toY: candidate.to.y, mapVersion: refreshed.version ?? 0 })
+            return
+          }
           await previewMovement(candidate.tokenId, candidate.to, candidate.waypoints ?? [], { ...candidate, mapVersion: refreshed.version ?? 0 }, refreshed)
           setMessage('지도 상태가 바뀌었습니다. 최신 이동 경로를 다시 확인하고 확인해주세요.')
           return
         } catch { /* preserve the original request error */ }
       }
-      if (status === 409 && candidate.action === 'MOVE' && candidate.to) {
+      if (status === 409 && code === 'STALE_MOVEMENT_PROPOSAL' && candidate.action === 'MOVE' && candidate.to) {
         try {
           const refreshed = await api.getCombatMap(adventureId)
           const moved = refreshed.tokens?.some(token => token.id === candidate.tokenId && token.x === candidate.to?.x && token.y === candidate.to?.y)
@@ -637,8 +752,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     '--map-aspect': `${Math.max(displayedGridWidth, 1)} / ${Math.max(displayedGridHeight, 1)}`,
     ...(mapImage ? { backgroundImage: `url(${mapImage})` } : {}),
     ...(playableWindow ? {
-      '--map-background-size': `${(renderedImageWidth / Math.max(crop.width, 1)) * 100}% ${(renderedImageHeight / Math.max(crop.height, 1)) * 100}%`,
-      '--map-background-position': `${(crop.x / Math.max(renderedImageWidth - crop.width, 1)) * 100}% ${(crop.y / Math.max(renderedImageHeight - crop.height, 1)) * 100}%`,
+      '--map-background-size': `${(renderedImageWidth / Math.max(displayedGridWidth, 1)) * 100}% ${(renderedImageHeight / Math.max(displayedGridHeight, 1)) * 100}%`,
+      '--map-background-position': `${((previewGrid.originX + playableWindow.minX * previewGrid.cellSize) / Math.max(renderedImageWidth - displayedGridWidth, 1)) * 100}% ${((previewGrid.originY + playableWindow.minY * previewGrid.cellSize) / Math.max(renderedImageHeight - displayedGridHeight, 1)) * 100}%`,
     } : hasGridBounds || gridEditor || usesSavedAlignment ? {
       '--map-background-size': `${(renderedImageWidth / Math.max(renderedGridWidth, 1)) * 100}% ${(renderedImageHeight / Math.max(renderedGridHeight, 1)) * 100}%`,
       '--map-background-position': `${gridEditor ? 'left top' : backgroundPositionX} ${gridEditor ? 'left top' : backgroundPositionY}`,
@@ -650,6 +765,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   } as CSSProperties
   const hasVisibilityMetadata = Array.isArray(map?.current) && Array.isArray(map?.explored)
   const placementRequired = map?.layers?.some(layer => layer.type === 'MAP_PLACEMENT_STATUS' && layer.value === 'PLACEMENT_REQUIRED') ?? false
+  const mapSetupReviewRequired = preparationMode && (map?.layers?.some(layer => layer.type === 'GRID_SOURCE' && layer.value === 'FALLBACK') === true || !gridConfirmed || !layoutSaved)
+  const showMapSetupChoice = mapSetupReviewRequired && mapSetupChoice === 'review'
+  const showMapSetupEditors = mapSetupReviewRequired && mapSetupChoice === 'edit'
   // A combat map is stage-scoped.  The backend returns an empty projection for
   // event/town stages; keep the entire tactical panel out of the player UI in
   // that state instead of showing a permanent "no map" panel.
@@ -748,16 +866,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       return { ...currentMap, layers: next.length ? [...layers, { type: 'MAP_BOUNDARIES', value: next.map(encodeBoundary).join(';'), visibility: 'PLAYER_VISIBLE' }] : layers }
     })
     setLayoutDirty(true); setLayoutSaved(false)
-    const label = stroke.tool === 'ERASE' ? '지우는 중' : stroke.tool === 'DOOR' ? '문 그리는 중' : '벽 그리는 중'
-    setMessage(`${label} · ${touched.length}개 선분`)
-  }
-  function restoreBoundaryStroke(stroke: BoundaryStroke) {
-    setMap(currentMap => {
-      if (!currentMap) return currentMap
-      const layers = (currentMap.layers ?? []).filter(layer => layer.type !== 'MAP_BOUNDARIES')
-      return { ...currentMap, layers: stroke.originalBoundaries.length ? [...layers, { type: 'MAP_BOUNDARIES', value: stroke.originalBoundaries.map(encodeBoundary).join(';'), visibility: 'PLAYER_VISIBLE' }] : layers }
-    })
-    setLayoutDirty(false); setLayoutSaved(false)
+    const label = stroke.tool === 'ERASE' ? '지웠습니다' : stroke.tool === 'DOOR' ? '문을 놓았습니다' : '벽을 놓았습니다'
+    setMessage(`${label} · ${touched.length}개 선분. 맵 초안 저장을 눌러 확정하세요.`)
   }
   async function completePreparation() {
     if (!onPreparationComplete || preparationStarting) return
@@ -772,9 +882,60 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       setPreparationStarting(false)
     }
   }
+  async function useCurrentMapSetup() {
+    if (!map?.mapId || !api.calibrateMapGrid || !api.applyMapGridAlignment || !api.getMapGridAlignment || !api.updateCombatMapLayout
+        || !alignmentAvailable || alignment.mapId !== map.mapId || mapImageSize.width < 1 || mapImageSize.height < 1) {
+      setMessage('현재 지도 설정을 확인할 수 없습니다. 다시 설정을 선택하세요.')
+      return
+    }
+    setLayoutSaving(true)
+    setMessage('저장된 격자와 벽 위치를 현재 모험에서 사용할 설정으로 확인하는 중입니다…')
+    diagnosticEvent('combat_map_existing_setup', { outcome: 'confirmation_started', gridWidth: grid.width, gridHeight: grid.height, boundaries: mapBoundaries.length })
+    try {
+      await api.calibrateMapGrid(adventureId, {
+        mapId: map.mapId, expectedVersion: map.version ?? 0, width: grid.width, height: grid.height,
+        cellSize: Math.max(1, Math.floor(previewGrid.cellSize)), originX: Math.max(0, Math.floor(previewGrid.originX)),
+        originY: Math.max(0, Math.floor(previewGrid.originY)), imageWidth: mapImageSize.width, imageHeight: mapImageSize.height,
+      })
+      const aligned = await api.applyMapGridAlignment(adventureId, {
+        mapId: alignment.mapId, commandId: globalThis.crypto.randomUUID(), expectedVersion: alignment.version,
+        imageRevision: alignment.imageRevision, originX: previewGrid.originX, originY: previewGrid.originY, cellSize: previewGrid.cellSize,
+      })
+      const calibrated = await (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId))
+      await api.updateCombatMapLayout(adventureId, {
+        commandId: globalThis.crypto.randomUUID(), expectedVersion: calibrated.version ?? 0,
+        obstacles: calibrated.obstacles ?? [], doors: calibrated.doors?.map(door => ({ x: door.x, y: door.y })) ?? [],
+        boundaries: boundariesFrom(calibrated), crop: calibrated.layers?.find(layer => layer.type === 'MAP_CROP')?.value,
+        alignmentVersion: aligned.version, imageRevision: aligned.imageRevision,
+      })
+      const [savedMap, savedAlignment] = await Promise.all([
+        api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId),
+        api.getMapGridAlignment(adventureId),
+      ])
+      setMap(savedMap); setAlignment(savedAlignment); setAlignmentAvailable(true)
+      setGridConfirmed(true); setCropConfirmed(true); setLayoutSaved(true); setLayoutDirty(false); setMapSetupChoice('use')
+      setMessage('현재 지도와 격자·벽 설정을 확인했습니다. 시작 위치를 확인한 뒤 진행하세요.')
+      diagnosticEvent('combat_map_existing_setup', { outcome: 'confirmed', gridWidth: grid.width, gridHeight: grid.height, boundaries: mapBoundaries.length })
+    } catch (error) {
+      try {
+        const [latestMap, latestAlignment] = await Promise.all([
+          api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId),
+          api.getMapGridAlignment(adventureId),
+        ])
+        setMap(latestMap); setAlignment(latestAlignment); setAlignmentAvailable(true)
+        setGridConfirmed(latestAlignment.version > 0)
+        setLayoutSaved(layoutConfirmedForAlignment(latestMap, latestAlignment))
+      } catch { /* keep the saved-map choice available with the original failure */ }
+      const failure = error instanceof Error ? error.name : 'UnknownError'
+      setMessage(error instanceof Error ? error.message : '현재 지도 설정을 확인하지 못했습니다.')
+      diagnosticEvent('combat_map_existing_setup', { outcome: 'failed', gridWidth: grid.width, gridHeight: grid.height, boundaries: mapBoundaries.length, failure })
+    } finally {
+      setLayoutSaving(false)
+    }
+  }
   const tacticalMap = map.tokens ? (
     <div className="tactical-map-window">
-      {!preparationMode && <div className="combat-map-zoom" role="group" aria-label="지도 확대/축소">
+      {(!preparationMode || layoutEditing) && <div className="combat-map-zoom" role="group" aria-label="지도 확대/축소">
         <button type="button" aria-label="지도 축소" disabled={mapZoom <= .75} onClick={() => setMapZoom(current => {
           const next = Math.max(.75, Math.round((current - .25) * 100) / 100)
           logMapZoom(current, next, 'changed')
@@ -800,22 +961,29 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
             event.currentTarget.setPointerCapture?.(event.pointerId)
             const activeStroke = { ...stroke, tool: boundaryTool, originalBoundaries: mapBoundaries }
             boundaryStroke.current = activeStroke; setBoundaryPreview(activeStroke)
-            applyBoundaryStroke(activeStroke)
+            diagnosticEvent('combat_map_boundary_stroke', { outcome: 'started', mapId: map.mapId, tool: boundaryTool, segments: 1 })
+            setMessage(`${boundaryTool === 'DOOR' ? '문' : boundaryTool === 'ERASE' ? '지우기' : '벽'} 미리 보기 · 1개 선분`)
           }} onPointerMove={event => {
+            if (movementStroke.current) {
+              const cellElement = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-grid-x][data-grid-y]')
+              if (cellElement) extendMovementStroke({ x: Number(cellElement.dataset.gridX), y: Number(cellElement.dataset.gridY) })
+              return
+            }
             if (!boundaryStroke.current) return
             const next = extendBoundaryStroke(boundaryStroke.current, event, previewGrid.width, previewGrid.height)
             const activeStroke = { ...next, tool: boundaryStroke.current.tool, originalBoundaries: boundaryStroke.current.originalBoundaries }
             boundaryStroke.current = activeStroke; setBoundaryPreview(activeStroke)
-            // Draw continuously, rather than waiting for pointer-up. The edit
-            // remains local until save and the existing cancel action restores
-            // the complete pre-edit map.
-            applyBoundaryStroke(activeStroke)
+            const segments = boundariesInStroke(activeStroke).length
+            setMessage(`${activeStroke.tool === 'DOOR' ? '문' : activeStroke.tool === 'ERASE' ? '지우기' : '벽'} 미리 보기 · ${segments}개 선분`)
           }} onPointerUp={event => {
+            if (movementStroke.current) { finishMovementStroke(); return }
             const stroke = boundaryStroke.current
             if (!stroke) return
-            boundaryStroke.current = null; setBoundaryPreview(null); setMessage('선분 수정을 반영했습니다. 저장하려면 맵 초안 저장을 누르세요.')
+            applyBoundaryStroke(stroke)
+            diagnosticEvent('combat_map_boundary_stroke', { outcome: 'placed_locally', mapId: map.mapId, tool: stroke.tool, segments: boundariesInStroke(stroke).length })
+            boundaryStroke.current = null; setBoundaryPreview(null)
             if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture?.(event.pointerId)
-          }} onPointerCancel={() => { const stroke = boundaryStroke.current; if (stroke) restoreBoundaryStroke(stroke); boundaryStroke.current = null; setBoundaryPreview(null); setMessage('선분 드래그를 취소했습니다.') }}>
+          }} onPointerCancel={() => { const movement = movementStroke.current; if (movement) { movementStroke.current = null; setCandidate(null); diagnosticEvent('combat_map_movement_stroke', { outcome: 'cancelled', mapId: movement.base.mapId, tokenId: movement.base.tokenId, pathCells: movement.cells.length }) } const stroke = boundaryStroke.current; if (stroke) diagnosticEvent('combat_map_boundary_stroke', { outcome: 'cancelled', mapId: map.mapId, tool: stroke.tool, segments: boundariesInStroke(stroke).length }); boundaryStroke.current = null; setBoundaryPreview(null); if (stroke) setMessage('선분 드래그를 취소했습니다.') }}>
         {Array.from({ length: displayedColumns * displayedRows }, (_, index) => {
           const cell = { x: (playableWindow?.minX ?? 0) + index % displayedColumns, y: (playableWindow?.minY ?? 0) + Math.floor(index / displayedColumns) }
           // A prepared map may contain an AI-generated or legacy player-start
@@ -854,12 +1022,18 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
             return { target, tokenId: aimActor.id }
           }
           const draftLabel = door ? `${door.open ? '열린 문' : '닫힌 문'} ${cell.x},${cell.y}` : blocked ? `벽 ${cell.x},${cell.y}` : token ? `플레이어 시작 위치 ${cell.x},${cell.y}` : `빈 격자 ${cell.x},${cell.y}`
-          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : displayToken ? `${displayToken.type} ${displayToken.x},${displayToken.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-id={displayToken?.id} data-token-type={displayToken?.type} data-token-faction={tokenVisual?.faction} data-token-status={tokenVisual?.primaryStatus} data-token-asset={tokenVisual?.assetPath} data-token-frame={tokenVisual?.framePath} data-movement-preview={movementPreview ? 'true' : undefined} data-aim-path={aimPath ? 'true' : undefined} data-aim-effect={aimEffect ? 'true' : undefined} data-ghost-token={ghostDestination ? 'true' : undefined} data-start-selected={preparationMode && selectedPlayerStart?.x === cell.x && selectedPlayerStart?.y === cell.y ? 'true' : undefined} data-last-seen={displayToken?.lastSeen ? 'true' : 'false'} className={tokenVisual?.classes.join(' ')} disabled={!playable || startBlocked || (preparationMode && layoutEditing) || (!preparationMode && !visible && !explored)} draggable={!aimInteraction && !preparationMode && displayToken?.type === 'PLAYER'} onPointerEnter={event => { if (aimInteraction) { const aim = aimCell(event); if (aim) aimInteraction.onHover(aim.target, map.version ?? 0, aim.tokenId) } else if (movementHoverEnabled && !preparationMode && selectedToken && displayToken?.type !== 'PLAYER' && (visible || explored)) void chooseCell(cell) }} onFocus={() => { if (aimInteraction && aimActor && map.mapId) aimInteraction.onHover(cell, map.version ?? 0, aimActor.id) }} onDragStart={() => { if (!aimInteraction && !preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id) }} onClick={() => { if (aimInteraction) { if (aimActor && map.mapId) aimInteraction.onSelect(cell, map.version ?? 0, aimActor.id) } else if (preparationMode && !layoutEditing) setSelectedPlayerStart(cell); else if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id); else if (!preparationMode) void chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => { if (!aimInteraction) void chooseCell(cell) }}>
+          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : displayToken ? `${displayToken.type} ${displayToken.x},${displayToken.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-grid-x={cell.x} data-grid-y={cell.y} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-id={displayToken?.id} data-token-type={displayToken?.type} data-token-faction={tokenVisual?.faction} data-token-status={tokenVisual?.primaryStatus} data-token-asset={tokenVisual?.assetPath} data-token-frame={tokenVisual?.framePath} data-movement-preview={movementPreview ? 'true' : undefined} data-aim-path={aimPath ? 'true' : undefined} data-aim-effect={aimEffect ? 'true' : undefined} data-ghost-token={ghostDestination ? 'true' : undefined} data-start-selected={preparationMode && selectedPlayerStart?.x === cell.x && selectedPlayerStart?.y === cell.y ? 'true' : undefined} data-last-seen={displayToken?.lastSeen ? 'true' : 'false'} className={tokenVisual?.classes.join(' ')} disabled={!playable || startBlocked || (preparationMode && layoutEditing) || (!preparationMode && !visible && !explored)} onPointerDown={event => { if (!aimInteraction && !preparationMode && displayToken?.type === 'PLAYER' && event.button !== 2) { event.preventDefault(); startMovementStroke(displayToken.id, cell) } }} onPointerEnter={event => { if (aimInteraction) { const aim = aimCell(event); if (aim) aimInteraction.onHover(aim.target, map.version ?? 0, aim.tokenId) } else if (movementStroke.current && !displayToken && (visible || explored)) extendMovementStroke(cell); else if (movementHoverEnabled && !preparationMode && selectedToken && displayToken?.type !== 'PLAYER' && (visible || explored)) void chooseCell(cell) }} onFocus={() => { if (aimInteraction && aimActor && map.mapId) aimInteraction.onHover(cell, map.version ?? 0, aimActor.id) }} onClick={() => { if (aimInteraction) { if (aimActor && map.mapId) aimInteraction.onSelect(cell, map.version ?? 0, aimActor.id) } else if (preparationMode && !layoutEditing) setSelectedPlayerStart(cell); else if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id); else if (!preparationMode && (locationMode || waypointMode)) void chooseCell(cell) }}>
             {preparationMode ? door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '벽' : token ? '시작' : '' : ghostDestination ? '유령 토큰' : tokenVisual && displayToken ? <span className="token-visual" aria-hidden="true"><span className="token-visual-frame" style={{ backgroundImage: `url(${tokenVisual.framePath})` }} /><img src={tokenVisual.assetPath} alt="" /><span className="token-visual-label">{`${displayToken.type} (${displayToken.x},${displayToken.y})${displayToken.elevationFeet ? ` · 지면에서 높이 ${displayToken.elevationFeet} 피트` : ''}`}</span></span> : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
           </button>
           })}
-          {mapBoundaries.map(boundary => <span key={`boundary-${boundary.x}-${boundary.y}-${boundary.orientation}`} aria-hidden="true" className={`map-boundary map-boundary-${boundary.kind.toLowerCase()}`} data-boundary={`${boundary.orientation}:${boundary.x}:${boundary.y}`} style={boundaryStyle(boundary, previewGrid.width, previewGrid.height)} />)}
-          {preparationMode && boundaryPreview && <span aria-hidden="true" className={`map-boundary map-boundary-preview map-boundary-${boundaryTool.toLowerCase()}`} style={boundaryStrokeStyle(boundaryPreview, previewGrid.width, previewGrid.height)} />}
+          {mapBoundaries.filter(boundary => (preparationMode || !mapImage || boundary.kind === 'DOOR') && (!playableWindow || (boundary.orientation === 'HORIZONTAL'
+            ? boundary.y >= playableWindow.minY && boundary.y <= playableWindow.minY + playableWindow.height && boundary.x >= playableWindow.minX && boundary.x < playableWindow.minX + playableWindow.width
+            : boundary.x >= playableWindow.minX && boundary.x <= playableWindow.minX + playableWindow.width && boundary.y >= playableWindow.minY && boundary.y < playableWindow.minY + playableWindow.height)))
+            .map(boundary => {
+              const displayed = playableWindow ? { ...boundary, x: boundary.x - playableWindow.minX, y: boundary.y - playableWindow.minY } : boundary
+              return <span key={`boundary-${boundary.x}-${boundary.y}-${boundary.orientation}`} aria-hidden="true" className={`map-boundary map-boundary-${boundary.kind.toLowerCase()}`} data-boundary={`${boundary.orientation}:${boundary.x}:${boundary.y}`} style={boundaryStyle(displayed, displayedColumns, displayedRows)} />
+            })}
+          {preparationMode && boundaryPreview && boundariesInStroke(boundaryPreview).map((segment, index) => <span key={`boundary-preview-${index}`} aria-hidden="true" className={`map-boundary map-boundary-preview map-boundary-${boundaryTool.toLowerCase()}`} style={boundaryStyle(segment, previewGrid.width, previewGrid.height)} />)}
           </div>
       {!preparationMode && <aside aria-label="맵 범례" className="map-legend">{[
         ['PLAYER', '●', '플레이어 캐릭터'], ['FRIENDLY_NPC', '◆', '우호 NPC'], ['NEUTRAL_NPC', '◇', '중립 NPC'],
@@ -878,7 +1052,21 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       <h2 id="map-heading">{compact ? '전장 지도' : '플레이어 전투 맵'}</h2>
       {!compact && <p>모험 ID: {adventureId}</p>}
       {!compact && <p role="status">{map ? `현재 맵 상태: ${map.status}` : '전투 맵을 불러오는 중…'}</p>}
-      {preparationMode && <section aria-label="맵 여백 자르기" className="map-crop-preparation">
+      {showMapSetupChoice && tacticalMap}
+      {showMapSetupChoice && <section aria-label="저장된 지도 설정 선택" className="map-setup-choice">
+        <h3>저장된 지도 설정</h3>
+        <p>현재 지도: 격자 {grid.width}열 × {grid.height}행 · 저장된 벽·문 {mapBoundaries.length}개</p>
+        <p>격자 출처: {map.layers?.find(layer => layer.type === 'GRID_SOURCE')?.value ?? '기록 없음'}</p>
+        <p>아래 지도에서 저장된 격자와 벽 위치를 확인하고 선택하세요. 현재 설정을 쓰면 이 모험의 지도 설정으로 확정합니다.</p>
+        <button type="button" disabled={layoutSaving || !alignmentAvailable} onClick={() => void useCurrentMapSetup()}>
+          {layoutSaving ? '현재 설정 확인 중…' : '현재 격자와 벽 사용'}
+        </button>
+        <button type="button" disabled={layoutSaving} onClick={() => { setMapSetupChoice('edit'); diagnosticEvent('combat_map_existing_setup', { outcome: 'reconfigure_selected', gridWidth: grid.width, gridHeight: grid.height, boundaries: mapBoundaries.length }) }}>
+          격자·벽 다시 설정
+        </button>
+        {!alignmentAvailable && <p role="status">저장된 격자 정보를 읽을 수 없어 현재 설정을 확정할 수 없습니다. 다시 설정을 선택하세요.</p>}
+      </section>}
+      {showMapSetupEditors && <section aria-label="맵 여백 자르기" className="map-crop-preparation">
         <h3>1. 맵 여백 자르기</h3>
         {!mapImage ? <p role="status">지도 이미지를 불러오는 중입니다. 이미지가 준비되면 남길 영역을 지정할 수 있습니다.</p> : cropEditorOpen ? <>
           <p>남길 영역을 드래그한 뒤 자르기 적용을 누르세요. 적용해야 다음 단계로 넘어갑니다.</p>
@@ -886,7 +1074,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           <button type="button" disabled={layoutSaving || crop.width <= 0 || crop.height <= 0} onClick={() => void applyCrop()}>자르기 적용</button>
         </> : <button type="button" onClick={() => { setCropEditorOpen(true); setCropConfirmed(false); setGridConfirmed(false); setLayoutDirty(true); setLayoutSaved(false) }}>자르기 다시 수정</button>}
       </section>}
-      {preparationMode && <section aria-label="맵 격자 맞추기" className="map-grid-editor">
+      {showMapSetupEditors && <section aria-label="맵 격자 맞추기" className="map-grid-editor">
         <h3>2. 맵 격자 맞추기</h3>
         {!cropConfirmed ? <p>1단계에서 여백 자르기를 적용하면 격자를 맞출 수 있습니다.</p> : !showGridEditor ? <p role="status">지도 이미지와 격자 정보를 불러오는 중입니다.</p> : <>
           <button type="button" onClick={() => setGridEditor(true)}>격자 맞추기</button>
@@ -919,13 +1107,13 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         </>}
         <p role="status">{gridMessage}</p>
       </section>}
-      {preparationMode && <section className="map-start-preparation" aria-label="플레이어 시작 위치"><h3>시작 위치 확인</h3>{placementRequired && <p role="alert">자동 판정으로 시작 위치를 찾지 못했습니다. 지도에서 직접 선택해주세요.</p>}<p>모험 중 맵에 진입할 때 행동·서술과 지도 이미지를 바탕으로 시작 위치를 자동 판정합니다. 아래 선택은 자동 판정에 실패했을 때 사용할 수 있는 수동 대안입니다.</p>{map.playerStartCandidates?.length ? <ul>{map.playerStartCandidates.map((candidate, index) => <li key={`${candidate.x}-${candidate.y}-${index}`}><button type="button" aria-pressed={selectedPlayerStart?.x === candidate.x && selectedPlayerStart?.y === candidate.y} onClick={() => setSelectedPlayerStart({ x: candidate.x, y: candidate.y })}>({candidate.x},{candidate.y}) 선택</button><span>신뢰도 {Math.round(candidate.confidence * 100)}% · {candidate.evidence.join(', ') || '근거 없음'}</span></li>)}</ul> : <p>아직 모험 중 진입 서술이 없어 자동 시작 위치 후보가 없습니다.</p>}<p role="status">{selectedPlayerStart ? `수동 대안으로 선택한 시작 칸: (${selectedPlayerStart.x},${selectedPlayerStart.y})` : '자동 판정 대기 중입니다.'}</p></section>}
-      {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>3. AI 초안 생성 및 검수</h3><p>{!cropConfirmed ? '먼저 1단계에서 여백 자르기를 적용하세요.' : !gridConfirmed ? '먼저 2단계에서 격자를 맞추고 적용하세요.' : '격자 적용 완료. 현재 자른 영역과 격자를 기준으로 AI 초안을 생성합니다.'}</p>{cropConfirmed && gridConfirmed && <><button type="button" disabled={boundaryDetecting || layoutSaving || layoutEditing} onClick={() => void detectBoundaries()}>{boundaryDetecting ? 'AI 벽·문 감지 중…' : 'AI 벽·문 감지'}</button><button type="button" onClick={() => { if (layoutEditing) { setLayoutEditing(false); return }; if (!layoutBeforeEdit) setLayoutBeforeEdit(map); setLayoutSaved(false); setLayoutEditing(true) }}>{layoutEditing ? '검수 닫기' : '벽·문 편집'}</button>{layoutEditing && <div className="map-layout-editor"><ol className="map-layout-guide"><li>선은 칸의 한 면에 붙어 표시됩니다.</li><li>벽 그리기·문 그리기·지우기 중 하나를 고르세요.</li><li>격자선 위를 누른 채 끌면 지나간 선분에 적용됩니다.</li></ol><div className="map-boundary-tools" role="group" aria-label="벽과 문 그리기 도구"><button type="button" aria-pressed={boundaryTool === 'WALL'} onClick={() => setBoundaryTool('WALL')}>벽 그리기</button><button type="button" aria-pressed={boundaryTool === 'DOOR'} onClick={() => setBoundaryTool('DOOR')}>문 그리기</button><button type="button" aria-pressed={boundaryTool === 'ERASE'} onClick={() => setBoundaryTool('ERASE')}>지우기</button></div>{tacticalMap}<p>칸은 이동하거나 선택되지 않습니다.</p><div className="map-layout-actions"><button type="button" disabled={layoutSaving} onClick={() => { boundaryStroke.current = null; setBoundaryPreview(null); const restored = layoutBeforeEdit; setMap(restored); setLayoutSaved(restored?.layers?.some(layer => layer.type === 'MAP_LAYOUT_CONFIRMED') ?? false); setLayoutDirty(false); setLayoutEditing(false); setLayoutBeforeEdit(null) }}>편집 취소</button><button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div></div>}</>}</section>}
-      {!layoutEditing && tacticalMap}
+      {!showMapSetupChoice && preparationMode && <section className="map-start-preparation" aria-label="플레이어 시작 위치"><h3>시작 위치 확인</h3>{placementRequired && <p role="alert">자동 판정으로 시작 위치를 찾지 못했습니다. 지도에서 직접 선택해주세요.</p>}<p>모험 중 맵에 진입할 때 행동·서술과 지도 이미지를 바탕으로 시작 위치를 자동 판정합니다. 아래 선택은 자동 판정에 실패했을 때 사용할 수 있는 수동 대안입니다.</p>{map.playerStartCandidates?.length ? <ul>{map.playerStartCandidates.map((candidate, index) => <li key={`${candidate.x}-${candidate.y}-${index}`}><button type="button" aria-pressed={selectedPlayerStart?.x === candidate.x && selectedPlayerStart?.y === candidate.y} onClick={() => setSelectedPlayerStart({ x: candidate.x, y: candidate.y })}>({candidate.x},{candidate.y}) 선택</button><span>신뢰도 {Math.round(candidate.confidence * 100)}% · {candidate.evidence.join(', ') || '근거 없음'}</span></li>)}</ul> : <p>아직 모험 중 진입 서술이 없어 자동 시작 위치 후보가 없습니다.</p>}<p role="status">{selectedPlayerStart ? `수동 대안으로 선택한 시작 칸: (${selectedPlayerStart.x},${selectedPlayerStart.y})` : '자동 판정 대기 중입니다.'}</p></section>}
+      {showMapSetupEditors && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>3. AI 초안 생성 및 검수</h3><p>{!cropConfirmed ? '먼저 1단계에서 여백 자르기를 적용하세요.' : !gridConfirmed ? '먼저 2단계에서 격자를 맞추고 적용하세요.' : '격자 적용 완료. 현재 자른 영역과 격자를 기준으로 AI 초안을 생성합니다.'}</p>{cropConfirmed && gridConfirmed && <><button type="button" disabled={boundaryDetecting || layoutSaving || layoutEditing} onClick={() => void detectBoundaries()}>{boundaryDetecting ? 'AI 벽·문 감지 중…' : 'AI 벽·문 감지'}</button><button type="button" onClick={() => { if (layoutEditing) { setLayoutEditing(false); return }; if (!layoutBeforeEdit) setLayoutBeforeEdit(map); setLayoutSaved(false); setLayoutEditing(true) }}>{layoutEditing ? '검수 닫기' : '벽·문 편집'}</button>{layoutEditing && <div className="map-layout-editor"><ol className="map-layout-guide"><li>선은 칸의 한 면에 붙어 표시됩니다.</li><li>벽 그리기·문 그리기·지우기 중 하나를 고르세요.</li><li>격자선 위를 누른 채 끌면 지나간 선분에 적용됩니다.</li></ol><div className="map-boundary-tools" role="group" aria-label="벽과 문 그리기 도구"><button type="button" aria-pressed={boundaryTool === 'WALL'} onClick={() => setBoundaryTool('WALL')}>벽 그리기</button><button type="button" aria-pressed={boundaryTool === 'DOOR'} onClick={() => setBoundaryTool('DOOR')}>문 그리기</button><button type="button" aria-pressed={boundaryTool === 'ERASE'} onClick={() => setBoundaryTool('ERASE')}>지우기</button></div>{tacticalMap}<p>칸은 이동하거나 선택되지 않습니다.</p><div className="map-layout-actions"><button type="button" disabled={layoutSaving} onClick={() => { boundaryStroke.current = null; setBoundaryPreview(null); const restored = layoutBeforeEdit; setMap(restored); setLayoutSaved(restored?.layers?.some(layer => layer.type === 'MAP_LAYOUT_CONFIRMED') ?? false); setLayoutDirty(false); setLayoutEditing(false); setLayoutBeforeEdit(null) }}>편집 취소</button><button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div></div>}</>}</section>}
+      {!layoutEditing && !showMapSetupChoice && tacticalMap}
       {!preparationMode && explorationGroups.length > 0 && api.saveExplorationGroups && <section className="exploration-groups" aria-label="탐험 그룹 관리">
         <h3>탐험 그룹과 대열</h3>
         {api.startExplorationCycle && api.finishExplorationGroupTurn && api.resolveExplorationMovementEvent && api.advanceExplorationEnvironment && explorationVersion !== null && <section aria-label="탐험 순환">
-          {!explorationCycle ? <button type="button" disabled={explorationBusy} onClick={() => {
+          {!explorationCycle ? <button type="button" disabled={explorationBusy || submitting || awaitingRuntimeTurnCommit} onClick={() => {
             const commandId = createMapCommandIdentity().commandId
             void updateExplorationCycle(() => api.startExplorationCycle!(adventureId, explorationVersion, commandId))
           }}>탐험 순환 시작</button> : <>
@@ -933,11 +1121,11 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
             {explorationCycle.pendingMovementEvent && <div role="alert" aria-label="이동 중단 사건">
               <p>이동 중단: {explorationCycle.pendingMovementEvent.cause} · 위치 ({explorationCycle.pendingMovementEvent.finalPosition.x},{explorationCycle.pendingMovementEvent.finalPosition.y})</p>
               {explorationCycle.pendingMovementEvent.publicEvents.length > 0 && <p>공개된 결과: {explorationCycle.pendingMovementEvent.publicEvents.join(', ')}</p>}
-              <button type="button" disabled={explorationBusy} onClick={() => void updateExplorationCycle(() => api.resolveExplorationMovementEvent!(adventureId, explorationCycle.pendingMovementEvent!.id, explorationVersion))}>사건을 해결하고 다음 그룹으로</button>
+              <button type="button" disabled={explorationBusy || submitting || awaitingRuntimeTurnCommit} onClick={() => void updateExplorationCycle(() => api.resolveExplorationMovementEvent!(adventureId, explorationCycle.pendingMovementEvent!.id, explorationVersion))}>사건을 해결하고 다음 그룹으로</button>
             </div>}
             {currentExplorationGroupId && <div>
               <p>현재 이동 차례: {explorationGroups.find(group => group.id === currentExplorationGroupId)?.members.map(member => member.characterSheetId.slice(0, 8)).join(', ') ?? '그룹'}</p>
-              <button type="button" disabled={explorationBusy} onClick={() => {
+              <button type="button" disabled={explorationBusy || submitting || awaitingRuntimeTurnCommit} onClick={() => {
                 const commandId = createMapCommandIdentity().commandId
                 void updateExplorationCycle(() => api.finishExplorationGroupTurn!(adventureId, currentExplorationGroupId, explorationVersion, commandId))
               }}>현재 그룹 차례 완료</button>
@@ -946,7 +1134,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
               {explorationCycle.pendingEnvironmentProposal?.narration && <p>{explorationCycle.pendingEnvironmentProposal.narration}</p>}
               {explorationCycle.pendingEnvironmentProposal?.encounterRequested && !explorationCycle.pendingEnvironmentProposal.combatLinked
                 ? <p role="alert">이 상황을 어떻게 처리할지 모험 대화에 입력해주세요. 다음 GM 응답에서 전투를 시작하거나 전투 없이 상황을 해결합니다. 해결되면 환경 진행을 이어갈 수 있습니다.</p>
-                : <button type="button" disabled={explorationBusy} onClick={() => {
+                : <button type="button" disabled={explorationBusy || submitting || awaitingRuntimeTurnCommit} onClick={() => {
                   void updateExplorationCycle(() => api.advanceExplorationEnvironment!(adventureId, explorationVersion, explorationCycle.currentPhaseCommandId))
                 }}>환경 단계 진행</button>}
             </div>}
@@ -1033,7 +1221,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           } catch (error) { setMessage(error instanceof Error ? error.message : '이동을 취소하지 못했습니다.') }
         }}>이동 취소</button>}
       </section>}
-      {preparationMode && <button type="button" disabled={preparationStarting || layoutSaving || layoutDirty || !gridConfirmed || !layoutSaved || !onPreparationComplete} aria-busy={preparationStarting} onClick={() => void completePreparation()}>{preparationStarting ? '모험 시작 요청 중…' : '맵 준비 완료, 모험 시작'}</button>}
+      {preparationMode && !showMapSetupChoice && <button type="button" disabled={preparationStarting || layoutSaving || layoutDirty || !gridConfirmed || !layoutSaved || !onPreparationComplete} aria-busy={preparationStarting} onClick={() => void completePreparation()}>{preparationStarting ? '모험 시작 요청 중…' : '맵 준비 완료, 모험 시작'}</button>}
     </section>
   )
 }
@@ -1151,6 +1339,13 @@ function layoutConfirmedForAlignment(map: CombatMapState, current: { version: nu
 type BoundaryGeometry = { orientation: MapBoundary['orientation']; fixed: number; from: number; to: number }
 type BoundaryStroke = BoundaryGeometry & { tool: 'WALL' | 'DOOR' | 'ERASE'; originalBoundaries: MapBoundary[] }
 
+function appendMovementCell(path: GridCell[], cell: GridCell) {
+  const last = path[path.length - 1]
+  if (last?.x === cell.x && last.y === cell.y) return path
+  const previous = path[path.length - 2]
+  return previous?.x === cell.x && previous.y === cell.y ? path.slice(0, -1) : [...path, cell]
+}
+
 function startBoundaryStroke(event: React.PointerEvent<HTMLDivElement>, width: number, height: number): BoundaryGeometry | null {
   const rect = event.currentTarget.getBoundingClientRect()
   const { x, y } = screenPointToGrid(event.clientX, event.clientY, rect, width, height)
@@ -1191,12 +1386,4 @@ function boundaryStyle(boundary: Pick<MapBoundary, 'x' | 'y' | 'orientation'>, w
 
 function sameBoundarySide(left: Pick<MapBoundary, 'x' | 'y' | 'orientation'>, right: Pick<MapBoundary, 'x' | 'y' | 'orientation'>) {
   return left.x === right.x && left.y === right.y && left.orientation === right.orientation
-}
-
-function boundaryStrokeStyle(stroke: BoundaryGeometry, width: number, height: number): CSSProperties {
-  const start = Math.min(stroke.from, stroke.to)
-  const length = Math.abs(stroke.to - stroke.from) + 1
-  return stroke.orientation === 'HORIZONTAL'
-    ? { ...boundaryStyle({ x: start, y: stroke.fixed, orientation: 'HORIZONTAL' }, width, height), width: `${(length / width) * 100}%` }
-    : { ...boundaryStyle({ x: stroke.fixed, y: start, orientation: 'VERTICAL' }, width, height), height: `${(length / height) * 100}%` }
 }

@@ -64,6 +64,11 @@ public final class AdventureAbilityDefinitionPreparationService {
         for (var member : adventure.party()) {
             JsonNode sheet = readSheet(member.characterSheetId().value());
             JsonNode learned = parseState(sheet).path("learnedAbilityIds");
+            if (learned.isMissingNode() || learned.isNull()) {
+                diagnostic("complete", adventure.id(), adventure.sessionId(), "none", 0,
+                        "learnedAbilityIds_array", 0, "none", "actual=missing;fallback=empty_array");
+                continue;
+            }
             if (!learned.isArray()) throw new IllegalStateException("character sheet learnedAbilityIds must be an array");
             learned.forEach(id -> {
                 if (!id.isTextual() || id.asText().isBlank()) throw new IllegalStateException("character sheet has an invalid learned ability ID");

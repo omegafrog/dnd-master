@@ -382,6 +382,45 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
+    void retries_encounter_extraction_inside_compilation_when_source_reference_does_not_link() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(
+                document(storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1)));
+        Fixture fixture = new Fixture(bundle);
+        fixture.queue.pending.clear();
+        ScenarioCompilationInputSnapshot input = ScenarioCompilationInputSnapshot.capture(
+                bundle.id(), 1, bundle.currentRevision().documents(), storybook.value(), "", ScenarioCreativity.CONSERVATIVE);
+        ScenarioCompilation requested = ScenarioCompilation.request(input, "fp-encounter-retry", "key-encounter-retry");
+        fixture.compilations.save(requested);
+        fixture.queue.pending.add(new WorkEnvelope(UUID.randomUUID(), "scenario", requested.id(), 1, "fp-encounter-retry", 0));
+        var excerpt = new ResolutionExtractionPort.SourceExcerpt(storybook, 1, "page:2",
+                "The eight giant rats begin combat if the party misses them.");
+        var invalid = new ScenarioModelElement("cellar-rats", "combat-scenario", Map.of(
+                "enemyKey", "giant-rat", "displayName", "giant rats", "count", 8, "location", "cellar"),
+                List.of(new ScenarioSourceReference(storybook, 1, "page:3")));
+        var valid = new ScenarioModelElement("cellar-rats", "combat-scenario", invalid.attributes(),
+                List.of(new ScenarioSourceReference(storybook, 1, "page:2")));
+        var requests = new ArrayList<ScenarioCompilationAgentPort.ScenarioCompilationAgentRequest>();
+        ScenarioCompilationAgentPort agent = request -> {
+            requests.add(request);
+            var model = new ScenarioModel(1, List.of(), List.of(), List.of(), List.of(),
+                    List.of(requests.size() == 1 ? invalid : valid), List.of(), List.of(), "");
+            return new ScenarioCompilationAgentPort.ScenarioCompilationAgentResult(
+                    ScenarioCompilationAgentPort.ScenarioCompilationAgentResult.Status.READY, model, List.of());
+        };
+        var worker = new ScenarioCompilationWorker(fixture.manager, fixture.compilations, fixture.queue,
+                new Bundles(bundle), request -> List.of(), ignored -> List.of(excerpt), fixture.tags, fixture.search,
+                new ScenarioPackageCompilationService(fixture.packages), fixture.packages, agent);
+
+        ScenarioPackage result = worker.processNext("worker", Duration.ofMinutes(1)).orElseThrow();
+
+        assertEquals(2, requests.size());
+        assertTrue(!requests.get(0).operationKey().equals(requests.get(1).operationKey()));
+        assertTrue(requests.get(1).validationFeedback().contains("missing or mismatched source references"));
+        assertEquals("cellar-rats", result.scenarioModel().combatScenarios().getFirst().scenarioId());
+    }
+
+    @Test
     void records_structured_scenario_agent_failure_in_retry_status_without_source_text() {
         KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(List.of(

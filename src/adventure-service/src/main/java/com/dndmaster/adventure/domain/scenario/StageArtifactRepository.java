@@ -11,6 +11,9 @@ public interface StageArtifactRepository {
     Optional<StageBackbone> findBackbone(AdventureId adventureId, UUID scenarioPackageId, long revision);
     Optional<DetailedStage> findDetailedStage(AdventureId adventureId, UUID scenarioPackageId, String stageId,
             long backboneRevision, long revision);
+    default List<DetailedStage> findDetailedStages(AdventureId adventureId, UUID scenarioPackageId, long backboneRevision) {
+        return List.of();
+    }
     void saveBackbone(AdventureId adventureId, StageBackbone backbone, long expectedRevision);
     void saveDetailedStage(AdventureId adventureId, DetailedStage detailedStage, long expectedRevision);
 
@@ -21,6 +24,14 @@ public interface StageArtifactRepository {
         private final Map<String, DetailedStage> detailedStages = new HashMap<>();
         public Optional<StageBackbone> findBackbone(AdventureId adventureId, UUID id, long revision) { return Optional.ofNullable(backbones.get(adventureId + ":" + id + ":" + revision)); }
         public Optional<DetailedStage> findDetailedStage(AdventureId adventureId, UUID id, String stage, long backbone, long revision) { return Optional.ofNullable(detailedStages.get(key(adventureId, id, stage, backbone, revision))); }
+        public List<DetailedStage> findDetailedStages(AdventureId adventureId, UUID id, long backbone) {
+            String prefix = adventureId + ":" + id + ":";
+            return detailedStages.entrySet().stream().filter(entry -> entry.getKey().startsWith(prefix))
+                    .map(Map.Entry::getValue).filter(stage -> stage.backboneRevision() == backbone)
+                    .collect(java.util.stream.Collectors.toMap(DetailedStage::stageId, stage -> stage,
+                            (left, right) -> left.revision() >= right.revision() ? left : right))
+                    .values().stream().toList();
+        }
         public void saveBackbone(AdventureId adventureId, StageBackbone value, long expected) {
             long current = backbones.keySet().stream().filter(key -> key.startsWith(adventureId + ":" + value.scenarioPackageId() + ":")).count();
             if (current != expected || value.revision() != expected + 1) throw new IllegalStateException("stage backbone revision is stale");

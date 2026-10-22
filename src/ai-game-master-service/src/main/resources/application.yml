@@ -15,7 +15,7 @@ ai:
     work-directory: ${CODEX_WORK_DIRECTORY:/tmp}
   gm:
     provider: ${GM_PROVIDER:codex-cli}
-    model: ${GM_MODEL:gpt-5.6-luna}
+    model: ${GM_MODEL:gpt-6-luna}
     reasoning: ${GM_REASONING:medium}
     base-url: ${OPENAI_BASE_URL:https://api.openai.com/}
     api-key: ${OPENAI_API_KEY:}

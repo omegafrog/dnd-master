@@ -58,20 +58,16 @@ public final class CombatStartParticipantFactory {
                                 Objects.requireNonNull(movementSpeed.apply(member), "movement speed must not be null"))))
                 .toList());
 
-        int index = 0;
         for (CombatEnemyProposal enemy : enemies) {
             if (enemy == null || enemy.statBlock() == null) {
                 throw new IllegalArgumentException("COMBAT_STAT_BLOCK_REQUIRED");
             }
             for (int instance = 1; instance <= enemy.count(); instance++) {
                 String displayName = enemy.count() == 1 ? enemy.name() : enemy.name() + " " + instance;
-                UUID enemyId = UUID.nameUUIDFromBytes(
-                        (adventureId + "|combat-enemy|" + index + "|" + enemy.scenarioId() + "|" + instance)
-                                .getBytes(StandardCharsets.UTF_8));
+                UUID enemyId = combatEnemyId(adventureId, enemy.scenarioId(), instance);
                 participants.add(new CombatParticipant(enemyId, displayName,
                         CombatParticipant.Controller.AI, d20.getAsInt() + enemy.statBlock().initiativeModifier(), "enemy",
                         com.dndmaster.adventure.domain.combat.TurnResources.initial(), enemy.statBlock()));
-                index++;
             }
         }
         return List.copyOf(participants);
@@ -95,20 +91,25 @@ public final class CombatStartParticipantFactory {
                     com.dndmaster.adventure.domain.combat.TurnResources.initial(
                             Objects.requireNonNull(movementSpeed.apply(member), "movement speed must not be null"))));
         }
-        int index = 0;
         for (CombatEnemyProposal enemy : enemies) {
             if (enemy == null || enemy.statBlock() == null) throw new IllegalArgumentException("COMBAT_STAT_BLOCK_REQUIRED");
             for (int instance = 1; instance <= enemy.count(); instance++) {
                 String displayName = enemy.count() == 1 ? enemy.name() : enemy.name() + " " + instance;
-                UUID id = UUID.nameUUIDFromBytes((adventureId + "|combat-enemy|" + index + "|" + enemy.scenarioId() + "|" + instance)
-                        .getBytes(StandardCharsets.UTF_8));
+                UUID id = combatEnemyId(adventureId, enemy.scenarioId(), instance);
                 participants.add(new CombatParticipant(id, displayName, CombatParticipant.Controller.AI,
                         d20ForParticipant.apply(id, RollScope.ENEMY) + enemy.statBlock().initiativeModifier(), "enemy",
                         com.dndmaster.adventure.domain.combat.TurnResources.initial(), enemy.statBlock()));
-                index++;
             }
         }
         return List.copyOf(participants);
+    }
+
+    /** Stable across map preparation and combat activation for the same source scenario instance. */
+    public static UUID combatEnemyId(UUID adventureId, String scenarioId, int instance) {
+        if (adventureId == null || scenarioId == null || scenarioId.isBlank() || instance < 1)
+            throw new IllegalArgumentException("combat enemy identity fields are required");
+        return UUID.nameUUIDFromBytes((adventureId + "|combat-enemy|" + scenarioId + "|" + instance)
+                .getBytes(StandardCharsets.UTF_8));
     }
 
     public static List<CombatParticipant> preparingFromPartyAndGmProposal(UUID adventureId,

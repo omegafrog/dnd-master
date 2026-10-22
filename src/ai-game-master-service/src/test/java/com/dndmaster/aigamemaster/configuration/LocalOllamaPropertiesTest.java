@@ -17,9 +17,10 @@ class LocalOllamaPropertiesTest {
     }
 
     @Test
-    void acceptsLoopbackDefaultAndQualityModelsOnly() {
+    void acceptsLoopbackAndComposeOllamaHosts() {
         assertDoesNotThrow(() -> properties(URI.create("http://127.0.0.1:11434"), LocalOllamaProperties.DEFAULT_CHAT_MODEL).validate());
         assertDoesNotThrow(() -> properties(URI.create("http://localhost:11434"), LocalOllamaProperties.QUALITY_CHAT_MODEL).validate());
+        assertDoesNotThrow(() -> properties(URI.create("http://ollama:11434"), LocalOllamaProperties.DEFAULT_CHAT_MODEL).validate());
     }
 
     @Test

@@ -33,6 +33,45 @@ class TypedAgentContractControllerTest {
     private static final UUID SELECTED_ENDPOINT_ID = UUID.fromString("00000000-0000-0000-0000-000000000322");
 
     @Test
+    void enemy_sheet_contract_requires_structured_numbers_and_parser_preserves_them() throws Exception {
+        var mapper = new ObjectMapper();
+        var root = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(runtimeResponse("null"));
+        root.put("combatStart", false);
+        var enemy = root.putArray("combatEnemies").addObject();
+        enemy.put("mode", "SITUATION").putNull("scenarioId");
+        enemy.put("enemyKey", "giant-rat").put("name", "Giant Rat").put("count", 1);
+        enemy.putArray("abilities");
+        enemy.putArray("actions");
+        var values = enemy.putObject("전투수치");
+        values.put("방어도", 12).put("최대HP", 7).put("공격보정치", 4)
+                .put("피해굴림식", "1d4 + 2").put("우선권보정치", 2).put("근거키", "E1");
+        try (var input = TypedAgentContractController.class.getResourceAsStream("/ai-game-master/schemas/enemy-sheet-preparation-response.json")) {
+            var responseSchema = mapper.readTree(input);
+            var numbersSchema = responseSchema.path("properties").path("combatEnemies").path("items")
+                    .path("properties").path("전투수치");
+            var validator = com.networknt.schema.SchemaRegistry.withDefaultDialect(com.networknt.schema.SpecificationVersion.DRAFT_2020_12)
+                    .getSchema(numbersSchema);
+            org.junit.jupiter.api.Assertions.assertTrue(validator.validate(values).isEmpty());
+            var wrong = values.deepCopy().put("최대HP", "7");
+            org.junit.jupiter.api.Assertions.assertFalse(validator.validate(wrong).isEmpty());
+        }
+        var controller = new TypedAgentContractController(selectedAdapter((operation, prompt, requested) -> "unused"),
+                mapper, new ApiRequestGuard("service-secret"));
+        var parse = TypedAgentContractController.class.getDeclaredMethod("parseRuntimeTurn", String.class, boolean.class);
+        parse.setAccessible(true);
+        var response = (TypedAgentContractController.RuntimeTurnResponse) parse.invoke(controller, mapper.writeValueAsString(root), true);
+        org.junit.jupiter.api.Assertions.assertEquals(12, response.combatEnemies().get(0).combatNumbers().armorClass());
+        org.junit.jupiter.api.Assertions.assertEquals("E1", response.combatEnemies().get(0).combatNumbers().citationKey());
+        enemy.remove("전투수치");
+        org.junit.jupiter.api.Assertions.assertThrows(java.lang.reflect.InvocationTargetException.class,
+                () -> parse.invoke(controller, mapper.writeValueAsString(root), true));
+        enemy.set("전투수치", values);
+        values.put("최대HP", "7");
+        org.junit.jupiter.api.Assertions.assertThrows(java.lang.reflect.InvocationTargetException.class,
+                () -> parse.invoke(controller, mapper.writeValueAsString(root), true));
+    }
+
+    @Test
     void table_extraction_uses_selected_ai_provider_with_image_and_schema() {
         AtomicReference<GmPrompt> sentPrompt = new AtomicReference<>();
         AtomicReference<JsonNode> sentSchema = new AtomicReference<>();
@@ -1290,6 +1329,9 @@ class TypedAgentContractControllerTest {
                 .getSchema(schemaJson);
         var validCheck = providerCompatibleRuntimeResponse(mapper, "[\"valid-key\"]");
         org.junit.jupiter.api.Assertions.assertTrue(schema.validate(validCheck).isEmpty());
+        var missingSituationSelection = mapper.readTree(runtimeResponse("[\"valid-key\"]"));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) missingSituationSelection.path("situation")).putNull("selectedSituationId");
+        org.junit.jupiter.api.Assertions.assertFalse(schema.validate(missingSituationSelection).isEmpty());
         var falseCheck = providerCompatibleRuntimeResponse(mapper, "null");
         org.junit.jupiter.api.Assertions.assertTrue(schema.validate(falseCheck).isEmpty());
         for (String evidence : List.of("MISSING", "[]", "[\"\u3000\"]")) {
@@ -1542,6 +1584,23 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
+    void normal_action_rejects_a_situation_that_was_not_prepared() {
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> """
+                {"scene":"고블린 정찰병이 순찰 중","judgment":"소리를 들었다","narration":"발소리가 가까워집니다.",
+                 "situation":{"kind":"TRANSITION","location":"양조장 뒤뜰","problem":"정찰병이 순찰 중이다",
+                   "threat":"정찰병이 일행을 발견할 수 있다","goal":"정찰병의 움직임을 파악한다","basis":"FALLBACK",
+                   "reference":"","selectedSituationId":null,
+                   "newSituation":{"title":"고블린 정찰병이 순찰 중","description":"고블린 정찰병 하나가 양조장 뒤뜰을 순찰하며 주변을 살핀다.","mapNeeded":false,"mapDefinitionId":null},
+                   "required":true},
+                 "combatStart":false,"mapEntryRequested":false,"판정제안":{"필요":false},"combatEnemies":[]}
+                """);
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> controller.runtimeTurn("service-secret",
+                new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "new-situation", "뒤뜰을 살펴본다", List.of())));
+    }
+
+    @Test
     void opening_accepts_korean_text_with_names_abbreviations_and_dice_notation() {
         GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"narration\":\"NPC Bob이 입구에서 기다립니다. 어떻게 하시겠어요?\"}");
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
@@ -1645,6 +1704,30 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
+    void 환경_단계의_이미지를_별도_첨부로_실행한다() {
+        var sent = new java.util.concurrent.atomic.AtomicReference<com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt>();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
+                throw new AssertionError("이미지를 텍스트 실행으로 넘기면 안 됩니다");
+            }
+            @Override public <T> GmCompletionResult<T> completeWithImageAndResolution(UUID owner, String operation,
+                    com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt prompt, StructuredResponseParser<T> parser,
+                    RequestedGmProviderSelection requested, com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionResolver.EndpointResolution resolution, JsonNode schema) {
+                sent.set(prompt);
+                org.junit.jupiter.api.Assertions.assertTrue(schema.path("properties").has("enemyMoves"));
+                return new GmCompletionResult<>(parser.parse("{\"narration\":\"복도는 조용합니다.\",\"enemyMoves\":[],\"featureInteractions\":[],\"encounterRequested\":false}"), resolution.effectiveSelection());
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        var request = new TypedAgentContractController.ExplorationEnvironmentRequest(SOLO_PLAYER_ID, "phase-image",
+                SELECTED_ENDPOINT_ID, "openai", "gpt-5", "low", SELECTED_ENDPOINT_ID,
+                "1970-01-01T00:00:00Z", "openai", "gpt-5", "환경 단계와 지도 좌표", "data:image/png;base64,aW1hZ2U=");
+        org.junit.jupiter.api.Assertions.assertEquals("복도는 조용합니다.", controller.explorationEnvironment("service-secret", request).narration());
+        org.junit.jupiter.api.Assertions.assertEquals("data:image/png;base64,aW1hZ2U=", sent.get().imageDataUri());
+        org.junit.jupiter.api.Assertions.assertEquals("환경 단계와 지도 좌표", sent.get().text());
+    }
+
+    @Test
     void exploration_environment_requires_typed_enemy_routes_and_rejects_duplicate_tokens() {
         UUID featureId = UUID.randomUUID();
         String valid = "{\"narration\":\"순찰병이 복도를 따라 이동합니다.\",\"encounterRequested\":false,\"featureInteractions\":[{\"featureId\":\""
@@ -1721,7 +1804,7 @@ class TypedAgentContractControllerTest {
     private static String situation(String basis, String reference) {
         return "{\"kind\":\"TRANSITION\",\"location\":\"지하 저장고\",\"problem\":\"위협을 찾기\","
                 + "\"threat\":\"적대적인 생물\",\"goal\":\"안전 확보\",\"basis\":\"" + basis
-                + "\",\"reference\":\"" + reference + "\",\"selectedSituationId\":null,\"required\":true}";
+                + "\",\"reference\":\"" + reference + "\",\"selectedSituationId\":\"stored-candidate\",\"required\":true}";
     }
 
 }

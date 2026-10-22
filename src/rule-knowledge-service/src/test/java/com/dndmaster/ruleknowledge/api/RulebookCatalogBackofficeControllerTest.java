@@ -139,6 +139,34 @@ class RulebookCatalogBackofficeControllerTest {
     }
 
     @Test
+    void admin_catalog_list_reflects_registration_processing_status() throws Exception {
+        UUID readyRulebook = UUID.randomUUID();
+        UUID failedRulebook = UUID.randomUUID();
+        CatalogRulebookRepository catalog = mock(CatalogRulebookRepository.class);
+        when(catalog.findAll()).thenReturn(List.of(
+                new CatalogRulebookRevision(UUID.randomUUID(), RulebookEdition.DND_5E_2014,
+                        "Ready D&D 5e", readyRulebook, 1, CatalogRevisionStatus.QUEUED, false, null,
+                        Instant.now(), Instant.now()),
+                new CatalogRulebookRevision(UUID.randomUUID(), RulebookEdition.DND_5E_2014,
+                        "Failed D&D 5e", failedRulebook, 2, CatalogRevisionStatus.QUEUED, false, null,
+                        Instant.now(), Instant.now())));
+        RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
+        when(registrations.findById(new RulebookId(readyRulebook)))
+                .thenReturn(Optional.of(registration(readyRulebook, ProcessingStatus.INDEXED)));
+        when(registrations.findById(new RulebookId(failedRulebook)))
+                .thenReturn(Optional.of(registration(failedRulebook, ProcessingStatus.FAILED)));
+        PlayerSessionLookupPort sessions = mock(PlayerSessionLookupPort.class);
+        when(sessions.resolvePlayerId("admin-session")).thenReturn(Optional.of(ADMIN));
+        MockMvc mvc = controller(catalog, registrations, mock(GameSystemDefinitionRepository.class), sessions);
+
+        mvc.perform(get("/api/v1/backoffice/rulebook-catalog")
+                        .header("Authorization", "Bearer admin-session"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].status").value("READY"))
+                .andExpect(jsonPath("$[1].status").value("FAILED"));
+    }
+
+    @Test
     void catalog_review_is_scoped_to_authenticated_admin_and_registered_catalog_document() throws Exception {
         UUID id = UUID.randomUUID();
         UUID privateId = UUID.randomUUID();

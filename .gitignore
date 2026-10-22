@@ -12,6 +12,9 @@
 /.harness/
 /venv/
 # Harness runtime-only artifacts
+.codex/sessions/
+runtime/e2e/
+vmagent-remotewrite-data/
 docs/plans/.runtime/
 
 # Python-generated files
@@ -57,6 +60,7 @@ docs/plans/plans.md
 !docs/plans/*.md
 !docs/plans/**/
 !docs/plans/**/*.md
+!docs/plans/**/traceability.json
 docs/plans/.runtime/
 docs/plans/.runtime/**
 

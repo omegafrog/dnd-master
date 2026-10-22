@@ -1,0 +1,74 @@
+@startuml
+title 전장 지도 준비와 공개 (map-runtime)
+actor "플레이어" as Player
+participant "모험 런타임" as Runtime
+participant "시나리오·상황 자료" as Source
+participant "전투 지도" as Map
+participant "지도 준비 화면" as UI
+
+== 모험 시작 전 지도 준비 (AdventureSession: STARTING) ==
+Player -> Runtime : 모험 시작 요청
+Runtime -> Runtime : AdventureSession을 STARTING으로 전환
+Runtime -> Source : 시작 상황의 지도 필요 여부와 지도 정의 조회
+Source --> Runtime : 지도 필요 여부·지도 정의·진입 문맥
+alt 시작 상황에 지도가 필요하지 않음
+  Runtime -> Runtime : 지도 준비를 생략
+else 시작 상황에 지도가 필요함
+  Runtime -> Map : 지도 정의로 준비 초안 생성 또는 조회
+  Map --> Runtime : 저장된 지도 초안·격자·벽·문
+  Runtime -> UI : 지도 초안과 격자·벽·문 검수 화면 표시
+  opt 플레이어가 격자 정렬 또는 칸 수를 수정
+    Player -> UI : 격자 위치·크기 수정
+    UI -> Map : 격자 보정 요청 (CombatMapViewService.calibrateGrid)
+    alt 가로·세로 칸 수 변경
+      Map -> Map : 토큰·문·장애물·공간 요소의 새 범위 검증
+      alt 요소가 새 범위를 벗어남
+        Map --> UI : 변경 거부와 범위를 벗어난 요소 안내
+      else 모든 요소가 새 범위 안에 있음
+        Map -> Map : 기존 MAP_BOUNDARIES 레이어 삭제 후 새 격자 기준으로 다시 그림
+        Map --> UI : 저장된 격자와 경계
+      end
+    else 정렬만 변경
+      Map --> UI : 저장된 정렬
+    end
+  end
+  loop 플레이어가 벽·문 검수를 마칠 때까지
+    Player -> UI : 벽·문 검토 또는 수정
+    UI -> Map : 벽·문 변경 저장
+    Map --> UI : 저장 결과
+  end
+  Player -> UI : 지도 검수 완료
+  UI -> Runtime : 검수한 지도 확정
+  Runtime -> Map : 최초 지도 진입과 시작 위치 준비
+  loop 후보가 없거나 요청 실패 시 최초 요청을 포함해 최대 6회
+    Map -> Map : 저장된 지도와 진입 문맥으로 시작 위치 후보 확인
+  end
+  alt 시작 위치 후보를 확인함
+    Map --> Runtime : 확정된 시작 위치와 준비된 지도
+  else 후보 요청을 모두 소진함
+    Runtime -> UI : 수동 시작 위치 배치 요청
+    Player -> UI : 시작 위치 선택
+    UI -> Map : 수동 시작 위치 저장
+    Map --> Runtime : 수동 배치된 시작 위치와 준비된 지도
+  end
+end
+Runtime -> Runtime : 지도 준비가 끝난 뒤 AdventureSession을 STARTED로 전환
+alt 검수한 지도가 있음
+  Runtime -> Map : 플레이어 공개 영역 구성
+  Map --> Runtime : 숨김 요소를 제외한 공개 지도 투영
+  Runtime -> UI : 플레이어용 지도 표시
+else 지도 불필요
+  Runtime -> UI : 지도 없이 모험 시작 표시
+end
+
+== 같은 지도의 재방문 ==
+Player -> Runtime : 지도에 연결된 상황 재진입
+Runtime -> Source : 상황의 지도 정의 조회
+Source --> Runtime : 기존 지도 정의
+Runtime -> Map : 같은 모험·지도 정의의 저장 상태 조회
+Map --> Runtime : 저장된 지도 상태와 비공개 배치
+note over Runtime,Map : 같은 지도 재방문에서는 시작 위치를 다시 추론하지 않는다.
+Runtime -> Map : 현재 공개 가능한 영역 구성
+Map --> Runtime : 숨김 요소를 제외한 공개 지도 투영
+Runtime -> UI : 저장된 상태의 플레이어 지도 표시
+@enduml

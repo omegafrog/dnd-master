@@ -20,6 +20,16 @@ import org.junit.jupiter.api.Test;
 
 class CombatScenarioGroundingPolicyTest {
     @Test
+    void runtime_requires_contract_prepared_numbers_even_when_rulebook_text_contains_complete_numbers() {
+        var evidence = new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK, new KnowledgeDocumentId(UUID.randomUUID()),
+                1, "page=134", "Giant Rat\nArmor Class 12\nHit Points 7\nBite. Melee Weapon Attack: +4 to hit. Hit: 4 (1d4 + 2)");
+        var failure = assertThrows(IllegalArgumentException.class, () -> CombatScenarioGroundingPolicy.groundWithPreparedSheets(
+                modelWithRatCombat(), CurrentSituation.initial("cellar"),
+                List.of(new CombatEnemyProposal("rats", "giant-rat", "Giant Rat", 1)), List.of(), List.of(evidence), Map.of()));
+        assertEquals("COMBAT_STAT_BLOCK_NOT_FOUND", failure.getMessage());
+    }
+
+    @Test
     void rejects_enemy_name_without_a_scenario_combat_reference() {
         ScenarioModel model = modelWithRatCombat();
 

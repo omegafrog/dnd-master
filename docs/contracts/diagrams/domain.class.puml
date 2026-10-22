@@ -1,0 +1,93 @@
+@startuml
+hide empty members
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+class CombatEncounter {
+  - UUID encounterId
+  - UUID adventureId
+  - Status status
+  - int round
+  - UUID currentParticipantId
+  - List<CombatParticipant> participants
+  - long version
+  - long eventCursor
+  + currentParticipant(): CombatParticipant
+  + reserveAction(UUID actorId, TurnResourceCost cost, long expectedVersion): TurnResources.Reservation
+  + commitAction(UUID actorId, TurnResources.Reservation reservation, UUID targetId, int damage, boolean dash): CombatEncounter
+  + endCurrentTurn(long expectedVersion, String currentActorCondition): CombatEncounter
+  + requestReaction(ReactionInterrupt reaction, long expectedVersion): CombatEncounter
+  + resolveReaction(UUID reactionId, UUID actorId, ReactionChoice choice, long expectedVersion): CombatEncounter
+  + end(CombatEndProposal proposal): CombatEncounter
+}
+class AdventureSession {
+  - SessionId id
+  - OwnerPlayerId ownerPlayerId
+  - int characterLimit
+  - UUID scenarioPackageId
+  - UUID blueprintId
+  - List<AdventurePartyMember> party
+  - Status status
+  - long version
+}
+class ScenarioPackage {
+  - UUID packageId
+  - ScenarioBundleId bundleId
+  - long bundleRevision
+  - String inputFingerprint
+  - List<ScenarioResolutionUnit> units
+  - List<MapDefinition> mapDefinitions
+  - List<StoryMapBinding> storyMapBindings
+  - ScenarioModel scenarioModel
+  - List<StructuredSpellDefinition> spellDefinitions
+  + runtimeCandidates(): List<ScenarioResolutionUnit>
+  + initialMapDefinition(String initialStage): Optional<MapDefinition>
+  + isReady(): boolean
+}
+class CharacterSheet {
+  - CharacterSheetId id
+  - AdventureId adventureId
+  - SessionId sessionId
+  - UUID ownerPlayerId
+  - SheetEdition edition
+  - CharacterSheetData data
+  - long version
+  + authorizeOpen(CharacterSheetOpenRequest request): void
+  + applyUpdate(CharacterSheetUpdate update, CharacterMutationRules rules): void
+  + markPersisted(long version, UUID operationKey, String operationFingerprint): void
+  + data(): CharacterSheetData
+}
+class CombatMap {
+  - MapId id
+  - AdventureId adventureId
+  - RuleSetId ruleSetId
+  - GridSpec grid
+  - List<CombatToken> tokens
+  - Set<GridPosition> obstacles
+  - List<MapLayer> layers
+  - long version
+  + movePlayerToken(PlayerId playerId, TokenId tokenId, MovementPath path, int maximumDistance): void
+  + validatePlayerMovement(PlayerId playerId, TokenId tokenId, MovementPath path, int maximumDistance): void
+  + advancePlayerToken(PlayerId playerId, TokenId tokenId, GridPosition nextPosition): void
+  + moveEnemyToken(TokenId tokenId, MovementPath path, int maximumDistance): void
+}
+class RulebookIndex {
+  - IndexId id
+  - IndexKey key
+  - OwnerPlayerId ownerPlayerId
+  - int dimension
+  - IndexStatus status
+  - int attempts
+  - long version
+  - List<RulebookChunk> chunks
+  + beginAttempt(): void
+  + complete(List<RulebookChunk> completedChunks): void
+  + fail(String reason, boolean retryable): void
+  + status(): IndexStatus
+  + chunks(): List<RulebookChunk>
+}
+AdventureSession o-- ScenarioPackage : "시나리오 버전 참조"
+CombatEncounter o-- CombatParticipant
+CharacterSheet --> CharacterSheetData
+CombatMap o-- CombatToken
+RulebookIndex o-- RulebookChunk
+@enduml

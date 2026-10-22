@@ -18,14 +18,14 @@ public final class SeededOpeningSituationMapGmPort implements InitialSituationGm
     @Override
     public JsonNode generate(Request request) {
         JsonNode generated = delegate.generate(request);
-        if (!request.operationKey().contains(":stage:") || !openingRequired(request.outputSchema())) return generated;
+        if (!request.operationKey().contains(":stage:") || !request.openingSituationRequired()) return generated;
 
         String context = "operationKey=" + request.operationKey() + " expected=opening_map_required actual=provider_response";
         long startedAt = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(
                 LOGGER, "seed_opening_situation_map", context);
         try {
             JsonNode situations = generated.path("situations");
-            int openingIndex = generated.path("openingSituationIndex").asInt(-1);
+            int openingIndex = 0;
             JsonNode mapIds = request.outputSchema().path("properties").path("situations").path("items")
                     .path("properties").path("mapDefinitionId").path("enum");
             String selectedMapId = null;
@@ -61,11 +61,4 @@ public final class SeededOpeningSituationMapGmPort implements InitialSituationGm
         return count;
     }
 
-    private static boolean openingRequired(JsonNode schema) {
-        JsonNode type = schema.path("properties").path("openingSituationIndex").path("type");
-        if (type.isTextual()) return "integer".equals(type.asText());
-        if (!type.isArray()) return false;
-        for (JsonNode value : type) if ("null".equals(value.asText())) return false;
-        return true;
-    }
 }

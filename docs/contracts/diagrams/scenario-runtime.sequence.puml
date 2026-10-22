@@ -1,0 +1,50 @@
+@startuml
+ title 시츄에이션 기반 모험 진행 (scenario-runtime)
+ actor "플레이어" as Player
+ participant "모험 런타임" as Runtime
+ participant "시나리오 자료" as Scenario
+ participant "룰 지식" as Evidence
+ participant "GM 입력 조립" as Context
+ participant "AI 게임 마스터" as GM
+ Player -> Runtime : 준비 요청 (storyLength: 짧게/보통/길게)
+ Runtime -> Scenario : 필수 상황 그래프·준비 자료 검증
+ Scenario --> Runtime : 시작 상황·필수 선행 관계·isEnding·선택 상황
+ Runtime -> Runtime : 선택한 길이로 선택 상황 최대 완료 수 계산
+ Runtime -> Runtime : storyLength·허용량을 세션 진행 상태에 저장
+ Player -> Runtime : 모험 시작 또는 행동 제출
+ Runtime -> Runtime : 필수 opening의 미완료 선행 상황 검사
+ alt 시작 검증 통과
+   Runtime -> Scenario : 현재 상황·적격 후보 조회
+   Scenario --> Runtime : 현재 상황·적격 후보
+   Runtime -> Evidence : 현재 진행에 필요한 근거 검색
+   Evidence --> Runtime : 근거·출처 위치
+   Runtime -> Context : 현재 상황·후보·캐릭터·대화 기록 전달
+   note over Context : 시작 입력은 대화 영역이 비어 있다.
+   Runtime -> GM : 구성된 입력 컨텍스트 요청
+   GM --> Runtime : 서술·준비 후보 선택 제안
+   Runtime -> Runtime : 응답 구조·후보 적격성·공개 범위 검증
+   alt 검증 통과
+     Runtime -> Runtime : 활성 상황 종료·USED 전환·선택 상황 사용량 증가를 원자적으로 확정
+     alt 종료 상황에 명시적 isEnding 표식 있음
+       Runtime -> Runtime : 모험 완료를 같은 확정에 반영
+       Runtime --> Player : 공개 서술·완료 결과
+     else 종료 상황이 끝 표식 없음
+       Runtime -> Scenario : 자연스러운 같은 단계 선택 후보 조회
+       Scenario --> Runtime : 허용량이 남은 적격 선택 후보
+       alt 적격 선택 후보 있음
+         Runtime -> Runtime : 후보 선택 또는 필수 상황 승격을 서버 그래프 규칙으로 결정
+       else 적격 선택 후보 없음
+         Runtime -> Scenario : 모든 선행 노드가 USED인 미사용 필수 상황 조회
+         Scenario --> Runtime : 단계와 무관한 적격 필수 상황
+       end
+       Runtime --> Player : 공개 서술·진행 결과
+     end
+   else 검증 실패
+     Runtime --> Player : 상태 변경 없이 실패 사유 반환
+   end
+ else 시작 검증 실패
+   Runtime --> Player : 시작·초기 상태 저장 없이 거부
+ end
+ note over Runtime : 새 장면 전환 제안, 설명 자르기·후보 조용한 생략, 임의 순서 우회는 허용하지 않는다.
+ note over Runtime : 선택 상황 후보 전체 문맥 JSON은 8,192 UTF-8 byte 이내여야 한다.
+@enduml

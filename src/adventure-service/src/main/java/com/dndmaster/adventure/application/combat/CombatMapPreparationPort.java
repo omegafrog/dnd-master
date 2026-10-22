@@ -4,6 +4,8 @@ import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import com.dndmaster.adventure.domain.scenario.MapDefinition;
 import java.util.UUID;
+import java.util.List;
+import com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePlacementModelPort;
 
 /** Prepares and activates the map for one entered adventure stage. */
 public interface CombatMapPreparationPort {
@@ -36,7 +38,8 @@ public interface CombatMapPreparationPort {
     /** Structured runtime context crossing into Combat Map; prose stays in Adventure Runtime. */
     record ActivationContext(UUID playerTokenId, UUID situationId, long situationRevision, int turnIndex,
             String currentScene, String location, Integer placementProposalX, Integer placementProposalY,
-            String entryEvidence) {
+            String entryEvidence, List<ScenarioSpatialFeaturePlacementModelPort.EncounterRequirement> encounters,
+            String mapLayoutReference) {
         public ActivationContext {
             if (situationRevision < 1) throw new IllegalArgumentException("situation revision must be positive");
             if (turnIndex < 0) throw new IllegalArgumentException("turn index must not be negative");
@@ -44,6 +47,21 @@ public interface CombatMapPreparationPort {
                 throw new IllegalArgumentException("placement proposal coordinates must be paired");
             }
             entryEvidence = entryEvidence == null ? "" : entryEvidence.trim();
+            encounters = List.copyOf(encounters == null ? List.of() : encounters);
+            mapLayoutReference = mapLayoutReference == null ? "" : mapLayoutReference.trim();
+        }
+
+        public ActivationContext(UUID playerTokenId, UUID situationId, long situationRevision, int turnIndex,
+                String currentScene, String location, Integer placementProposalX, Integer placementProposalY,
+                String entryEvidence) {
+            this(playerTokenId, situationId, situationRevision, turnIndex, currentScene, location,
+                    placementProposalX, placementProposalY, entryEvidence, List.of(), "");
+        }
+        public ActivationContext(UUID playerTokenId, UUID situationId, long situationRevision, int turnIndex,
+                String currentScene, String location, Integer placementProposalX, Integer placementProposalY,
+                String entryEvidence, List<ScenarioSpatialFeaturePlacementModelPort.EncounterRequirement> encounters) {
+            this(playerTokenId, situationId, situationRevision, turnIndex, currentScene, location,
+                    placementProposalX, placementProposalY, entryEvidence, encounters, "");
         }
 
         public ActivationContext(UUID playerTokenId, UUID situationId, long situationRevision, int turnIndex,

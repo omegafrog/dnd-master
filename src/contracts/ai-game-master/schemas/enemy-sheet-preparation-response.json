@@ -45,7 +45,8 @@
           "name",
           "count",
           "abilities",
-          "actions"
+          "actions",
+          "전투수치"
         ],
         "properties": {
           "mode": {
@@ -142,6 +143,49 @@
                 }
               }
             }
+          },
+          "전투수치": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "방어도",
+              "최대HP",
+              "공격보정치",
+              "피해굴림식",
+              "우선권보정치",
+              "근거키"
+            ],
+            "properties": {
+              "방어도": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "최대HP": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "공격보정치": {
+                "type": "integer",
+                "minimum": -30,
+                "maximum": 30
+              },
+              "피해굴림식": {
+                "type": "string",
+                "minLength": 1
+              },
+              "우선권보정치": {
+                "type": "integer",
+                "minimum": -30,
+                "maximum": 30
+              },
+              "근거키": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
           }
         }
       }
@@ -157,14 +201,12 @@
         "goal",
         "basis",
         "reference",
+        "selectedSituationId",
         "required"
       ],
       "properties": {
         "kind": {
-          "enum": [
-            "CONTINUE",
-            "TRANSITION"
-          ],
+          "enum": ["CONTINUE"],
           "type": "string"
         },
         "location": {
@@ -208,6 +250,9 @@
             "string",
             "null"
           ]
+        },
+        "selectedSituationId": {
+          "type": "null"
         },
         "required": {
           "type": "boolean"

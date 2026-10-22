@@ -44,7 +44,7 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
   const [catalogRulebooks, setCatalogRulebooks] = useState<CatalogRulebook[]>([])
   const [selectedCatalogRulebookIds, setSelectedCatalogRulebookIds] = useState<Set<string>>(new Set())
   const [gmProvider, setGmProvider] = useState('codex-cli')
-  const [gmModel, setGmModel] = useState('gpt-5.6-luna')
+  const [gmModel, setGmModel] = useState('gpt-6-luna')
   const [gmReasoning, setGmReasoning] = useState('medium')
   const [preparing, setPreparing] = useState(false)
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
@@ -171,6 +171,7 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
         scenarioPackageId: packageId,
         blueprintId: packageId,
         blueprintRevision: preparation.characterCreationBlueprint.revision ?? 0,
+        storyLength: 'NORMAL',
         runtimeConfiguration: {
           scenarioId: packageId,
           ruleSetId: crypto.randomUUID(),

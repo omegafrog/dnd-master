@@ -39,6 +39,7 @@ class ScenarioSpatialFeaturePreparationServiceTest {
             assertEquals(4, body.get().path("gridHeight").asInt());
             assertTrue(body.get().path("obstacles").isArray());
             assertEquals("4,3", body.get().path("requirements").get(0).path("authoritativeCells").get(0).asText());
+            assertEquals(map.assetLocator(), body.get().path("mapLayoutReference").asText());
         } finally {
             server.stop(0);
         }

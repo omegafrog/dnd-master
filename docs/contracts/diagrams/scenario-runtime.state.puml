@@ -1,0 +1,38 @@
+@startuml
+ title 모험 세션 및 시츄에이션 진행 상태 (scenario-runtime)
+ state "세션" as Session {
+   [*] --> DRAFT : 세션 생성
+   DRAFT --> STARTING : storyLength 저장 후 시작 요청
+   STARTING --> STARTED : 필수 opening 선행 검증 통과
+   STARTING --> DRAFT : 준비·시작 검증 실패
+   STARTED --> COMPLETED : isEnding 상황 USED 확정과 함께 완료
+   DRAFT --> DELETED : 삭제
+   COMPLETED --> [*]
+   DELETED --> [*]
+ }
+ state "필수 상황 그래프 노드" as RequiredNode {
+   [*] --> UNUSED : 준비된 노드
+   UNUSED --> USED : 모든 명시적 선행 노드 USED 후 종료 확정
+ }
+ state "선택 상황" as OptionalSituation {
+   [*] --> UNUSED_OPTIONAL : 준비된 후보
+   UNUSED_OPTIONAL --> USED_OPTIONAL : 활성 상황 종료 확정
+ }
+ note right of Session
+   짧게/보통/길게에 따른 허용량과 사용량은
+   세션 진행 상태에 저장·복원한다.
+   상황 종료, USED 전환, 선택 상황 사용량 증가는
+   한 턴 확정 경계에서 원자적으로 처리한다.
+ end note
+ note right of RequiredNode
+   이미 USED인 필수 상황은 다시 선택하지 않는다.
+   합류 상황은 모든 명시적 선행 상황이 USED여야 한다.
+   원문에 명시된 isEnding 상황 하나가 USED가 되면
+   다른 끝 상황 방문 없이 세션을 완료한다.
+ end note
+ note right of OptionalSituation
+   자연스럽게 이어지는 같은 단계 후보는
+   허용량이 남을 때만 선택할 수 있다.
+   전환은 서버가 준비된 그래프 후보로 제한한다.
+ end note
+@enduml

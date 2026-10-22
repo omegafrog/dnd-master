@@ -16,7 +16,56 @@
         "--tests",
         "com.dndmaster.adventure.api.ExplorationEnvironmentControllerTest",
         "--tests",
-        "com.dndmaster.adventure.BestOfNTurnPlanningTest"
+        "com.dndmaster.adventure.api.AdventureMovementPreviewBoundaryTest",
+        "--tests",
+        "com.dndmaster.adventure.BestOfNTurnPlanningTest",
+        "--tests",
+        "com.dndmaster.adventure.SituationProposalGroundingPolicyTest",
+        "--tests",
+        "com.dndmaster.adventure.application.scenario.preparation.ScenarioPackageStageArtifactAdapterTest",
+        "--tests",
+        "com.dndmaster.adventure.StageArtifactPreparationApplicationServiceTest",
+        "--tests",
+        "com.dndmaster.adventure.application.scenario.preparation.SeededMapEntryFlowGmPortTest",
+        "--tests",
+        "com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationServiceTest",
+        "--tests",
+        "com.dndmaster.adventure.application.runtime.RuntimeGmPromptComposerTest",
+        "--tests",
+        "com.dndmaster.adventure.application.runtime.RuntimeSituationContextTest",
+        "--tests",
+        "com.dndmaster.adventure.application.runtime.RuntimeTurnPlayerRollCommitGateTest",
+        "--tests",
+        "com.dndmaster.adventure.CrossContextHttpIntegrationTest",
+        "--tests",
+        "com.dndmaster.adventure.HttpCombatMapPreparationGatewayTest",
+        "--tests",
+        "com.dndmaster.adventure.application.combat.PreparedMapEntryCommitGateTest",
+        "--tests",
+        "com.dndmaster.adventure.infrastructure.integration.HttpTypedRuntimeGmAgentPortTest",
+        "--tests",
+        "com.dndmaster.adventure.StoryRuntimeStateTest",
+        "--tests",
+        "com.dndmaster.adventure.SituationUpdatePolicyTest",
+        ":ai-game-master-local-codex:test",
+        "--tests",
+        "com.dndmaster.aigamemaster.localcodex.LocalCodexAiExecutionPortTest",
+        "--tests",
+        "com.dndmaster.aigamemaster.localcodex.McpStdioServerTest",
+        ":combat-map-service:test",
+        "--tests",
+        "com.dndmaster.combatmap.CombatMapViewServiceTest",
+        "--tests",
+        "com.dndmaster.combatmap.GmViewAuthorizationTest",
+        "--tests",
+        "com.dndmaster.combatmap.MapPreparationPolicyTest",
+        ":ai-game-master-service:test",
+        "--tests",
+        "com.dndmaster.aigamemaster.api.MapModelContractTest",
+        "--tests",
+        "com.dndmaster.aigamemaster.api.TypedAgentContractControllerTest",
+        "--tests",
+        "com.dndmaster.aigamemaster.infrastructure.ai.RemoteAiExecutionPortTest"
       ],
       "required_env": [],
       "config_inputs": [
@@ -27,21 +76,76 @@
         "src/settings.gradle.kts",
         "src/build.gradle.kts",
         "src/adventure-service/build.gradle.kts",
+        "src/ai-game-master-local-codex/build.gradle.kts",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/BestOfNRuntimePlanningAdapter.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/MapMovementCoordinator.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/SituationProposalGroundingPolicy.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/MapDefinition.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/MapSourceReference.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/MapMovementCoordinatorTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/api/PreparationMapImageSourceTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
-        "src/adventure-service/src/test/java/com/dndmaster/adventure/BestOfNTurnPlanningTest.java"
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/BestOfNTurnPlanningTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/SituationProposalGroundingPolicyTest.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/ScenarioPackageStageArtifactAdapter.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/SeededMapEntryFlowGmPort.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/application/scenario/preparation/ScenarioPackageStageArtifactAdapterTest.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/StageArtifactPreparationApplicationService.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/StageArtifactPreparationApplicationServiceTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/application/scenario/preparation/SeededMapEntryFlowGmPortTest.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeGmPromptComposer.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/application/runtime/RuntimeGmPromptComposerTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/application/runtime/RuntimeSituationContextTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/application/runtime/RuntimeTurnPlayerRollCommitGateTest.java",
+        "src/ai-game-master-local-codex/src/main/java/com/dndmaster/aigamemaster/localcodex/LocalCodexAiExecutionPort.java",
+        "src/ai-game-master-local-codex/src/main/java/com/dndmaster/aigamemaster/localcodex/McpStdioServer.java",
+        "src/ai-game-master-local-codex/src/test/java/com/dndmaster/aigamemaster/localcodex/LocalCodexAiExecutionPortTest.java",
+        "src/ai-game-master-local-codex/src/test/java/com/dndmaster/aigamemaster/localcodex/McpStdioServerTest.java",
+        "src/rule-knowledge-service/src/main/java/com/dndmaster/ruleknowledge/application/pipeline/RulebookPipelineApplicationService.java",
+        "src/rule-knowledge-service/src/test/java/com/dndmaster/ruleknowledge/application/pipeline/RulebookPipelineApplicationServiceTest.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/api/CombatMapController.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/view/CombatMapViewService.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/view/HttpAiMapGenerationGateway.java",
+        "src/combat-map-service/src/test/java/com/dndmaster/combatmap/CombatMapViewServiceTest.java",
+        "src/combat-map-service/src/test/java/com/dndmaster/combatmap/GmViewAuthorizationTest.java",
+        "src/combat-map-service/src/test/java/com/dndmaster/combatmap/MapPreparationPolicyTest.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CrossContextHttpCombatGateway.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/CrossContextHttpIntegrationTest.java",
+        "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/AiGameMasterApiConfiguration.java",
+        "src/ai-game-master-service/src/test/java/com/dndmaster/aigamemaster/api/MapModelContractTest.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/HttpCombatMapPreparationGateway.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/HttpCombatMapPreparationGatewayTest.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/PreparedMapEntryCommitGate.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/PreparedMapEntryCommitGateTest.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/view/CombatMapViewStore.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/infrastructure/persistence/PostgresCombatMapViewStore.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
+        "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
+        "src/ai-game-master-service/src/test/java/com/dndmaster/aigamemaster/api/TypedAgentContractControllerTest.java",
+        "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/infrastructure/ai/RemoteAiExecutionPort.java",
+        "src/ai-game-master-service/src/test/java/com/dndmaster/aigamemaster/infrastructure/ai/RemoteAiExecutionPortTest.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/api/GmCombatMapResponse.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnApplicationService.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/SituationProposal.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/SituationUpdatePolicy.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/CurrentSituation.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/SituationUpdatePolicyTest.java",
+        "src/contracts/ai-game-master/schemas/runtime-turn-response.json"
       ],
       "prepare": [],
       "verify_config": [
-        ["test", "-x", "src/gradlew"],
-        ["java", "-version"]
+        [
+          "test",
+          "-x",
+          "src/gradlew"
+        ],
+        [
+          "java",
+          "-version"
+        ]
       ],
       "dependencies": [],
       "timeout_ms": 600000,
@@ -50,17 +154,9 @@
     },
     "adventure-runtime-server": {
       "command": [
-        "env",
-        "BACKEND_SERVER_PORT=8080",
-        "LOCAL_AGENT_CONNECTION_RELAY_PORT=8081",
-        "FRONTEND_DEV_PORT=5173",
-        "CODEX_CHARACTER_TAG_MODEL=gpt-6-luna",
-        "ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED=true",
-        "ADVENTURE_INTEGRATION_SCENARIO_PREPARATION_SEED_OPENING_MAP=true",
-        "RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT=/home/jiwoo/workspace/dnd-master/docs/assets",
-        "RULE_KNOWLEDGE_PREPROCESSING_WORKING_DIRECTORY=/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range",
         "bash",
-        "src/start-dev.sh"
+        "-lc",
+        "export HARNESS_SESSION_DIR; exec env BACKEND_SERVER_PORT=\"8080\" LOCAL_AGENT_CONNECTION_RELAY_PORT=\"8081\" FRONTEND_DEV_PORT=\"5173\" CODEX_CHARACTER_TAG_MODEL=\"gpt-6-luna\" GM_MODEL=\"gpt-6-luna\" ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED=\"true\" ADVENTURE_INTEGRATION_SCENARIO_PREPARATION_SEED_MAP_ENTRY_FLOW=\"false\" RULE_KNOWLEDGE_STORAGE_ROOT=\"$HARNESS_SESSION_DIR/runtime/e2e/rulebooks\" RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT=\"/home/jiwoo/workspace/dnd-master/docs/assets\" RULE_KNOWLEDGE_PREPROCESSING_WORKING_DIRECTORY=\"/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range\" bash src/start-dev.sh"
       ],
       "required_env": [],
       "config_inputs": [
@@ -71,85 +167,905 @@
         "src/gradle/wrapper/gradle-wrapper.properties",
         "src/settings.gradle.kts",
         "src/build.gradle.kts",
+        "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/configuration/GmProviderProperties.java",
+        "src/ai-game-master-service/src/main/resources/application.yml",
+        "src/app-all/src/main/resources/application.yml",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureSessionController.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/ScenarioPackageStageArtifactAdapter.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/SeededMapEntryFlowGmPort.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureApiConfiguration.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnApplicationService.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/SituationProposalGroundingPolicy.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/SituationProposalGroundingPolicyTest.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/SeededOpeningSituationMapGmPort.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/MapDefinition.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/MapSourceReference.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/BestOfNRuntimePlanningAdapter.java",
         "src/web-ui/package.json",
         "src/web-ui/playwright.config.ts",
-        "src/web-ui/e2e/backend-exploration-groups.spec.ts",
         "src/web-ui/e2e/support/runtime-adventure.ts",
-        "src/web-ui/e2e/fixtures/exploration-groups-main.pdf",
-        "src/web-ui/e2e/fixtures/exploration-groups-map.pdf",
-        "src/web-ui/src/features/combat-map/CombatMapView.tsx"
+        "src/web-ui/src/features/rulebooks/BundleDetailPage.tsx",
+        "src/web-ui/src/features/combat-map/CombatMapView.tsx",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/api/CombatMapController.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/view/CombatMapViewService.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/view/HttpAiMapGenerationGateway.java",
+        "src/web-ui/src/features/adventure/AdventureStream.tsx",
+        "src/web-ui/src/features/combat-map/MapCropEditor.tsx",
+        "src/web-ui/src/features/combat-map/MapGridAlignmentEditor.tsx",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CrossContextHttpCombatGateway.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/SituationProposal.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/SituationUpdatePolicy.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/CurrentSituation.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/PreparedMapEntryCommitGate.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeGmPromptComposer.java",
+        "src/contracts/ai-game-master/schemas/runtime-turn-response.json",
+        "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
+        "docs/testing/scenario-situation-candidates/README.md",
+        "docs/testing/scenario-situation-candidates/runtime-situation-transition.md"
       ],
       "prepare": [],
       "verify_config": [
-        ["docker", "info"],
-        ["java", "-version"],
-        ["node", "--version"],
-        ["test", "-x", "/home/jiwoo/.nvm/versions/node/v24.12.0/bin/codex"],
-        ["test", "-x", "/home/jiwoo/.nvm/versions/node/v24.12.0/bin/node"],
-        ["test", "-x", "/home/jiwoo/.nvm/versions/node/v24.12.0/bin/npm"],
-        ["test", "-x", "/home/jiwoo/.sdkman/candidates/java/current/bin/java"],
-        ["test", "-x", "/home/jiwoo/workspace/dnd-master/.venv-docling/bin/python"],
-        ["test", "-x", "/home/jiwoo/.local/bin/graphify"],
-        ["bash", "-lc", "NVM_BIN=/home/jiwoo/.nvm/versions/node/v24.12.0/bin; SDKMAN_JAVA_HOME=/home/jiwoo/.sdkman/candidates/java/current; PATH=\"$NVM_BIN:$SDKMAN_JAVA_HOME/bin:/home/jiwoo/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"; export PATH; test \"$(command -v node)\" = \"$NVM_BIN/node\" && test \"$(command -v npm)\" = \"$NVM_BIN/npm\" && test \"$(command -v java)\" = \"$SDKMAN_JAVA_HOME/bin/java\" && test \"$(command -v graphify)\" = /home/jiwoo/.local/bin/graphify"],
-        ["test", "-d", "../dnd-master/docs/assets"],
-        ["test", "-r", "../dnd-master/docs/assets/892902-A_Most_Potent_Brew.pdf"],
-        ["test", "-r", "../dnd-master/docs/assets/892902-A_Potent_Brew_Map.pdf"],
-        ["test", "-r", "../dnd-master/docs/assets/892902-A_Most_Potent_Brew_Player_Handout.pdf"]
+        [
+          "test",
+          "-r",
+          "../dnd-master/docs/assets/892902-A_Potent_Brew_Map.pdf"
+        ],
+        [
+          "test",
+          "-r",
+          "../dnd-master/docs/assets/DnD_BasicRules_2018.pdf"
+        ],
+        [
+          "docker",
+          "info"
+        ],
+        [
+          "java",
+          "-version"
+        ],
+        [
+          "node",
+          "--version"
+        ],
+        [
+          "test",
+          "-x",
+          "/home/jiwoo/.nvm/versions/node/v24.12.0/bin/codex"
+        ],
+        [
+          "test",
+          "-x",
+          "/home/jiwoo/.nvm/versions/node/v24.12.0/bin/node"
+        ],
+        [
+          "test",
+          "-x",
+          "/home/jiwoo/.nvm/versions/node/v24.12.0/bin/npm"
+        ],
+        [
+          "test",
+          "-x",
+          "/home/jiwoo/.sdkman/candidates/java/current/bin/java"
+        ],
+        [
+          "test",
+          "-x",
+          "/home/jiwoo/workspace/dnd-master/.venv-docling/bin/python"
+        ],
+        [
+          "test",
+          "-x",
+          "/home/jiwoo/.local/bin/graphify"
+        ],
+        [
+          "bash",
+          "-lc",
+          "NVM_BIN=/home/jiwoo/.nvm/versions/node/v24.12.0/bin; SDKMAN_JAVA_HOME=/home/jiwoo/.sdkman/candidates/java/current; PATH=\"$NVM_BIN:$SDKMAN_JAVA_HOME/bin:/home/jiwoo/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"; export PATH; test \"$(command -v node)\" = \"$NVM_BIN/node\" && test \"$(command -v npm)\" = \"$NVM_BIN/npm\" && test \"$(command -v java)\" = \"$SDKMAN_JAVA_HOME/bin/java\" && test \"$(command -v graphify)\" = /home/jiwoo/.local/bin/graphify"
+        ],
+        [
+          "test",
+          "-d",
+          "../dnd-master/docs/assets"
+        ],
+        [
+          "test",
+          "-r",
+          "../dnd-master/docs/assets/892902-A_Most_Potent_Brew.pdf"
+        ],
+        [
+          "test",
+          "-r",
+          "../dnd-master/docs/assets/892902-A_Potent_Brew_Map.pdf"
+        ],
+        [
+          "test",
+          "-r",
+          "../dnd-master/docs/assets/892902-A_Most_Potent_Brew_Player_Handout.pdf"
+        ]
       ],
       "dependencies": [],
-      "timeout_ms": 3600000,
+      "timeout_ms": 5700000,
       "readiness_timeout_ms": 5000,
       "poll_interval_ms": 1000
     },
-    "adventure-exploration-groups-e2e": {
+    "adventure-runtime-container-redis": {
+      "command": [
+        "bash",
+        "scripts/container-runtime.sh",
+        "redis-up"
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "scripts/container-runtime.sh",
+        "src/infra/compose.yaml"
+      ],
+      "prepare": [],
+      "verify_config": [
+        [
+          "bash",
+          "scripts/container-runtime.sh",
+          "redis-check"
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 30000,
+      "readiness_timeout_ms": 10000,
+      "poll_interval_ms": 1000
+    },
+    "adventure-runtime-container": {
+      "command": [
+        "bash",
+        "scripts/container-runtime.sh",
+        "up"
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "scripts/container-runtime.sh",
+        "src/infra/Dockerfile.app",
+        "src/infra/compose.app.yaml",
+        "src/infra/compose.yaml",
+        "src/app-all/build.gradle.kts",
+        "src/app-all/src/main/resources/application.yml",
+        "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/configuration/LocalOllamaEnvironmentPostProcessor.java",
+        "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/configuration/LocalOllamaProperties.java",
+        "src/agent-connection-relay-service/src/main/resources/application.yml",
+        "docs/observability/victorialogs/config.json",
+        "docs/observability/victorialogs/scrape.json",
+        "docs/observability/victorialogs/spring-local.properties",
+        "docs/observability/victorialogs/otel-javaagent.properties",
+        "docs/agents/EXEC.md"
+      ],
+      "prepare": [
+        [
+          "bash",
+          "scripts/container-runtime.sh",
+          "build"
+        ]
+      ],
+      "verify_config": [
+        [
+          "bash",
+          "scripts/container-runtime.sh",
+          "check"
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 43200000,
+      "readiness_timeout_ms": 1200000,
+      "poll_interval_ms": 1000
+    },
+    "adventure-runtime-container-app-only": {
+      "command": [
+        "bash",
+        "scripts/container-runtime.sh",
+        "app-up"
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "scripts/container-runtime.sh",
+        "src/infra/Dockerfile.app",
+        "src/infra/compose.app.yaml",
+        "src/app-all/build.gradle.kts",
+        "src/app-all/src/main/resources/application.yml",
+        "docs/agents/EXEC.md"
+      ],
+      "prepare": [],
+      "verify_config": [
+        [
+          "bash",
+          "scripts/container-runtime.sh",
+          "check"
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 1800000,
+      "readiness_timeout_ms": 300000,
+      "poll_interval_ms": 1000
+    },
+    "adventure-runtime-container-app-build-only": {
+      "command": [
+        "bash",
+        "scripts/container-runtime.sh",
+        "app-build"
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "scripts/container-runtime.sh",
+        "src/infra/Dockerfile.app",
+        "src/infra/compose.app.yaml",
+        "src/app-all/build.gradle.kts",
+        "src/app-all/src/main/resources/application.yml",
+        "pyproject.toml",
+        "src/preprocessing_agent/__init__.py",
+        "src/preprocessing_agent/adapters/__init__.py",
+        "src/preprocessing_agent/adapters/docling_pdf.py",
+        "src/preprocessing_agent/adapters/hybrid_pdf.py",
+        "src/preprocessing_agent/adapters/llm_table_extractor.py",
+        "src/preprocessing_agent/adapters/ocr.py",
+        "src/preprocessing_agent/adapters/process_cli.py",
+        "src/preprocessing_agent/adapters/pymupdf4llm_pdf.py",
+        "src/preprocessing_agent/agents/__init__.py",
+        "src/preprocessing_agent/agents/validation_agent.py",
+        "src/preprocessing_agent/app.py",
+        "src/preprocessing_agent/chunking/__init__.py",
+        "src/preprocessing_agent/chunking/assembler.py",
+        "src/preprocessing_agent/chunking/planner.py",
+        "src/preprocessing_agent/chunking/policy.py",
+        "src/preprocessing_agent/chunking/splitter.py",
+        "src/preprocessing_agent/classification/__init__.py",
+        "src/preprocessing_agent/classification/agent.py",
+        "src/preprocessing_agent/classification/classifier.py",
+        "src/preprocessing_agent/classification/prompts.py",
+        "src/preprocessing_agent/config.py",
+        "src/preprocessing_agent/domain/__init__.py",
+        "src/preprocessing_agent/domain/layout.py",
+        "src/preprocessing_agent/domain/models.py",
+        "src/preprocessing_agent/domain/serialization.py",
+        "src/preprocessing_agent/eval/__init__.py",
+        "src/preprocessing_agent/eval/bm25.py",
+        "src/preprocessing_agent/eval/dense.py",
+        "src/preprocessing_agent/eval/diagnostic.py",
+        "src/preprocessing_agent/eval/generation.py",
+        "src/preprocessing_agent/eval/gold.py",
+        "src/preprocessing_agent/eval/gold_mapper.py",
+        "src/preprocessing_agent/eval/hybrid.py",
+        "src/preprocessing_agent/eval/metrics.py",
+        "src/preprocessing_agent/eval/preprocessing.py",
+        "src/preprocessing_agent/eval/report.py",
+        "src/preprocessing_agent/eval/reranker.py",
+        "src/preprocessing_agent/eval/retrieval.py",
+        "src/preprocessing_agent/eval/runner.py",
+        "src/preprocessing_agent/eval/semantic.py",
+        "src/preprocessing_agent/eval/structure.py",
+        "src/preprocessing_agent/exporters/__init__.py",
+        "src/preprocessing_agent/exporters/artifacts.py",
+        "src/preprocessing_agent/layout/__init__.py",
+        "src/preprocessing_agent/layout/analyzer.py",
+        "src/preprocessing_agent/layout/page_classification.py",
+        "src/preprocessing_agent/layout/reading_order.py",
+        "src/preprocessing_agent/layout/table_candidate_scoring.py",
+        "src/preprocessing_agent/parsers/__init__.py",
+        "src/preprocessing_agent/parsers/base.py",
+        "src/preprocessing_agent/parsers/normalize.py",
+        "src/preprocessing_agent/parsers/pdf.py",
+        "src/preprocessing_agent/pipeline/__init__.py",
+        "src/preprocessing_agent/pipeline/extraction_service.py",
+        "src/preprocessing_agent/pipeline/pipeline.py",
+        "src/preprocessing_agent/pipeline/retry.py",
+        "src/preprocessing_agent/ports/__init__.py",
+        "src/preprocessing_agent/ports/extraction.py",
+        "src/preprocessing_agent/ports/preprocessing.py",
+        "src/preprocessing_agent/postprocessing.py",
+        "src/preprocessing_agent/structure/__init__.py",
+        "src/preprocessing_agent/structure/agent.py",
+        "src/preprocessing_agent/structure/detector.py",
+        "src/preprocessing_agent/structure/hierarchy.py",
+        "src/preprocessing_agent/structure/prompts.py",
+        "src/preprocessing_agent/structure/references.py",
+        "src/preprocessing_agent/structure/table_heading.py",
+        "src/preprocessing_agent/structure/tree_builder.py",
+        "src/preprocessing_agent/utils/__init__.py",
+        "src/preprocessing_agent/utils/hashing.py",
+        "src/preprocessing_agent/utils/ids.py",
+        "src/preprocessing_agent/utils/tokens.py",
+        "src/preprocessing_agent/validation/__init__.py",
+        "src/preprocessing_agent/validation/deterministic.py",
+        "src/preprocessing_agent/validation/layout.py",
+        "src/preprocessing_agent/validation/repair.py"
+      ],
+      "prepare": [],
+      "verify_config": [
+        [
+          "bash",
+          "scripts/container-runtime.sh",
+          "check"
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 1800000,
+      "readiness_timeout_ms": 300000,
+      "poll_interval_ms": 1000
+    },
+    "adventure-backend-only": {
       "command": [
         "bash",
         "-lc",
-        "export BACKEND_E2E_URL=http://127.0.0.1:8080; source <(sed -n '/^export BACKEND_E2E_EMAIL=/p; /^export BACKEND_E2E_PASSWORD=/p' src/start-dev.sh); npm --prefix src/web-ui run test:e2e -- e2e/backend-exploration-groups.spec.ts --output \"$HARNESS_SESSION_DIR/runtime/e2e/playwright\""
+        "export HARNESS_SESSION_DIR INTERNAL_SERVICE_TOKEN=\"${INTERNAL_SERVICE_TOKEN:-local-development-internal-token}\" BACKEND_SERVER_PORT=\"${BACKEND_SERVER_PORT:-8080}\"; cd src && exec env INTERNAL_SERVICE_TOKEN=\"$INTERNAL_SERVICE_TOKEN\" ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED=\"${ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED:-true}\" RULE_KNOWLEDGE_STORAGE_ROOT=\"$HARNESS_SESSION_DIR/runtime/e2e/rulebooks\" RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT=\"/home/jiwoo/workspace/dnd-master/docs/assets\" ./gradlew --no-daemon :app-all:bootRun --args=\"--server.port=$BACKEND_SERVER_PORT\""
       ],
       "required_env": [],
       "config_inputs": [
         "docs/agents/EXEC.md",
-        "src/start-dev.sh",
-        "src/infra/compose.yaml",
-        "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
-        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/MapDefinition.java",
-        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/MapSourceReference.java",
-        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/BestOfNRuntimePlanningAdapter.java",
-        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/MapMovementCoordinator.java",
-        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/view/CombatMapViewService.java",
-        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/infrastructure/persistence/PostgresCombatMapViewStore.java",
-        "src/combat-map-service/src/main/resources/db/migration/V2_6__combat_map_visibility.sql",
-        "src/web-ui/package.json",
-        "src/web-ui/playwright.config.ts",
-        "src/web-ui/e2e/backend-exploration-groups.spec.ts",
-        "src/web-ui/e2e/support/runtime-adventure.ts",
-        "src/web-ui/e2e/fixtures/exploration-groups-main.pdf",
-        "src/web-ui/e2e/fixtures/exploration-groups-map.pdf",
-        "src/web-ui/src/features/combat-map/CombatMapView.tsx"
+        "src/gradlew",
+        "src/gradle/wrapper/gradle-wrapper.properties",
+        "src/settings.gradle.kts",
+        "src/build.gradle.kts",
+        "src/app-all/build.gradle.kts",
+        "src/app-all/src/main/resources/application.yml"
       ],
       "prepare": [],
       "verify_config": [
-        ["test", "-x", "src/web-ui/node_modules/.bin/playwright"],
-        ["test", "-r", "src/start-dev.sh"],
-        ["test", "-r", "src/web-ui/e2e/fixtures/exploration-groups-main.pdf"],
-        ["test", "-r", "src/web-ui/e2e/fixtures/exploration-groups-map.pdf"],
-        ["curl", "-fsS", "http://127.0.0.1:8080/actuator/health"],
-        ["bash", "-lc", "source <(sed -n '/^export BACKEND_E2E_EMAIL=/p; /^export BACKEND_E2E_PASSWORD=/p' src/start-dev.sh); test -n \"$BACKEND_E2E_EMAIL\" && test -n \"$BACKEND_E2E_PASSWORD\""]
+        [
+          "test",
+          "-x",
+          "src/gradlew"
+        ],
+        [
+          "test",
+          "-r",
+          "../dnd-master/docs/assets/892902-A_Potent_Brew_Map.pdf"
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 5700000,
+      "readiness_timeout_ms": 180000,
+      "poll_interval_ms": 2000
+    },
+    "adventure-frontend-only": {
+      "command": [
+        "bash",
+        "-lc",
+        "export HARNESS_SESSION_DIR BACKEND_E2E_URL=\"${BACKEND_E2E_URL:-http://127.0.0.1:8080}\" FRONTEND_DEV_PORT=\"${FRONTEND_DEV_PORT:-5173}\"; exec npm --prefix src/web-ui run dev -- --host 127.0.0.1 --port \"$FRONTEND_DEV_PORT\" --strictPort"
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "docs/agents/EXEC.md",
+        "src/web-ui/package.json",
+        "src/web-ui/vite.config.ts"
+      ],
+      "prepare": [],
+      "verify_config": [
+        [
+          "test",
+          "-x",
+          "src/web-ui/node_modules/.bin/vite"
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": null,
+      "readiness_timeout_ms": 5000,
+      "poll_interval_ms": 1000
+    },
+    "user-pc-agent-only": {
+      "command": [
+        "bash",
+        "-lc",
+        "exec ./src/user-pc-agent/build/install/user-pc-agent/bin/user-pc-agent"
+      ],
+      "required_env": [
+        "RELAY_WEBSOCKET_URL",
+        "RELAY_HEALTH_URL",
+        "AGENT_ACCESS_TOKEN",
+        "AGENT_CONNECTION_ID",
+        "CODEX_EXECUTABLE",
+        "CODEX_CLIENT_DIRECTORY"
+      ],
+      "config_inputs": [
+        "docs/agents/EXEC.md",
+        "src/user-pc-agent/README.md",
+        "src/user-pc-agent/build.gradle.kts"
+      ],
+      "prepare": [],
+      "verify_config": [
+        ["test", "-x", "src/user-pc-agent/build/install/user-pc-agent/bin/user-pc-agent"],
+        ["test", "-x", "${CODEX_EXECUTABLE}"],
+        ["test", "-d", "${CODEX_CLIENT_DIRECTORY}"],
+        ["curl", "-fsS", "${RELAY_HEALTH_URL}"]
+      ],
+      "dependencies": [],
+      "timeout_ms": null,
+      "readiness_timeout_ms": 5000,
+      "poll_interval_ms": 1000
+    },
+    "adventure-preparation-e2e": {
+      "command": [
+        "bash",
+        "-lc",
+        "export E2E_ARTIFACT_DIR=\"$(mktemp -d \"$HARNESS_SESSION_DIR/runtime/e2e/adventure-preparation.XXXXXX\")\"; export BACKEND_E2E_URL=http://127.0.0.1:8080; source <(sed -n '/^export BACKEND_E2E_EMAIL=/p; /^export BACKEND_E2E_PASSWORD=/p' src/start-dev.sh); npm --prefix src/web-ui run test:e2e -- e2e/backend-scenario-preparation.spec.ts --output \"$E2E_ARTIFACT_DIR/playwright\""
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "docs/agents/EXEC.md",
+        "docs/agents/execution.json",
+        "src/start-dev.sh",
+        "src/infra/compose.yaml",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/compilation/ScenarioCompilationWorker.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/compilation/ScenarioCompilationAgentPort.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpScenarioCompilationAgentPort.java",
+        "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
+        "src/web-ui/e2e/backend-scenario-preparation.spec.ts",
+        "src/web-ui/e2e/support/runtime-adventure.ts",
+        "src/web-ui/package.json",
+        "src/web-ui/playwright.config.ts"
+      ],
+      "prepare": [],
+      "verify_config": [
+        [
+          "test",
+          "-r",
+          "../dnd-master/docs/assets/DnD_BasicRules_2018.pdf"
+        ],
+        [
+          "test",
+          "-r",
+          "../dnd-master/docs/assets/892902-A_Most_Potent_Brew.pdf"
+        ],
+        [
+          "test",
+          "-r",
+          "../dnd-master/docs/assets/892902-A_Potent_Brew_Map.pdf"
+        ],
+        [
+          "test",
+          "-r",
+          "../dnd-master/docs/assets/892902-A_Most_Potent_Brew_Player_Handout.pdf"
+        ],
+        [
+          "python3",
+          "-c",
+          "import hashlib,pathlib,pymupdf; root=pathlib.Path('../dnd-master/docs/assets'); names=['DnD_BasicRules_2018.pdf', '892902-A_Most_Potent_Brew.pdf', '892902-A_Potent_Brew_Map.pdf', '892902-A_Most_Potent_Brew_Player_Handout.pdf']; paths=[root/name for name in names]; docs=[pymupdf.open(path) for path in paths]; assert all(path.is_file() and path.stat().st_size>0 and len(doc)>0 for path,doc in zip(paths,docs)); assert hashlib.sha256(paths[0].read_bytes()).hexdigest()=='7a0c5d8bf52d15092f156d78418aa3d43307e271f810d2f06bf2f0258e9288a3' and 'Released November 2018' in docs[0][0].get_text(); assert 'A Most Potent Brew' in ' '.join(docs[1][0].get_text().split()); print('Approved 2018 Basic Rules and original Potent Brew sources verified')"
+        ],
+        [
+          "test",
+          "-x",
+          "src/web-ui/node_modules/.bin/playwright"
+        ],
+        [
+          "test",
+          "-r",
+          "src/start-dev.sh"
+        ],
+        [
+          "curl",
+          "-fsS",
+          "http://127.0.0.1:8080/actuator/health"
+        ],
+        [
+          "bash",
+          "-lc",
+          "source <(sed -n '/^export BACKEND_E2E_EMAIL=/p; /^export BACKEND_E2E_PASSWORD=/p' src/start-dev.sh); test -n \"$BACKEND_E2E_EMAIL\" && test -n \"$BACKEND_E2E_PASSWORD\""
+        ],
+        [
+          "node",
+          "-e",
+          "const fs=require('node:fs'); const test=fs.readFileSync('src/web-ui/e2e/backend-scenario-preparation.spec.ts','utf8'); if (!test.includes('bootstrapAdventureSession') || !test.includes('adventure_prepared') || test.includes('/start')) process.exit(1); console.log('Preparation-only E2E is configured; no adventure start/turn is submitted')"
+        ],
+        [
+          "python3",
+          "-c",
+          "import socket; s=socket.socket();\ntry: s.bind(('127.0.0.1',15174))\nexcept OSError as e: raise SystemExit(f'Playwright UI port 15174 is occupied: {e}')\nfinally: s.close()\nprint('Playwright UI port 15174 is free')"
+        ]
       ],
       "dependencies": [
         {
           "id": "adventure-backend",
-          "check": ["curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
+          "check": [
+            "curl",
+            "-fsS",
+            "http://127.0.0.1:8080/actuator/health"
+          ]
         }
       ],
-      "timeout_ms": 3600000,
+      "timeout_ms": 1200000,
+      "readiness_timeout_ms": 180000,
+      "poll_interval_ms": 2000
+    },
+    "adventure-map-preparation-check": {
+      "command": [
+        "bash",
+        "-lc",
+        "./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.AdventureSessionStageStartTest && npm --prefix src/web-ui run test -- --run src/features/rulebooks/PreparationFlow.test.tsx src/features/rulebooks/RulebookSetup.test.tsx src/features/adventure-session/AdventureSessionPanel.test.tsx src/features/combat-map/CombatMapFlow.test.tsx"
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "docs/agents/EXEC.md",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/session/AdventureSessionApplicationService.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/AdventureSessionStageStartTest.java",
+        "src/web-ui/src/features/adventure-session/AdventureSessionPanel.tsx",
+        "src/web-ui/src/features/adventure-session/AdventureSessionPanel.test.tsx",
+        "src/web-ui/src/features/rulebooks/PreparationFlow.tsx",
+        "src/web-ui/src/features/rulebooks/PreparationFlow.test.tsx",
+        "src/web-ui/src/features/rulebooks/RulebookSetup.test.tsx",
+        "src/web-ui/src/features/combat-map/CombatMapView.tsx",
+        "src/web-ui/src/features/combat-map/CombatMapFlow.test.tsx"
+      ],
+      "prepare": [],
+      "verify_config": [
+        [
+          "test",
+          "-x",
+          "src/gradlew"
+        ],
+        [
+          "test",
+          "-x",
+          "src/web-ui/node_modules/.bin/vitest"
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 600000,
+      "readiness_timeout_ms": 5000,
+      "poll_interval_ms": 1000
+    },
+    "enemy-sheet-contract-unit": {
+      "command": [
+        "./src/gradlew",
+        "-p",
+        "src",
+        ":adventure-service:test",
+        "--tests",
+        "com.dndmaster.adventure.infrastructure.integration.HttpTypedRuntimeGmAgentPortTest",
+        "--tests",
+        "com.dndmaster.adventure.CombatScenarioGroundingPolicyTest",
+        "--tests",
+        "com.dndmaster.adventure.application.runtime.EnemySheetPreparationApplicationServiceTest",
+        "--tests",
+        "com.dndmaster.adventure.application.runtime.RuntimeGmPromptComposerTest",
+        ":ai-game-master-service:test",
+        "--tests",
+        "com.dndmaster.aigamemaster.api.TypedAgentContractControllerTest"
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "docs/agents/EXEC.md",
+        "src/contracts/ai-game-master/schemas/enemy-sheet-preparation-response.json"
+      ],
+      "readiness": [],
+      "prepare": [],
+      "verify_config": [
+        [
+          "test",
+          "-x",
+          "src/gradlew"
+        ],
+        [
+          "java",
+          "-version"
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 600000,
+      "readiness_timeout_ms": 5000,
+      "poll_interval_ms": 250
+    },
+    "situation-map-preparation-unit": {
+      "required_env": [],
+      "prepare": [],
+      "verify_config": [
+        [
+          "test",
+          "-x",
+          "src/gradlew"
+        ],
+        [
+          "java",
+          "-version"
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 600000,
+      "readiness_timeout_ms": 5000,
+      "poll_interval_ms": 250,
+      "command": [
+        "./src/gradlew",
+        "-p",
+        "src",
+        ":adventure-service:test",
+        "--tests",
+        "com.dndmaster.adventure.HttpCombatMapPreparationGatewayTest",
+        "--tests",
+        "com.dndmaster.adventure.ScenarioSpatialFeaturePreparationServiceTest",
+        "--tests",
+        "com.dndmaster.adventure.application.combat.PreparedMapEntryCommitGateTest",
+        ":combat-map-service:test",
+        "--tests",
+        "com.dndmaster.combatmap.DoorMapMutationTest",
+        "--tests",
+        "com.dndmaster.combatmap.DoorInitialStateTest",
+        "--tests",
+        "com.dndmaster.combatmap.CombatMapViewServiceTest",
+        "--tests",
+        "com.dndmaster.combatmap.TacticalSceneMaterializationTest",
+        "--tests",
+        "com.dndmaster.combatmap.SpatialFeatureApplicationServiceTest",
+        ":ai-game-master-service:test",
+        "--tests",
+        "com.dndmaster.aigamemaster.api.AiGameMasterControllerTest",
+        "--tests",
+        "com.dndmaster.aigamemaster.api.TypedAgentContractControllerTest"
+      ],
+      "config_inputs": [
+        "docs/agents/EXEC.md",
+        ".scratch/issues/issue-365.md",
+        "docs/specs/combat-movement-spell-range/product-spec.md",
+        "docs/specs/combat-movement-spell-range/architecture-spec.md"
+      ]
+    },
+    "situation-map-persistence-unit": {
+      "required_env": [],
+      "prepare": [],
+      "dependencies": [],
+      "timeout_ms": 600000,
+      "readiness_timeout_ms": 5000,
+      "poll_interval_ms": 250,
+      "command": [
+        "./src/gradlew",
+        "-p",
+        "src",
+        ":combat-map-service:test",
+        "--tests",
+        "com.dndmaster.combatmap.DoorMapMutationTest",
+        "--tests",
+        "com.dndmaster.combatmap.CombatMapVisibilityIntegrationTest",
+        "--tests",
+        "com.dndmaster.combatmap.DoorInitialStateTest"
+      ],
+      "verify_config": [
+        [
+          "test",
+          "-x",
+          "src/gradlew"
+        ],
+        [
+          "java",
+          "-version"
+        ],
+        [
+          "docker",
+          "info",
+          "--format",
+          "{{.ServerVersion}}"
+        ]
+      ],
+      "config_inputs": [
+        "docs/agents/EXEC.md",
+        "src/combat-map-service/src/main/resources/db/migration/V2_30__combat_map_door_lock_state.sql"
+      ]
+    },
+    "victorialogs-wsl-metrics": {
+      "command": [
+        "bash",
+        "-lc",
+        "exec .codex/tools/vmagent/v1.154.0/vmagent -httpListenAddr=127.0.0.1:8429 -promscrape.config=docs/observability/victorialogs/scrape-wsl.json -remoteWrite.url=http://127.0.0.1:8428/api/v1/write"
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "scripts/install-vmagent.mjs",
+        "docs/observability/victorialogs/scrape-wsl.json",
+        "docs/observability/victorialogs/config.json",
+        "docs/agents/EXEC.md"
+      ],
+      "prepare": [
+        [
+          "node",
+          "scripts/install-vmagent.mjs"
+        ]
+      ],
+      "verify_config": [
+        [
+          "bash",
+          "-lc",
+          "curl -fsS http://127.0.0.1:8080/actuator/prometheus -o /dev/null && curl -fsS 'http://127.0.0.1:8428/api/v1/query?query=1' -o /dev/null && .codex/tools/vmagent/v1.154.0/vmagent -dryRun -promscrape.config=docs/observability/victorialogs/scrape-wsl.json"
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 43200000,
+      "readiness_timeout_ms": 10000,
+      "poll_interval_ms": 1000
+    },
+    "victorialogs-infrastructure": {
+      "command": [
+        "node",
+        ".codex/scripts/harness-victorialogs.mjs",
+        "start",
+        "--root",
+        "."
+      ],
+      "required_env": [],
+      "config_inputs": [
+        ".codex/scripts/harness-victorialogs.mjs",
+        "docs/observability/victorialogs/config.json",
+        "docs/observability/victorialogs/compose.yaml",
+        "docs/observability/victorialogs/otel-collector.yaml",
+        "docs/observability/victorialogs/scrape.json",
+        "docs/observability/victorialogs/otel-javaagent.properties",
+        "docs/agents/EXEC.md"
+      ],
+      "prepare": [],
+      "verify_config": [
+        [
+          "node",
+          ".codex/scripts/harness-victorialogs.mjs",
+          "validate",
+          "--root",
+          "."
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 43200000,
+      "readiness_timeout_ms": 180000,
+      "poll_interval_ms": 1000
+    },
+    "victorialogs-check": {
+      "command": [
+        "node",
+        ".codex/scripts/harness-victorialogs.mjs",
+        "check",
+        "--root",
+        "."
+      ],
+      "required_env": [],
+      "config_inputs": [
+        ".codex/scripts/harness-victorialogs.mjs",
+        "docs/observability/victorialogs/config.json",
+        "docs/observability/victorialogs/compose.yaml",
+        "docs/observability/victorialogs/otel-collector.yaml",
+        "docs/observability/victorialogs/scrape.json",
+        "docs/observability/victorialogs/otel-javaagent.properties",
+        "docs/agents/EXEC.md"
+      ],
+      "prepare": [],
+      "verify_config": [
+        [
+          "node",
+          ".codex/scripts/harness-victorialogs.mjs",
+          "validate",
+          "--root",
+          "."
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 30000,
+      "readiness_timeout_ms": 10000,
+      "poll_interval_ms": 1000
+    },
+    "victorialogs-stop": {
+      "command": [
+        "node",
+        ".codex/scripts/harness-victorialogs.mjs",
+        "stop",
+        "--root",
+        "."
+      ],
+      "required_env": [],
+      "config_inputs": [
+        ".codex/scripts/harness-victorialogs.mjs",
+        "docs/observability/victorialogs/config.json",
+        "docs/observability/victorialogs/compose.yaml",
+        "docs/observability/victorialogs/otel-collector.yaml",
+        "docs/observability/victorialogs/scrape.json",
+        "docs/observability/victorialogs/otel-javaagent.properties",
+        "docs/agents/EXEC.md"
+      ],
+      "prepare": [],
+      "verify_config": [
+        [
+          "node",
+          ".codex/scripts/harness-victorialogs.mjs",
+          "validate",
+          "--root",
+          "."
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 30000,
+      "readiness_timeout_ms": 10000,
+      "poll_interval_ms": 1000
+    },
+    "victorialogs-diagnostic-logs": {
+      "command": [
+        "node",
+        ".codex/scripts/harness-victorialogs.mjs",
+        "validate-logs",
+        "--root",
+        ".",
+        "--input",
+        "${HARNESS_DIAGNOSTIC_LOG_FILE}"
+      ],
+      "required_env": [
+        "HARNESS_DIAGNOSTIC_LOG_FILE"
+      ],
+      "config_inputs": [
+        ".codex/scripts/harness-victorialogs.mjs",
+        "docs/observability/victorialogs/diagnostic-log.schema.json",
+        "docs/observability/victorialogs/diagnostic-log.example.json",
+        ".codex/harness-runtime/src/observability/diagnostic-logs.mjs"
+      ],
+      "prepare": [],
+      "verify_config": [
+        [
+          "node",
+          ".codex/scripts/harness-victorialogs.mjs",
+          "validate-logs",
+          "--root",
+          ".",
+          "--input",
+          "docs/observability/victorialogs/diagnostic-log.example.json"
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 30000,
+      "readiness_timeout_ms": 1000,
+      "poll_interval_ms": 100
+    },
+    "adventure-backend-observability": {
+      "command": [
+        "bash",
+        "-lc",
+        "export HARNESS_SESSION_DIR INTERNAL_SERVICE_TOKEN=\"${INTERNAL_SERVICE_TOKEN:-local-development-internal-token}\" BACKEND_SERVER_PORT=\"${BACKEND_SERVER_PORT:-8080}\"; export OTEL_SERVICE_NAME=app-all OTEL_RESOURCE_ATTRIBUTES=\"diag.project.id=dnd-master-spec-combat-movement-spell-range,deployment.environment.name=local,diag.contract.version=1\" OTEL_JAVAAGENT_CONFIGURATION_FILE=\"/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range/docs/observability/victorialogs/otel-javaagent.properties\" SPRING_APPLICATION_NAME=app-all; export SPRING_CONFIG_ADDITIONAL_LOCATION=\"${SPRING_CONFIG_ADDITIONAL_LOCATION:+$SPRING_CONFIG_ADDITIONAL_LOCATION,}optional:file:/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range/docs/observability/victorialogs/spring-local.properties\"; cd src && exec env INTERNAL_SERVICE_TOKEN=\"$INTERNAL_SERVICE_TOKEN\" ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED=\"${ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED:-true}\" RULE_KNOWLEDGE_STORAGE_ROOT=\"$HARNESS_SESSION_DIR/runtime/e2e/rulebooks\" RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT=\"/home/jiwoo/workspace/dnd-master/docs/assets\" ./gradlew --no-daemon :app-all:bootRun -PdevelopmentOtelAgent=\"/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range/.codex/tools/opentelemetry/opentelemetry-javaagent-2.21.0.jar\" --args=\"--server.port=$BACKEND_SERVER_PORT\""
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "docs/agents/EXEC.md",
+        "src/gradlew",
+        "src/gradle/wrapper/gradle-wrapper.properties",
+        "src/settings.gradle.kts",
+        "src/build.gradle.kts",
+        "src/app-all/build.gradle.kts",
+        "src/app-all/src/main/resources/application.yml",
+        "docs/observability/victorialogs/config.json",
+        "docs/observability/victorialogs/spring-local.properties",
+        "docs/observability/victorialogs/otel-javaagent.properties",
+        ".codex/tools/opentelemetry/opentelemetry-javaagent-2.21.0.jar"
+      ],
+      "prepare": [],
+      "verify_config": [
+        [
+          "test",
+          "-x",
+          "src/gradlew"
+        ],
+        [
+          "test",
+          "-r",
+          "../dnd-master/docs/assets/892902-A_Potent_Brew_Map.pdf"
+        ],
+        [
+          "test",
+          "-r",
+          "/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range/.codex/tools/opentelemetry/opentelemetry-javaagent-2.21.0.jar"
+        ],
+        [
+          "node",
+          ".codex/scripts/harness-victorialogs.mjs",
+          "validate",
+          "--root",
+          "/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range"
+        ]
+      ],
+      "dependencies": [
+        {
+          "id": "victorialogs",
+          "check": [
+            "node",
+            ".codex/scripts/harness-victorialogs.mjs",
+            "check",
+            "--root",
+            "/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range"
+          ]
+        }
+      ],
+      "timeout_ms": 5700000,
       "readiness_timeout_ms": 180000,
       "poll_interval_ms": 2000
     }

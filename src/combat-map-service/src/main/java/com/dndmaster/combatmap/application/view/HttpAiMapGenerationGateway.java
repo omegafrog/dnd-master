@@ -348,7 +348,8 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
             layers.add(new MapLayer("GRID_BOUNDS", initialGridBounds(request, width, height), LayerVisibility.PLAYER_VISIBLE));
             detectedContentCrop(request.mapImage()).ifPresent(crop -> layers.add(new MapLayer("MAP_CROP", crop, LayerVisibility.PLAYER_VISIBLE)));
         }
-        layers.add(new MapLayer("GRID_SOURCE", "GM_PROPOSED", LayerVisibility.PLAYER_VISIBLE));
+        layers.add(new MapLayer("GRID_SOURCE", request.mapImage() != null && !request.gridConfirmed()
+                ? "FALLBACK" : "GM_PROPOSED", LayerVisibility.PLAYER_VISIBLE));
         if (!boundaries.isEmpty()) layers.add(new MapLayer("MAP_BOUNDARIES", String.join(";", boundaries), LayerVisibility.PLAYER_VISIBLE));
         if (!candidates.isEmpty()) {
             try { layers.add(new MapLayer("MAP_BOUNDARY_CANDIDATES", mapper.writeValueAsString(candidates), LayerVisibility.AI_ONLY)); }
@@ -474,7 +475,8 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
             detectedContentCrop(request.mapImage()).ifPresent(crop ->
                     layers.add(new MapLayer("MAP_CROP", crop, LayerVisibility.PLAYER_VISIBLE)));
         }
-        layers.add(new MapLayer("GRID_SOURCE", "GM_UNAVAILABLE", LayerVisibility.PLAYER_VISIBLE));
+        layers.add(new MapLayer("GRID_SOURCE", request.mapImage() != null && !request.gridConfirmed()
+                ? "FALLBACK" : "GM_UNAVAILABLE", LayerVisibility.PLAYER_VISIBLE));
         if (!boundaries.isEmpty()) {
             layers.add(new MapLayer("MAP_BOUNDARIES", String.join(";", boundaries), LayerVisibility.PLAYER_VISIBLE));
         }

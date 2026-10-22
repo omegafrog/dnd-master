@@ -19,15 +19,19 @@ public final class SeededMapEntryFlowGmPort implements InitialSituationGmPort {
     @Override
     public JsonNode generate(Request request) {
         JsonNode generated = delegate.generate(request);
-        if (!request.operationKey().contains(":stage:") || request.operationKey().contains(":index-repair")
-                || !openingRequired(request.outputSchema())) return generated;
+        if (!request.operationKey().contains(":stage:") || !request.openingSituationRequired()) return generated;
 
         String context = "operationKey=" + request.operationKey() + " expected=mapless_opening_map_required_destination actual=provider_response";
         long startedAt = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(
                 LOGGER, "seed_map_entry_flow", context);
+        int situationCount = -1;
+        int openingIndex = -1;
+        int destinationIndex = -1;
+        long availableMapCount = 0;
         try {
             JsonNode situations = generated.path("situations");
-            int openingIndex = generated.path("openingSituationIndex").asInt(-1);
+            situationCount = situations.isArray() ? situations.size() : -1;
+            openingIndex = 0;
             JsonNode mapIds = request.outputSchema().path("properties").path("situations").path("items")
                     .path("properties").path("mapDefinitionId").path("enum");
             String selectedMapId = null;
@@ -37,19 +41,15 @@ public final class SeededMapEntryFlowGmPort implements InitialSituationGmPort {
                     break;
                 }
             }
-            int destinationIndex = firstNonOpeningIndex(situations, openingIndex);
+            availableMapCount = countTextValues(mapIds);
+            destinationIndex = request.requiredSituationCount();
             if (!situations.isArray() || openingIndex < 0 || openingIndex >= situations.size()
-                    || destinationIndex < 0 || selectedMapId == null) {
+                    || destinationIndex <= openingIndex || destinationIndex >= situations.size() || selectedMapId == null) {
                 throw new IllegalStateException("map entry fixture requires an opening, destination, and available map definition");
             }
 
             JsonNode response = generated.deepCopy();
             ArrayNode seededSituations = (ArrayNode) response.path("situations");
-            String openingId = seededSituations.get(openingIndex).path("situationId").asText();
-            String destinationId = seededSituations.get(destinationIndex).path("situationId").asText();
-            if (openingId.isBlank() || destinationId.isBlank()) {
-                throw new IllegalStateException("map entry fixture requires situation identifiers");
-            }
             for (int index = 0; index < seededSituations.size(); index++) {
                 ObjectNode situation = (ObjectNode) seededSituations.get(index);
                 if (index == openingIndex) {
@@ -58,11 +58,9 @@ public final class SeededMapEntryFlowGmPort implements InitialSituationGmPort {
                 } else if (index == destinationIndex) {
                     situation.put("mapNeeded", true);
                     situation.put("mapDefinitionId", selectedMapId);
-                    situation.putArray("prerequisiteSituationIds").add(openingId);
                 } else {
                     situation.put("mapNeeded", false);
                     situation.putNull("mapDefinitionId");
-                    situation.putArray("prerequisiteSituationIds").add(destinationId);
                 }
             }
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
@@ -74,17 +72,13 @@ public final class SeededMapEntryFlowGmPort implements InitialSituationGmPort {
         } catch (RuntimeException | Error failure) {
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
                     "seed_map_entry_flow", "operationKey=" + request.operationKey()
-                            + " expected=opening_and_destination actual=invalid_provider_response", startedAt, failure);
+                            + " expectedSituationCountAtLeast=2 actualSituationCount=" + situationCount
+                            + " expectedOpeningIndexInRange=true actualOpeningIndex=" + openingIndex
+                            + " expectedDestinationIndex=nonOpening actualDestinationIndex=" + destinationIndex
+                            + " expectedAvailableMapCountAtLeast=1 actualAvailableMapCount=" + availableMapCount
+                            + " failure=invalid_provider_response", startedAt, failure);
             throw failure;
         }
-    }
-
-    private static int firstNonOpeningIndex(JsonNode situations, int openingIndex) {
-        if (!situations.isArray()) return -1;
-        for (int index = 0; index < situations.size(); index++) {
-            if (index != openingIndex) return index;
-        }
-        return -1;
     }
 
     private static long countTextValues(JsonNode values) {
@@ -93,11 +87,4 @@ public final class SeededMapEntryFlowGmPort implements InitialSituationGmPort {
         return count;
     }
 
-    private static boolean openingRequired(JsonNode schema) {
-        JsonNode type = schema.path("properties").path("openingSituationIndex").path("type");
-        if (type.isTextual()) return "integer".equals(type.asText());
-        if (!type.isArray()) return false;
-        for (JsonNode value : type) if ("null".equals(value.asText())) return false;
-        return true;
-    }
 }

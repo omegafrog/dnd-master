@@ -97,6 +97,48 @@ class PreparedMapEntryCommitGateTest {
     }
 
     @Test
+    void activates_the_provided_map_for_a_new_intermediate_situation_without_changing_required_progress() {
+        Adventure adventure = adventureAt("cellar");
+        UUID packageId = UUID.randomUUID();
+        UUID mapId = UUID.randomUUID();
+        when(adventure.lockedScenarioPackageId()).thenReturn(packageId);
+        var story = mock(com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState.class);
+        when(adventure.storyRuntimeState()).thenReturn(story);
+        when(story.activeSituationId()).thenReturn("opening");
+        when(story.stageId()).thenReturn("stage-1");
+        when(story.backboneRevision()).thenReturn(1L);
+        when(story.detailedStageRevision()).thenReturn(1L);
+        MapDefinition map = mock(MapDefinition.class);
+        when(map.id()).thenReturn(mapId);
+        when(map.autoActivatable()).thenReturn(true);
+        ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);
+        when(scenarioPackage.mapDefinitions()).thenReturn(List.of(map));
+        ScenarioPackageRepository packages = mock(ScenarioPackageRepository.class);
+        when(packages.findById(packageId)).thenReturn(java.util.Optional.of(scenarioPackage));
+        StageArtifactRepository artifacts = mock(StageArtifactRepository.class);
+        CurrentSituation newScene = new CurrentSituation(UUID.randomUUID(), 1, "뒤뜰", "정찰병 순찰 중", "발각 위험",
+                "정찰병을 살핀다", null, null, "고블린 정찰병이 순찰 중", "고블린 정찰병 하나가 뒤뜰을 순찰한다.", mapId);
+        PendingRuntimeState pending = mock(PendingRuntimeState.class);
+        when(pending.selectedSituationId()).thenReturn(null);
+        when(pending.situation()).thenReturn(newScene);
+        RuntimeTurn turn = turnFrom("cellar", false, false);
+        when(turn.pendingState()).thenReturn(pending);
+        CombatMapPreparationPort mapPreparation = mock(CombatMapPreparationPort.class);
+
+        new PreparedMapEntryCommitGate(mock(CombatMapViewPort.class), mapPreparation, packages, artifacts)
+                .beforeCommit(adventure, turn, adventure.currentSituation());
+
+        AdventureId adventureId = adventure.id();
+        UUID ownerId = adventure.ownerPlayerId().value();
+        RuleSetId ruleSetId = adventure.ruleSetId();
+        verify(mapPreparation).prepareInitial(eq(adventureId), eq(ownerId), eq(ruleSetId), eq(map), eq(1), any());
+        assertTrue(diagnostics.list.stream().map(ILoggingEvent::getFormattedMessage)
+                .anyMatch(message -> message.contains("outcome=new_situation_map")
+                        && message.contains("expectedMapDefinitionId=" + mapId)
+                        && message.contains("actualMapDefinitionId=" + mapId)));
+    }
+
+    @Test
     void prepares_the_active_situations_map_and_entry_narration_before_committing_its_scene() {
         Adventure adventure = adventureAt("cellar");
         UUID packageId = UUID.randomUUID();
@@ -136,15 +178,15 @@ class PreparedMapEntryCommitGateTest {
         AdventureId adventureId = adventure.id();
         UUID ownerId = adventure.ownerPlayerId().value();
         RuleSetId ruleSetId = adventure.ruleSetId();
-        verify(mapPreparation).prepareDraft(eq(adventureId), eq(ownerId), eq(ruleSetId), eq(map), any());
+
         ArgumentCaptor<CombatMapPreparationPort.ActivationContext> context =
                 ArgumentCaptor.forClass(CombatMapPreparationPort.ActivationContext.class);
-        verify(mapPreparation, times(1)).activatePrepared(eq(adventureId), eq(ownerId), eq(ruleSetId), eq(1), context.capture());
+        verify(mapPreparation, times(1)).prepareInitial(eq(adventureId), eq(ownerId), eq(ruleSetId), eq(map), eq(1), context.capture());
         assertEquals(true, context.getValue().entryEvidence().contains("저장고 안에 도착했다."));
         assertTrue(diagnostics.list.stream().map(ILoggingEvent::getFormattedMessage)
-                .anyMatch(message -> message.contains("operation=situation_map_entry_prepare")
+                .anyMatch(message -> message.contains("operation=situation_map_entry_activate")
                         && message.contains("outcome=completed")
-                        && message.contains("situationId=cellar-entry")
+                        && message.contains("mapDefinitionId=" + mapId)
                         && message.contains("mapDefinitionId=" + mapId)
                         && message.contains("entryEvidenceChars=")));
     }
@@ -235,7 +277,7 @@ class PreparedMapEntryCommitGateTest {
     }
 
     @Test
-    void prepares_a_map_needed_opening_once_without_a_scene_change_or_entry_flag() {
+    void 같은_지도_ID를_서술_변경과_무관하게_재사용_판단에_전달한다() {
         Adventure adventure = adventureAt("cellar");
         UUID packageId = UUID.randomUUID();
         UUID mapId = UUID.randomUUID();
@@ -270,12 +312,12 @@ class PreparedMapEntryCommitGateTest {
         when(opening.conversation()).thenReturn(List.of());
         gate.beforeCommit(adventure, opening);
 
-        RuntimeTurn laterTurn = turnFrom("cellar", false, false);
+        RuntimeTurn laterTurn = turnFrom("맥주 저장고의 다른 표현", false, false);
         when(laterTurn.conversation()).thenReturn(List.of(new ConversationEntry(0, "AI_GAME_MASTER", "이미 열린 장면")));
         gate.beforeCommit(adventure, laterTurn);
 
-        verify(mapPreparation, times(1)).prepareDraft(any(), any(), any(), eq(map), any());
-        verify(mapPreparation, times(1)).activatePrepared(any(), any(), any(), eq(1), any());
+        verify(mapPreparation, times(2)).prepareInitial(any(), any(), any(), eq(map), eq(1), any());
+        verify(mapPreparation, never()).prepareDraft(any(), any(), any(), any(), any());
     }
 
     @Test

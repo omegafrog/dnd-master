@@ -2,7 +2,6 @@ package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.runtime.GmAgentPort;
 import com.dndmaster.adventure.application.runtime.GmContextEnvelope;
-import com.dndmaster.adventure.application.runtime.RuntimeGmContextLimits;
 import com.dndmaster.adventure.application.runtime.RuntimeGmInputLimitException;
 import com.dndmaster.adventure.application.runtime.GmPlanResult;
 import com.dndmaster.adventure.application.runtime.CompletionCandidate;
@@ -33,16 +32,10 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
     private final Duration timeout;
     private final ObjectMapper mapper;
     private final String internalToken;
-    private final RuntimeGmContextLimits contextLimits;
+    private static final int RUNTIME_CONTEXT_LIMIT = 272_000;
 
     public HttpTypedRuntimeGmAgentPort(HttpClient client, URI baseUri, Duration timeout,
             ObjectMapper mapper, String internalToken) {
-        this(client, baseUri, timeout, mapper, internalToken, "");
-    }
-
-    public HttpTypedRuntimeGmAgentPort(HttpClient client, URI baseUri, Duration timeout,
-            ObjectMapper mapper, String internalToken, String configuredLimits) {
-        this.contextLimits = new RuntimeGmContextLimits(configuredLimits);
         this.client = Objects.requireNonNull(client, "http client must not be null");
         this.baseUri = Objects.requireNonNull(baseUri, "base uri must not be null");
         this.timeout = Objects.requireNonNull(timeout, "timeout must not be null");
@@ -117,7 +110,7 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
                     reasoning, false, "", context.requestedSelection(), effective, 1, List.of(), null,
                     response.combatEnemies().stream().map(enemy -> new CombatEnemyProposal(
                             enemy.scenarioId(), enemy.enemyKey(), enemy.name(), enemy.count(),
-                            combatStartMode(enemy.mode())).withSheetCandidates(
+                            combatStartMode(enemy.mode())).withStatBlock(combatNumbers(enemy.combatNumbers(), evidenceByKey)).withSheetCandidates(
                                     enemy.abilities().stream().map(a -> new com.dndmaster.adventure.application.runtime.CombatEnemyAbilityProposal(
                                             a.ability(), a.score(), a.citationKeys())).toList(),
                                     enemy.actions().stream().map(a -> new com.dndmaster.adventure.application.runtime.CombatEnemyActionProposal(
@@ -159,12 +152,16 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
             HttpResponse<String> selected = client.send(selectionRequest, HttpResponse.BodyHandlers.ofString());
             if (selected.statusCode() / 100 != 2) throw new IllegalStateException("selected GM model is unavailable");
             RuntimeEndpointResponse endpoint = mapper.readValue(selected.body(), RuntimeEndpointResponse.class);
+            EnvironmentMapInput mapInput = environmentMapInput(context.action());
+            devLog("dev_environment_image_input outcome=prepared operationKey={} originalChars={} textChars={} imageAttached={} imageChars={}",
+                    operationKey, context.action().length(), mapInput.text().length(), !mapInput.imageDataUri().isBlank(), mapInput.imageDataUri().length());
             String prompt = "ROLE=EXPLORATION_ENVIRONMENT_PHASE\nTASK=Judge nearby enemy movement and supported environment changes for one six-second phase. Set encounterRequested=true only when hostile contact or an event requires handing off this paused exploration cycle to normal combat startup. featureInteractions may name only a map spatial feature whose triggers include INTERACT; runtime applies that existing feature interaction and validates its current state. Return only the fixed schema. Do not invent feature IDs, map positions, or unsupported state changes.\n"
                     + "CURRENT_SITUATION=" + context.currentSituation() + "\nESTABLISHED_SCENE="
-                    + context.currentContext().currentScene() + "\nPHASE_INPUT=" + context.action();
+                    + context.currentContext().currentScene() + "\nMAP_IMAGE=" + (mapInput.imageDataUri().isBlank() ? "not provided" : "attached separately; inspect the full image using GM_MAP_STATE grid, GRID_BOUNDS and MAP_CROP; return grid coordinates")
+                    + "\nPHASE_INPUT=" + mapInput.text();
             String body = mapper.writeValueAsString(new ExplorationEnvironmentRequest(context.ownerPlayerId().value(),
                     context.operationKey(), selection.endpointId(), selection.provider(), selection.model(), selection.reasoning(),
-                    endpoint.endpointId(), endpoint.endpointVersion(), endpoint.provider(), endpoint.model(), prompt));
+                    endpoint.endpointId(), endpoint.endpointVersion(), endpoint.provider(), endpoint.model(), prompt, mapInput.imageDataUri()));
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/gm/exploration-environment"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
@@ -183,6 +180,30 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
             throw new IllegalStateException("typed exploration environment request failed", failure);
         }
     }
+
+    private EnvironmentMapInput environmentMapInput(String action) throws java.io.IOException {
+        String marker = " GM_MAP_STATE=";
+        int offset = action.indexOf(marker);
+        if (offset < 0) return new EnvironmentMapInput(action, "");
+        var state = mapper.readTree(action.substring(offset + marker.length()));
+        if (!state.isObject()) throw new IllegalArgumentException("environment map state must be an object");
+        String image = "";
+        if (state.path("layers").isArray()) {
+            var layers = state.path("layers").iterator();
+            while (layers.hasNext()) {
+                var layer = layers.next();
+                if (!"MAP_IMAGE".equals(layer.path("type").asText())) continue;
+                String candidate = layer.path("value").asText("");
+                if (!candidate.startsWith("data:image/")) throw new IllegalArgumentException("environment map image must be a data image URI");
+                if (!image.isBlank() && !image.equals(candidate)) throw new IllegalArgumentException("environment map contains conflicting images");
+                image = candidate;
+                layers.remove();
+            }
+        }
+        return new EnvironmentMapInput(action.substring(0, offset + marker.length()) + mapper.writeValueAsString(state), image);
+    }
+
+    private record EnvironmentMapInput(String text, String imageDataUri) { }
 
     @Override
     public GmPlanResult plan(GmContextEnvelope context, List<GmToolSpec> ignoredTools) {
@@ -221,7 +242,7 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
             throw new RuntimeGmInputLimitException("selected GM model is unavailable for input composition");
         }
         RuntimeEndpointResponse endpoint = mapper.readValue(selected.body(), RuntimeEndpointResponse.class);
-        int contextLimit = contextLimits.require(endpoint.provider(), endpoint.model());
+        int contextLimit = RUNTIME_CONTEXT_LIMIT;
         long promptStarted = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics
                 .begin(LOGGER, "runtime_prompt_composition", callContext + " provider=" + endpoint.provider() + " model=" + endpoint.model());
         String prompt;
@@ -310,7 +331,8 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
                 ? SituationUpdateProposal.transition(response.location(), response.problem(), response.threat(), response.goal())
                 : SituationUpdateProposal.continueSituation(response.problem(), response.threat(), response.goal());
         SituationProposal.Basis basis = SituationProposal.Basis.valueOf(response.basis().trim().toUpperCase(java.util.Locale.ROOT));
-        return new SituationProposal(update, basis, response.reference(), response.required(), response.selectedSituationId());
+        return new SituationProposal(update, basis, response.reference(), response.required(), response.selectedSituationId(),
+                response.title(), response.description(), response.mapNeeded(), response.mapDefinitionId());
     }
 
     private static CombatStartMode combatStartMode(String mode) {
@@ -327,7 +349,7 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
     record ExplorationEnvironmentRequest(java.util.UUID soloPlayerId, String operationKey,
             java.util.UUID endpointId, String provider, String model, String reasoning,
             java.util.UUID effectiveEndpointId, String effectiveEndpointVersion, String effectiveProvider,
-            String effectiveModel, String prompt) { }
+            String effectiveModel, String prompt, String imageDataUri) { }
     record RuntimeRequest(java.util.UUID soloPlayerId, String operationKey, String action,
                           java.util.UUID endpointId, String provider, String model, String reasoning,
                           java.util.UUID effectiveEndpointId, String effectiveEndpointVersion,
@@ -369,10 +391,32 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
             return new CheckProposalResponse(false, "", "", null, "", "", 0, null, List.of(), "", "");
         }
     }
+    static com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock combatNumbers(
+            CombatNumbersResponse numbers, Map<String, com.dndmaster.adventure.application.runtime.RuntimeEvidence> evidence) {
+        if (numbers == null) return null;
+        var source = evidence.get(numbers.citationKey());
+        if (source == null || (source.evidenceType() != com.dndmaster.adventure.application.runtime.RuntimeEvidenceType.RULEBOOK
+                && source.evidenceType() != com.dndmaster.adventure.application.runtime.RuntimeEvidenceType.STORYBOOK)) {
+            throw new IllegalArgumentException("적 전투수치의 근거가 제공된 룰북·시나리오 범위 밖입니다");
+        }
+        if (numbers.damageDice() == null || !numbers.damageDice().matches("[1-9][0-9]*d[1-9][0-9]*(?:\\s*[+-]\\s*[0-9]+)?")
+                || numbers.initiativeModifier() < -30 || numbers.initiativeModifier() > 30) {
+            throw new IllegalArgumentException("적 전투수치의 피해굴림식 또는 우선권보정치가 유효하지 않습니다");
+        }
+        return new com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock(numbers.armorClass(),
+                numbers.hitPointMaximum(), numbers.attackModifier(), numbers.damageDice(),
+                new com.dndmaster.adventure.domain.combat.CombatStatBlockSource(source.knowledgeDocumentId().value(),
+                        source.extractionVersion(), source.locator(), source.referenceKey()), numbers.initiativeModifier());
+    }
+
+    record CombatNumbersResponse(@JsonProperty("방어도") int armorClass, @JsonProperty("최대HP") int hitPointMaximum,
+            @JsonProperty("공격보정치") int attackModifier, @JsonProperty("피해굴림식") String damageDice,
+            @JsonProperty("우선권보정치") int initiativeModifier, @JsonProperty("근거키") String citationKey) { }
     record CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count,
-            List<CombatEnemyAbilityResponse> abilities, List<CombatEnemyActionResponse> actions) {
+            List<CombatEnemyAbilityResponse> abilities, List<CombatEnemyActionResponse> actions,
+            @JsonProperty("전투수치") CombatNumbersResponse combatNumbers) {
         CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count) {
-            this(mode, scenarioId, enemyKey, name, count, List.of(), List.of());
+            this(mode, scenarioId, enemyKey, name, count, List.of(), List.of(), null);
         }
         CombatEnemyResponse {
             abilities = abilities == null ? List.of() : List.copyOf(abilities);
@@ -386,7 +430,8 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
         CombatEnemyActionResponse { citationKeys = citationKeys == null ? List.of() : List.copyOf(citationKeys); }
     }
     record SituationResponse(String kind, String location, String problem, String threat, String goal,
-                             String basis, String reference, String selectedSituationId, boolean required) { }
+                             String basis, String reference, String selectedSituationId, String title,
+                             String description, boolean mapNeeded, java.util.UUID mapDefinitionId, boolean required) { }
     record RuntimeFactResponse(String subject, String content) { }
     record CompletionResponse(boolean complete, List<String> resolvedObjectiveIds,
             List<String> satisfiedResolutionCriteriaIds, String concludingScene) {

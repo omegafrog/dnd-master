@@ -1,0 +1,28 @@
+@startuml
+ title 전투 진행과 전투 화면 (combat-loop)
+ actor "플레이어" as Player
+ participant "전투 화면" as UI
+ participant "모험 런타임" as Runtime
+ participant "전투 조우" as Encounter
+ participant "AI 게임 마스터" as GM
+ Player -> UI : 전투 행동 선택
+ UI -> Runtime : 행동·현재 버전 제출
+ Runtime -> Encounter : 차례·자원·버전 검증
+ alt 유효한 행동
+   Encounter --> Runtime : 예약된 자원
+   Runtime -> GM : 판정에 필요한 공개 입력 전달
+   GM --> Runtime : 구조화 결과 제안
+   Runtime -> Encounter : 결과와 자원 적용
+   Encounter --> Runtime : 확정된 전투 상태
+   Runtime -> UI : 갱신된 차례·지도·행동 정보
+ else 무효하거나 오래된 행동
+   Encounter --> Runtime : 검증 오류
+   Runtime -> UI : 상태 변경 없이 오류 표시
+ end
+ opt 반응이 대기 중
+   Runtime -> UI : 반응 선택 요청
+   Player -> UI : 반응 선택
+   UI -> Runtime : 선택 제출
+   Runtime -> Encounter : 반응 자원·결과 확정
+ end
+@enduml

@@ -195,6 +195,42 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
     }
 
     @Override
+    public Optional<VersionedOwnedCombatMap> findByDefinition(AdventureId adventureId, MapOwnerId owner, UUID definitionId) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
+                "SELECT map.* FROM combat_map map WHERE map.adventure_id=? AND map.owner_player_id=? AND (EXISTS "
+                        + "(SELECT 1 FROM combat_map_layer layer WHERE layer.map_id=map.map_id AND layer.layer_type='MAP_DEFINITION_ID' AND layer.layer_value=?) "
+                        + "OR EXISTS (SELECT 1 FROM combat_map_command_history history WHERE history.map_id=map.map_id "
+                        + "AND history.adventure_id=map.adventure_id AND history.owner_player_id=map.owner_player_id "
+                        + "AND split_part(history.operation_fingerprint,'|',1) IN ('DRAFT','INITIAL') AND split_part(history.operation_fingerprint,'|',3)=?)) "
+                        + "ORDER BY EXISTS (SELECT 1 FROM adventure_active_tactical_map active_map WHERE active_map.combat_map_id=map.map_id AND active_map.active=true) DESC, "
+                        + "map.updated_at DESC, map.map_id DESC LIMIT 1")) {
+            statement.setObject(1, adventureId.value());
+            statement.setObject(2, owner.value());
+            statement.setString(3, definitionId.toString());
+            statement.setString(4, definitionId.toString());
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? Optional.of(readCurrent(connection, rows)) : Optional.empty();
+            }
+        } catch (SQLException exception) {
+            throw new CombatMapPersistenceException("map load by definition failed", exception);
+        }
+    }
+
+    @Override
+    public boolean wasActivated(AdventureId adventureId, MapOwnerId owner, MapId mapId) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
+                "SELECT 1 FROM combat_map_command_history WHERE map_id=? AND adventure_id=? AND owner_player_id=? "
+                        + "AND operation_fingerprint LIKE 'ACTIVATE|%' LIMIT 1")) {
+            statement.setObject(1, mapId.value());
+            statement.setObject(2, adventureId.value());
+            statement.setObject(3, owner.value());
+            try (ResultSet rows = statement.executeQuery()) { return rows.next(); }
+        } catch (SQLException exception) {
+            throw new CombatMapPersistenceException("map activation history load failed", exception);
+        }
+    }
+
+    @Override
     public Optional<VersionedOwnedCombatMap> findByCommandId(UUID commandId) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement("SELECT * FROM " + HISTORY_TABLE + " WHERE command_id=?")) {
@@ -416,8 +452,8 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             }
             statement.executeBatch();
         }
-        try (PreparedStatement statement=connection.prepareStatement("INSERT INTO combat_map_door(map_id,x,y,open) VALUES (?,?,?,?)")) {
-            for(Door door:map.doors()){statement.setObject(1,map.id().value());statement.setInt(2,door.position().x());statement.setInt(3,door.position().y());statement.setBoolean(4,door.open());statement.addBatch();} statement.executeBatch();
+        try (PreparedStatement statement=connection.prepareStatement("INSERT INTO combat_map_door(map_id,x,y,open,locked) VALUES (?,?,?,?,?)")) {
+            for(Door door:map.doors()){statement.setObject(1,map.id().value());statement.setInt(2,door.position().x());statement.setInt(3,door.position().y());statement.setBoolean(4,door.open());statement.setBoolean(5,door.locked());statement.addBatch();} statement.executeBatch();
         }
         writeFeatures(connection, map, map.id().value(), FEATURE_TABLE, FEATURE_CELL_TABLE, FEATURE_TRIGGER_TABLE);
         writeHostileObservations(connection, map, map.id().value(), HOSTILE_OBSERVATION_TABLE);
@@ -546,7 +582,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             statement.executeUpdate();
         }
         try (PreparedStatement statement=connection.prepareStatement("DELETE FROM "+HISTORY_DOOR_TABLE+" WHERE command_id=?")){statement.setObject(1,operationKey);statement.executeUpdate();}
-        try (PreparedStatement statement=connection.prepareStatement("INSERT INTO "+HISTORY_DOOR_TABLE+" (command_id,sequence,x,y,open) VALUES (?,?,?,?,?)")){int index=0;for(Door door:map.doors()){statement.setObject(1,operationKey);statement.setInt(2,index++);statement.setInt(3,door.position().x());statement.setInt(4,door.position().y());statement.setBoolean(5,door.open());statement.addBatch();}statement.executeBatch();}
+        try (PreparedStatement statement=connection.prepareStatement("INSERT INTO "+HISTORY_DOOR_TABLE+" (command_id,sequence,x,y,open,locked) VALUES (?,?,?,?,?,?)")){int index=0;for(Door door:map.doors()){statement.setObject(1,operationKey);statement.setInt(2,index++);statement.setInt(3,door.position().x());statement.setInt(4,door.position().y());statement.setBoolean(5,door.open());statement.setBoolean(6,door.locked());statement.addBatch();}statement.executeBatch();}
         writeHistoryVisibility(connection, map, operationKey);
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO " + HISTORY_LAYER_TABLE + " (command_id, sequence, layer_type, layer_value, visibility) VALUES (?, ?, ?, ?, ?)")) {
@@ -696,7 +732,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
         return layers;
     }
     private Set<Door> readDoors(Connection connection, String table, String fkColumn, UUID fkValue) throws SQLException {
-        Set<Door> doors=new HashSet<>(); try(PreparedStatement statement=connection.prepareStatement("SELECT x,y,open FROM "+table+" WHERE "+fkColumn+"=?")){statement.setObject(1,fkValue);try(ResultSet rows=statement.executeQuery()){while(rows.next())doors.add(new Door(new GridPosition(rows.getInt(1),rows.getInt(2)),rows.getBoolean(3)));}} return doors;
+        Set<Door> doors=new HashSet<>(); try(PreparedStatement statement=connection.prepareStatement("SELECT x,y,open,locked FROM "+table+" WHERE "+fkColumn+"=?")){statement.setObject(1,fkValue);try(ResultSet rows=statement.executeQuery()){while(rows.next())doors.add(new Door(new GridPosition(rows.getInt(1),rows.getInt(2)),rows.getBoolean(3),rows.getBoolean(4)));}} return doors;
     }
 
     private List<SpatialFeature> readFeatures(Connection connection, String featureTable, String cellTable,

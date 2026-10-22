@@ -377,7 +377,8 @@ public final class RuntimeBindingApplicationService {
         if (searchFailed && candidates.isEmpty()) {
             scenarioPackage.documents().stream()
                     .filter(document -> document.role() == com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAIN_SCENARIO
-                            || "STORYBOOK".equalsIgnoreCase(document.documentType()))
+                            || ("STORYBOOK".equalsIgnoreCase(document.documentType())
+                            && document.role() != com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAP))
                     .findFirst()
                     .ifPresent(document -> candidates.add(new InitialSourceContextCandidate(
                             document.knowledgeDocumentId(), document.extractionVersion(), "page=1",

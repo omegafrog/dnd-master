@@ -32,6 +32,40 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class HttpCombatMapPreparationGatewayTest {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void 저장된_지도는_공간_자료를_다시_준비하지_않고_재사용하며_수동_검수_요청을_유지한다(boolean ready) throws Exception {
+        UUID savedMapId = UUID.randomUUID();
+        MapDefinition definition = spatialMapDefinition();
+        var body = new AtomicReference<JsonNode>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/internal/v1/combat-maps/reuse", exchange -> {
+            body.set(new ObjectMapper().readTree(exchange.getRequestBody().readAllBytes()));
+            byte[] result = (ready ? "{\"mapId\":\"" + savedMapId + "\",\"status\":\"READY\",\"warningCount\":0}"
+                    : "{\"error\":\"MAP_SPAWN_REVIEW_REQUIRED\"}").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(ready ? 200 : 409, result.length);
+            exchange.getResponseBody().write(result);
+            exchange.close();
+        });
+        server.start();
+        try {
+            var gateway = new HttpCombatMapPreparationGateway(HttpClient.newHttpClient(),
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(5), new ObjectMapper(), "secret");
+            var adventure = new AdventureId(UUID.randomUUID());
+            UUID owner = UUID.randomUUID();
+            var rules = new RuleSetId(UUID.randomUUID());
+            var context = new CombatMapPreparationPort.ActivationContext(UUID.randomUUID(), UUID.randomUUID(), 1, 2,
+                    "저장된 방", "같은 장소의 다른 표현", null, null, "GM_NARRATION=방 안에서 이동한다");
+            if (ready) assertEquals(savedMapId, gateway.prepareInitial(adventure, owner, rules, definition, 1, context));
+            else assertThrows(com.dndmaster.adventure.application.combat.CombatMapPlacementRequiredException.class,
+                    () -> gateway.prepareInitial(adventure, owner, rules, definition, 1, context));
+            assertEquals(definition.id().toString(), body.get().path("mapDefinitionId").asText());
+            assertEquals(adventure.value().toString(), body.get().path("adventureId").asText());
+            assertEquals(owner.toString(), body.get().path("ownerId").asText());
+        } finally { server.stop(0); }
+    }
+
     @Test
     void retries_blocked_map_preparation_on_the_same_draft_with_a_stable_command() throws Exception {
         UUID adventureId = UUID.randomUUID();
@@ -358,6 +392,12 @@ class HttpCombatMapPreparationGatewayTest {
             exchange.sendResponseHeaders(200, response.length);
             exchange.getResponseBody().write(response);
             exchange.getResponseBody().close();
+        });
+        server.createContext("/internal/v1/combat-maps/reuse", exchange -> {
+            byte[] response = ("{\"mapId\":\"" + replayedMapId + "\",\"status\":\"READY\",\"warningCount\":0}")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            try (var output = exchange.getResponseBody()) { output.write(response); }
         });
         server.createContext("/internal/v1/combat-maps/prepare", exchange -> {
             prepareCalled.set(true);

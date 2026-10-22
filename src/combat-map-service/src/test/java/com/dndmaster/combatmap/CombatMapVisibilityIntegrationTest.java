@@ -6,6 +6,22 @@ class CombatMapVisibilityIntegrationTest{
  @BeforeAll static void start(){PG.start();ds=new DriverManagerDataSource(PG.getJdbcUrl(),PG.getUsername(),PG.getPassword());Flyway.configure().dataSource(ds).load().migrate();}
  @AfterAll static void stop(){PG.stop();}
  @BeforeEach void reset()throws Exception{try(Connection c=ds.getConnection();Statement s=c.createStatement()){s.execute("TRUNCATE combat_map CASCADE");}store=new PostgresCombatMapViewStore(ds);owner=new MapOwnerId(UUID.randomUUID());}
+ @Test void initialDoorLockSurvivesPersistenceAndGmProjection(){
+  var map=new CombatMap(new MapId(UUID.randomUUID()),adventure(),rules(),new GridSpec(4,4,50,5),new PlayerId(owner.value()),List.of(),Set.of(),List.of(),0,null);
+  Door door=new Door(new GridPosition(1,1),false,true); map.replaceDoors(Set.of(door));
+  store.insert(owner,map);
+  var restored=store.find(map.id()).orElseThrow().map();
+  assertEquals(Set.of(door),restored.doors());
+  assertTrue(com.dndmaster.combatmap.api.GmCombatMapResponse.from(restored).doors().getFirst().locked());
+  assertThrows(CombatMapMovementDeniedException.class,()->restored.doors().iterator().next().opened());
+  UUID command=UUID.randomUUID();
+  store.update(owner,restored,0,1,command,"initial-locked-door");
+  var updated=store.find(map.id()).orElseThrow().map();
+  updated.replaceDoors(Set.of(new Door(door.position(),false,false)));
+  store.update(owner,updated,1,2,UUID.randomUUID(),"later-door-state");
+  assertTrue(store.findByCommandId(command).orElseThrow().map().doors().iterator().next().locked());
+  assertFalse(store.find(map.id()).orElseThrow().map().doors().iterator().next().locked());
+ }
  @Test void tokenElevationSurvivesMapPersistence(){
   var token=new CombatToken(new TokenId(UUID.randomUUID()),TokenType.PLAYER,new GridPosition(1,1),TokenController.PLAYER,new PlayerId(owner.value()),12);
   var map=new CombatMap(new MapId(UUID.randomUUID()),adventure(),rules(),new GridSpec(4,4,50,5),new PlayerId(owner.value()),List.of(token),Set.of(),List.of(),0,null);

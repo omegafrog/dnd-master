@@ -49,6 +49,19 @@ class SituationProposalGroundingPolicyTest {
     }
 
     @Test
+    void accepts_the_stable_reference_key_exposed_to_the_gm_when_no_citation_key_exists() {
+        var documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        RuntimeEvidence evidence = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                documentId, 2, "page=2:chunk=abc123", "The party enters the cellar.");
+        String reference = evidence.referenceKey();
+
+        var grounded = SituationProposalGroundingPolicy.ground(proposal(SituationProposal.Basis.RAG, reference),
+                ScenarioModel.empty(), List.of(evidence), UUID.randomUUID());
+
+        assertEquals("rats are nearby", grounded.situationUpdate().threat());
+    }
+
+    @Test
     void creates_a_persisted_fallback_fact_only_when_the_gm_marks_it_required() {
         var grounded = SituationProposalGroundingPolicy.ground(proposal(SituationProposal.Basis.FALLBACK, ""),
                 ScenarioModel.empty(), List.of(), UUID.randomUUID());

@@ -91,7 +91,7 @@ class PostgresStageArtifactRepositoryIntegrationTest {
         var source = new ScenarioSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1");
         StageBackbone firstBackbone = new StageBackbone(packageId, 1,
                 backbone("first adventure").stages(), List.of(),
-                List.of(new RequiredSituation("stage-1-situation", "Find the beginning", List.of(), List.of(source))));
+                List.of(new RequiredSituation("stage-1-situation", "Find the beginning", List.of(), true, List.of(source))));
         StageBackbone secondBackbone = backbone("second adventure");
 
         repository.saveInitialArtifacts(first, firstBackbone, stages("first adventure"));

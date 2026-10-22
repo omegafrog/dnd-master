@@ -1,0 +1,40 @@
+@startuml
+title 문서 근거 검색과 판정 공개 (rule-evidence)
+participant "모험 런타임" as Runtime
+participant "근거 검색" as Knowledge
+participant "조회 AI" as Lookup
+participant "근거 충분성 확인" as Check
+participant "AI 게임 마스터" as GM
+participant "플레이어 응답" as PlayerView
+alt 일반 GM 턴의 조회
+  Runtime -> Knowledge : 한 번에 STORYBOOK과 RULEBOOK 혼합 dense 검색
+  Knowledge --> Runtime : 출처별 최대 5개 발췌와 출처 위치
+  Runtime -> Lookup : 한 번의 조회 요청으로 혼합 발췌와 문맥 전달
+  Lookup --> Runtime : 조회 결과
+  note over Runtime, Lookup : 별도 재정렬이나 충분성 판단 AI 호출 없이 기존 조회 결과를 사용한다.
+  Runtime -> GM : 조회 결과와 진행 문맥 전달
+  GM --> Runtime : 서술 제안
+  Runtime -> PlayerView : 검증·확정된 공개 결과 표시
+else 기존 근거 충분성·같은 페이지 확장 경로
+  Runtime -> Knowledge : 허가 자료·검색 문맥으로 근거 검색
+  Knowledge --> Runtime : 후보 근거와 출처 위치
+  Runtime -> Check : 필요한 판단 항목과 비교
+  alt 근거 충분
+    Check --> Runtime : 근거 충족
+    Runtime -> GM : 근거·공개 허용 결과만 전달
+    GM --> Runtime : 서술 제안
+    Runtime -> PlayerView : 공개 가능한 결과 표시
+  else 근거 부족
+    Check --> Runtime : 부족한 항목
+    Runtime -> Knowledge : 같은 페이지 근거 확장 후 한 번 재조회
+    Knowledge --> Runtime : 추가 근거 또는 미발견
+    alt 추가 근거 충족
+      Runtime -> GM : 확장 근거 전달
+      GM --> Runtime : 서술 제안
+      Runtime -> PlayerView : 공개 가능한 결과 표시
+    else 여전히 미발견
+      Runtime -> PlayerView : 추측하지 않고 부족 사유 표시
+    end
+  end
+end
+@enduml

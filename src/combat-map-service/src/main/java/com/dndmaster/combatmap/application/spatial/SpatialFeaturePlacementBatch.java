@@ -15,15 +15,31 @@ import java.util.UUID;
  * before constructing this batch.
  */
 public record SpatialFeaturePlacementBatch(String scenarioPackageVersion, boolean blocked,
-        List<Placement> placements, List<String> warnings, List<String> failures) {
+        List<Placement> placements, List<EnemyPlacement> enemies, List<String> warnings, List<String> failures) {
+    public SpatialFeaturePlacementBatch(String scenarioPackageVersion, boolean blocked,
+            List<Placement> placements, List<String> warnings, List<String> failures) {
+        this(scenarioPackageVersion, blocked, placements, List.of(), warnings, failures);
+    }
     public SpatialFeaturePlacementBatch {
         scenarioPackageVersion = required(scenarioPackageVersion, "scenario package version");
         placements = List.copyOf(Objects.requireNonNull(placements, "placements must not be null"));
+        enemies = List.copyOf(Objects.requireNonNull(enemies, "enemy placements must not be null"));
         warnings = List.copyOf(Objects.requireNonNull(warnings, "warnings must not be null"));
         failures = List.copyOf(Objects.requireNonNull(failures, "failures must not be null"));
-        if (blocked && !placements.isEmpty()) {
+        if (blocked && (!placements.isEmpty() || !enemies.isEmpty())) {
             throw new IllegalArgumentException("blocked preparation cannot contain placements");
         }
+    }
+
+    public record EnemyPlacement(String scenarioId, String enemyKey, List<Position> positions) {
+        public EnemyPlacement {
+            scenarioId = required(scenarioId, "scenario id"); enemyKey = required(enemyKey, "enemy key");
+            positions = List.copyOf(Objects.requireNonNull(positions));
+            if (positions.isEmpty()) throw new IllegalArgumentException("enemy positions must not be empty");
+        }
+    }
+    public record Position(double x, double y) {
+        public Position { if (!Double.isFinite(x) || !Double.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) throw new IllegalArgumentException("enemy position must be normalized"); }
     }
 
     public record Placement(UUID featureId, SpatialFeatureType type, boolean required,

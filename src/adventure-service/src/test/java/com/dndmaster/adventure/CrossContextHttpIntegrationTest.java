@@ -48,6 +48,46 @@ class CrossContextHttpIntegrationTest {
     @AfterEach
     void stopServer() { if (server != null) server.stop(); }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = { true, false })
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    void 이동_미리보기는_응답의_지도_식별자가_요청과_같을_때만_수락한다(boolean sameMap,
+            org.springframework.boot.test.system.CapturedOutput output) {
+        server = new WireMockServer(0);
+        server.start();
+        UUID mapId = UUID.randomUUID();
+        UUID responseMapId = sameMap ? mapId : UUID.randomUUID();
+        server.stubFor(post(urlEqualTo("/internal/v1/combat-maps/" + mapId + "/movement-previews"))
+                .willReturn(aResponse().withStatus(200).withBody("""
+                        {"mapId":"%s","orderedPositions":[{"x":11,"y":18},{"x":11,"y":17}],
+                         "distance":5,"baseMapVersion":8,"fingerprint":"path"}
+                        """.formatted(responseMapId))));
+        var gateway = new CrossContextHttpCombatGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2));
+        var command = new com.dndmaster.adventure.application.combat.CombatMapPreviewCommand(mapId,
+                UUID.randomUUID(), UUID.randomUUID(), new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(11, 17),
+                java.util.List.of(), "DND_5E_2014", 8);
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        try {
+            System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+            if (sameMap) {
+                var preview = gateway.preview(command);
+                assertEquals(mapId, preview.mapId());
+                assertEquals(5, preview.distance());
+                assertEquals(8, preview.baseMapVersion());
+                org.assertj.core.api.Assertions.assertThat(output).contains("outcome=accepted", "pathCells=2 distance=5 baseMapVersion=8");
+            } else {
+                var error = assertThrows(CrossContextCallException.class, () -> gateway.preview(command));
+                assertEquals("combat map movement preview map id mismatch", error.getMessage());
+                org.assertj.core.api.Assertions.assertThat(output).contains("expectedMapId=" + mapId,
+                        "actualMapId=" + responseMapId, "failure=MAP_ID_MISMATCH recoveryAction=reject_preview");
+            }
+        } finally {
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
+        }
+    }
+
     @Test
     void preserves_spatial_map_conflict_code_for_safe_retry_and_diagnostics() {
         server = new WireMockServer(0);

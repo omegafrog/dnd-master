@@ -106,9 +106,13 @@ public class AiGameMasterController {
                 request.soloPlayerId(), request.scenarioPackageVersion(), request.attempt(), request.previousFailureReasons(), request.gridWidth(),
                 request.gridHeight(), request.obstacles(), request.requirements().stream()
                         .map(item -> new SpatialFeaturePlacementModelPort.Requirement(item.featureId(), item.type(), item.required(),
-                                item.evidenceReferences(), item.authoritativeCells())).toList()));
+                                item.evidenceReferences(), item.authoritativeCells())).toList(), request.encounters().stream()
+                        .map(item -> new SpatialFeaturePlacementModelPort.EncounterRequirement(item.scenarioId(), item.enemyKey(),
+                                item.displayName(), item.count(), item.sourceReferences(), item.sourceExcerpts())).toList(),
+                request.mapLayoutContext(), request.imageDataUri()));
         return new SpatialFeaturePlacementResponse(output.candidates().stream()
-                .map(item -> new Candidate(item.featureId(), item.type(), item.cells(), item.required(), item.evidenceReference())).toList());
+                .map(item -> new Candidate(item.featureId(), item.type(), item.cells(), item.required(), item.evidenceReference())).toList(),
+                output.enemies());
     }
 
     @PostMapping("/internal/v1/gm/agent-actions")
@@ -141,12 +145,28 @@ public class AiGameMasterController {
     public record SpatialFeaturePlacementRequest(
             UUID soloPlayerId, @com.fasterxml.jackson.annotation.JsonProperty("story" + "PlanReference") String scenarioPackageVersion, int attempt,
             List<String> previousFailureReasons, int gridWidth, int gridHeight, List<String> obstacles,
-            List<Requirement> requirements) {
+            List<Requirement> requirements, List<EncounterRequirement> encounters,
+            String mapLayoutContext, String imageDataUri) {
+        public SpatialFeaturePlacementRequest(UUID soloPlayerId, String scenarioPackageVersion, int attempt,
+                List<String> previousFailureReasons, int gridWidth, int gridHeight, List<String> obstacles,
+                List<Requirement> requirements) {
+            this(soloPlayerId, scenarioPackageVersion, attempt, previousFailureReasons, gridWidth, gridHeight, obstacles, requirements, List.of(), "", "");
+        }
+        public SpatialFeaturePlacementRequest(UUID soloPlayerId, String scenarioPackageVersion, int attempt,
+                List<String> previousFailureReasons, int gridWidth, int gridHeight, List<String> obstacles,
+                List<Requirement> requirements, List<EncounterRequirement> encounters) {
+            this(soloPlayerId, scenarioPackageVersion, attempt, previousFailureReasons, gridWidth, gridHeight,
+                    obstacles, requirements, encounters, "", "");
+        }
         public record Requirement(UUID featureId, String type, boolean required, List<String> evidenceReferences,
                 List<String> authoritativeCells) {}
+        public record EncounterRequirement(String scenarioId, String enemyKey, String displayName, int count,
+                List<String> sourceReferences, List<String> sourceExcerpts) {}
     }
 
-    public record SpatialFeaturePlacementResponse(List<Candidate> candidates) {}
+    public record SpatialFeaturePlacementResponse(List<Candidate> candidates, List<SpatialFeaturePlacementModelPort.EnemyCandidate> enemies) {
+        public SpatialFeaturePlacementResponse(List<Candidate> candidates) { this(candidates, List.of()); }
+    }
     public record Candidate(UUID featureId, String type, List<String> cells, boolean required, String evidenceReference) {}
 
     public record JudgmentRequest(UUID soloPlayerId, String action, String context, String ruleSetId) {}

@@ -10,11 +10,13 @@ import com.dndmaster.adventure.domain.scenario.SituationProvenance;
 import com.dndmaster.adventure.domain.scenario.RequiredSituation;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
+import com.dndmaster.adventure.domain.adventure.StoryLength;
 
-/** Prepares the opening stage before runtime start; later stages are prepared when reached. */
+/** Prepares the complete initial situation set before runtime start. */
 public final class StageArtifactPreparationApplicationService implements StageArtifactPreparationPort {
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(StageArtifactPreparationApplicationService.class);
     private final StageArtifactRepository artifacts;
@@ -31,23 +33,36 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         this.detailedGeneration = Objects.requireNonNull(detailedGeneration);
     }
 
+    @Override
     public Result prepare(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId) {
+        return prepare(adventureId, sessionId, scenarioPackageId, StoryLength.NORMAL);
+    }
+
+    @Override
+    public Result prepare(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId, StoryLength storyLength) {
         Objects.requireNonNull(adventureId, "adventure id must not be null");
         Objects.requireNonNull(sessionId, "session id must not be null");
         Objects.requireNonNull(scenarioPackageId, "scenario package id must not be null");
+        Objects.requireNonNull(storyLength, "story length must not be null");
         long startedAt = System.nanoTime();
-        devLog("dev_initial_situation_prepare stage=start adventureId={} sessionId={} packageId={} strategy=opening_stage_only",
-                adventureId.value(), sessionId.value(), scenarioPackageId);
+        int expectedDetailedStageCount = 0;
+        int actualDetailedStageCount = 0;
+        devLog("dev_initial_situation_prepare stage=start adventureId={} sessionId={} packageId={} storyLength={} strategy=prepare_all_stages",
+                adventureId.value(), sessionId.value(), scenarioPackageId, storyLength);
         try {
         StageBackbone persistedBackbone = artifacts.findBackbone(adventureId, scenarioPackageId, 1).orElse(null);
         if (persistedBackbone != null) {
+            expectedDetailedStageCount = persistedBackbone.stages().size();
             requirePackage(persistedBackbone.scenarioPackageId(), scenarioPackageId);
-            StageBackboneEntry openingEntry = persistedBackbone.stages().getFirst();
-            List<DetailedStage> persistedStages = List.of(artifacts.findDetailedStage(adventureId, scenarioPackageId,
-                    openingEntry.stageId(), 1, 1).orElseThrow(() -> new IllegalStateException("opening situation set is incomplete")));
-            persistedStages.forEach(stage -> {
+            List<DetailedStage> persistedStages = persistedBackbone.stages().stream().map(entry -> artifacts
+                    .findDetailedStage(adventureId, scenarioPackageId, entry.stageId(), persistedBackbone.revision(), 1)
+                    .orElseThrow(() -> new IllegalStateException("initial situation set is incomplete"))).toList();
+            actualDetailedStageCount = persistedStages.size();
+            for (int index = 0; index < persistedStages.size(); index++) {
+                DetailedStage stage = persistedStages.get(index);
+                StageBackboneEntry entry = persistedBackbone.stages().get(index);
                 requirePackage(stage.scenarioPackageId(), scenarioPackageId);
-                if (!openingEntry.stageId().equals(stage.stageId())
+                if (!entry.stageId().equals(stage.stageId())
                         || stage.backboneRevision() != persistedBackbone.revision()) {
                     throw new IllegalStateException("saved stage does not match saved backbone");
                 }
@@ -57,18 +72,25 @@ public final class StageArtifactPreparationApplicationService implements StageAr
                         throw new IllegalStateException("saved situation has invalid provenance");
                     }
                 });
-            });
+            }
             java.util.Set<UUID> savedMapIds = persistedStages.stream().flatMap(stage -> stage.situations().stream())
                     .map(SituationDefinition::mapDefinitionId).filter(Objects::nonNull)
                     .collect(java.util.stream.Collectors.toSet());
-            validatePreparedStage(persistedStages.getFirst(), persistedBackbone.sourceRefs(), !persistedBackbone.sourceRefs().isEmpty(), savedMapIds, openingEntry,
-                    persistedBackbone.requiredSituations().stream()
-                            .filter(item -> openingEntry.requiredSituationIds().contains(item.situationId())).toList());
+            for (int index = 0; index < persistedStages.size(); index++) {
+                StageBackboneEntry entry = persistedBackbone.stages().get(index);
+                List<RequiredSituation> assigned = persistedBackbone.requiredSituations().stream()
+                        .filter(item -> entry.requiredSituationIds().contains(item.situationId())).toList();
+                Set<String> knownRequiredIds = persistedBackbone.stages().stream()
+                        .flatMap(item -> item.requiredSituationIds().stream()).collect(java.util.stream.Collectors.toSet());
+                validatePreparedStage(persistedStages.get(index), persistedBackbone.sourceRefs(),
+                        !persistedBackbone.sourceRefs().isEmpty(), savedMapIds, entry, assigned, index == 0, knownRequiredIds);
+            }
+            validateInitialSituationSet(persistedStages, savedMapIds, persistedBackbone.stages(), persistedBackbone.requiredSituations());
             DetailedStage firstStage = persistedStages.getFirst();
             SituationDefinition opening = firstStage.situations().stream().filter(SituationDefinition::opening).findFirst()
                     .orElseThrow(() -> new IllegalStateException("opening situation is required"));
-            devLog("dev_initial_situation_prepare stage=complete outcome=reused adventureId={} packageId={} expectedDetailedStageCount=1 actualDetailedStageCount={} selectedStageId={} selectedSituationId={} elapsedMs={}",
-                    adventureId.value(), scenarioPackageId, persistedStages.size(), firstStage.stageId(), opening.situationId(),
+            devLog("dev_initial_situation_prepare stage=complete outcome=reused adventureId={} packageId={} expectedDetailedStageCount={} actualDetailedStageCount={} selectedStageId={} selectedSituationId={} elapsedMs={}",
+                    adventureId.value(), scenarioPackageId, persistedBackbone.stages().size(), persistedStages.size(), firstStage.stageId(), opening.situationId(),
                     java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
             return new Result(persistedBackbone, persistedStages, firstStage, opening);
         }
@@ -89,19 +111,27 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         validateRequiredSourceRefs(generated.requiredSituations(), evidence);
         validateRequiredSituationStageAssignments(generated.stages(), generated.requiredSituations());
         StageBackbone backbone = generated;
+        expectedDetailedStageCount = backbone.stages().size();
         var first = backbone.stages().getFirst();
-        devLog("dev_initial_situation_prepare stage=opening_stage_generation_started adventureId={} packageId={} totalStageCount={} selectedStageId={} expectedDetailedStageCount=1",
-                adventureId.value(), scenarioPackageId, backbone.stages().size(), first.stageId());
-        List<StageDetailedGenerationPort.Request> detailedRequests = List.of(first).stream().map(stage -> {
+        devLog("dev_initial_situation_prepare stage=detailed_generation_started adventureId={} packageId={} totalStageCount={} expectedDetailedStageCount={}",
+                adventureId.value(), scenarioPackageId, backbone.stages().size(), backbone.stages().size());
+        List<StageDetailedGenerationPort.Request> detailedRequests = java.util.stream.IntStream.range(0, backbone.stages().size())
+                .mapToObj(index -> backbone.stages().get(index)).map(stage -> {
             List<RequiredSituation> assigned = backbone.requiredSituations().stream()
                     .filter(item -> stage.requiredSituationIds().contains(item.situationId())).toList();
+            List<String> prior = backbone.stages().stream().filter(previous -> previous.order() < stage.order())
+                    .flatMap(previous -> previous.requiredSituationIds().stream()).toList();
             devLog("dev_initial_situation_prepare stage=detailed_request adventureId={} sessionId={} packageId={} stageId={} requiredSituations={} alreadyAssignedRequiredSituationIds={} openingRequired={}",
                     adventureId.value(), sessionId.value(), scenarioPackageId, stage.stageId(),
-                    requiredSituationAudit(assigned), List.of(), stage.stageId().equals(first.stageId()));
+                    requiredSituationAudit(assigned), prior, stage.stageId().equals(first.stageId()));
             return new StageDetailedGenerationPort.Request(adventureId, sessionId, scenarioPackageId, stage.stageId(),
-                    backbone.revision(), evidence, assigned, stage.stageId().equals(first.stageId()), List.of());
+                    backbone.revision(), evidence, assigned, stage.stageId().equals(first.stageId()), prior);
         }).toList();
-        List<DetailedStage> effectiveStages = List.of(detailedGeneration.generate(detailedRequests.getFirst()));
+        List<DetailedStage> effectiveStages = detailedGeneration.generateAll(detailedRequests);
+        actualDetailedStageCount = effectiveStages.size();
+        if (effectiveStages.size() != backbone.stages().size()) {
+            throw new IllegalStateException("generated detailed stages do not match backbone stages");
+        }
         for (int index = 0; index < effectiveStages.size(); index++) {
             DetailedStage detailed = effectiveStages.get(index);
             StageBackboneEntry stage = backbone.stages().get(index);
@@ -111,22 +141,27 @@ public final class StageArtifactPreparationApplicationService implements StageAr
             if (!detailed.stageId().equals(stage.stageId()) || detailed.backboneRevision() != backbone.revision()) {
                 throw new IllegalStateException("detailed stage does not match backbone stage");
             }
-            validateDetailedStage(detailed, evidence, scenarioBacked, providedMapIds);
+            List<RequiredSituation> assigned = backbone.requiredSituations().stream()
+                    .filter(item -> stage.requiredSituationIds().contains(item.situationId())).toList();
+            Set<String> knownRequiredIds = backbone.stages().stream()
+                    .flatMap(item -> item.requiredSituationIds().stream()).collect(java.util.stream.Collectors.toSet());
+            validatePreparedStage(detailed, evidence, scenarioBacked, providedMapIds, stage, assigned,
+                    index == 0, knownRequiredIds);
         }
-        validatePreparedStage(effectiveStages.getFirst(), evidence, scenarioBacked, providedMapIds, first,
-                backbone.requiredSituations().stream().filter(item -> first.requiredSituationIds().contains(item.situationId())).toList());
+        validateInitialSituationSet(effectiveStages, providedMapIds, backbone.stages(), backbone.requiredSituations());
         DetailedStage effectiveStage = effectiveStages.stream().filter(stage -> stage.stageId().equals(first.stageId()))
                 .findFirst().orElseThrow();
         SituationDefinition opening = effectiveStage.situations().stream().filter(SituationDefinition::opening).findFirst()
                 .orElseThrow(() -> new IllegalStateException("opening situation is required"));
         artifacts.saveInitialArtifacts(adventureId, backbone, effectiveStages);
-        devLog("dev_initial_situation_prepare stage=complete outcome=generated adventureId={} packageId={} expectedDetailedStageCount=1 actualDetailedStageCount={} selectedStageId={} selectedSituationId={} elapsedMs={}",
-                adventureId.value(), scenarioPackageId, effectiveStages.size(), effectiveStage.stageId(), opening.situationId(),
+        devLog("dev_initial_situation_prepare stage=complete outcome=generated adventureId={} packageId={} expectedDetailedStageCount={} actualDetailedStageCount={} selectedStageId={} selectedSituationId={} elapsedMs={}",
+                adventureId.value(), scenarioPackageId, backbone.stages().size(), effectiveStages.size(), effectiveStage.stageId(), opening.situationId(),
                 java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
         return new Result(backbone, effectiveStages, effectiveStage, opening);
         } catch (RuntimeException | Error failure) {
-            devLog("dev_initial_situation_prepare stage=failed adventureId={} sessionId={} packageId={} expectedDetailedStageCount=1 actualDetailedStageCount=unknown failureClass={} elapsedMs={} recoveryAction=abort_adventure_start",
-                    adventureId.value(), sessionId.value(), scenarioPackageId, failure.getClass().getSimpleName(),
+            devLog("dev_initial_situation_prepare stage=failed adventureId={} sessionId={} packageId={} expectedDetailedStageCount={} actualDetailedStageCount={} failureClass={} elapsedMs={} recoveryAction=abort_adventure_start",
+                    adventureId.value(), sessionId.value(), scenarioPackageId, expectedDetailedStageCount,
+                    actualDetailedStageCount, failure.getClass().getSimpleName(),
                     java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
             throw failure;
         }
@@ -134,28 +169,26 @@ public final class StageArtifactPreparationApplicationService implements StageAr
 
     private static void validatePreparedStage(DetailedStage stage, List<ScenarioSourceReference> evidence,
             boolean scenarioBacked, java.util.Set<UUID> providedMapIds, StageBackboneEntry entry,
-            List<RequiredSituation> required) {
+            List<RequiredSituation> required, boolean openingRequired, Set<String> priorSituationIds) {
         validateDetailedStage(stage, evidence, scenarioBacked, providedMapIds);
-        validateSituationPrerequisites(stage, java.util.Set.of());
+        validateSituationPrerequisites(stage, priorSituationIds);
         if (!stage.stageId().equals(entry.stageId())) throw new IllegalStateException("prepared stage is not the requested stage");
-        if (stage.situations().stream().noneMatch(SituationDefinition::opening)) {
-            throw new IllegalStateException("opening situation is required");
-        }
-        long candidates = stage.situations().stream().filter(situation -> !situation.opening() && !situation.required()).count();
-        if (candidates < 2) throw new IllegalStateException("opening situation set must include multiple intermediate candidates");
+        boolean hasOpening = stage.situations().stream().anyMatch(SituationDefinition::opening);
+        if (hasOpening != openingRequired) throw new IllegalStateException("opening situation does not match stage position");
         java.util.Set<String> expected = required.stream().map(RequiredSituation::situationId).collect(java.util.stream.Collectors.toSet());
-        java.util.Set<String> actual = stage.situations().stream().filter(SituationDefinition::required)
+        java.util.Set<String> actual = stage.situations().stream()
+                .filter(situation -> situation.required() && situation.provenance() == SituationProvenance.SOURCE_EXTRACTED)
                 .map(SituationDefinition::situationId).collect(java.util.stream.Collectors.toSet());
-        if (actual.isEmpty()) throw new IllegalStateException("opening situation set must include a required situation");
         if (!expected.isEmpty() && !actual.equals(expected)) {
-            throw new IllegalStateException("opening situation set does not preserve its assigned required situations");
+            throw new IllegalStateException("situation set does not preserve its assigned required situations");
         }
         for (RequiredSituation item : required) {
             SituationDefinition actualSituation = stage.situations().stream()
                     .filter(situation -> situation.situationId().equals(item.situationId())).findFirst().orElseThrow();
             if (actualSituation.provenance() != SituationProvenance.SOURCE_EXTRACTED
                     || !java.util.Set.copyOf(actualSituation.sourceRefs()).equals(java.util.Set.copyOf(item.sourceRefs()))
-                    || !actualSituation.prerequisiteSituationIds().equals(item.prerequisiteSituationIds())) {
+                    || !actualSituation.prerequisiteSituationIds().equals(item.prerequisiteSituationIds())
+                    || actualSituation.isEnding() != item.isEnding()) {
                 throw new IllegalStateException("opening situation set does not preserve a reviewed situation");
             }
         }
@@ -182,22 +215,26 @@ public final class StageArtifactPreparationApplicationService implements StageAr
                 .filter(item -> nextEntry.requiredSituationIds().contains(item.situationId())).toList();
         List<String> alreadyAssigned = backbone.stages().stream().filter(stage -> stage.order() < next.order())
                 .flatMap(stage -> stage.requiredSituationIds().stream()).toList();
-        DetailedStage generated = detailedGeneration.generate(new StageDetailedGenerationPort.Request(
-                adventureId, sessionId, scenarioPackageId, next.stageId(), backbone.revision(), evidence,
-                assigned, false, alreadyAssigned));
-        requirePackage(generated.scenarioPackageId(), scenarioPackageId);
-        if (!generated.stageId().equals(next.stageId()) || generated.backboneRevision() != backbone.revision()) {
-            throw new IllegalStateException("detailed stage does not match next backbone stage");
+        DetailedStage current = artifacts.findDetailedStage(adventureId, scenarioPackageId, next.stageId(), backbone.revision(), 1).orElse(null);
+        DetailedStage generated = current;
+        if (generated == null) {
+            generated = detailedGeneration.generate(new StageDetailedGenerationPort.Request(
+                    adventureId, sessionId, scenarioPackageId, next.stageId(), backbone.revision(), evidence,
+                    assigned, false, alreadyAssigned));
+            requirePackage(generated.scenarioPackageId(), scenarioPackageId);
+            if (!generated.stageId().equals(next.stageId()) || generated.backboneRevision() != backbone.revision()) {
+                throw new IllegalStateException("detailed stage does not match next backbone stage");
+            }
         }
-        DetailedStage current = artifacts.findDetailedStage(adventureId, scenarioPackageId, next.stageId(), backbone.revision(), generated.revision()).orElse(null);
-        DetailedStage effective = current == null ? generated : current;
+        DetailedStage effective = generated;
         validateDetailedStage(effective, evidence, scenarioBacked, evidenceLookup.providedMapIds(scenarioPackageId));
         java.util.Set<String> expectedRequired = assigned.stream().map(RequiredSituation::situationId).collect(java.util.stream.Collectors.toSet());
         java.util.Set<String> actualRequired = effective.situations().stream().filter(SituationDefinition::required)
                 .map(SituationDefinition::situationId).collect(java.util.stream.Collectors.toSet());
         if (!actualRequired.equals(expectedRequired)) throw new IllegalStateException("next stage does not preserve its assigned required situations");
-        java.util.Set<String> priorRequired = java.util.Set.copyOf(alreadyAssigned);
-        validateSituationPrerequisites(effective, priorRequired);
+        java.util.Set<String> knownRequiredIds = backbone.stages().stream()
+                .flatMap(item -> item.requiredSituationIds().stream()).collect(java.util.stream.Collectors.toSet());
+        validateSituationPrerequisites(effective, knownRequiredIds);
         if (current == null) artifacts.saveDetailedStage(adventureId, generated, generated.revision() - 1);
         return effective;
     }
@@ -213,7 +250,7 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         }
         java.util.Set<String> visiting = new java.util.HashSet<>();
         java.util.Set<String> visited = new java.util.HashSet<>();
-        for (String id : situations.keySet()) visit(id, situations, visiting, visited);
+        for (String id : situations.keySet()) visit(id, situations, priorSituationIds, visiting, visited);
     }
 
     private static void requirePackage(UUID actual, UUID expected) {
@@ -285,13 +322,13 @@ public final class StageArtifactPreparationApplicationService implements StageAr
                 .collect(java.util.stream.Collectors.toSet()))) {
             throw new IllegalStateException("backbone must assign every required situation to exactly one stage");
         }
-        for (RequiredSituation situation : required) {
-            int order = stageBySituation.get(situation.situationId());
-            for (String prerequisite : situation.prerequisiteSituationIds()) {
-                Integer prerequisiteOrder = stageBySituation.get(prerequisite);
-                if (prerequisiteOrder == null || prerequisiteOrder > order) {
-                    throw new IllegalStateException("required situation prerequisite is assigned to a later stage");
-                }
+        if (!required.isEmpty()) {
+            String rootId = required.stream().filter(item -> item.prerequisiteSituationIds().isEmpty())
+                    .map(RequiredSituation::situationId).findFirst().orElseThrow();
+            if (!stages.getFirst().requiredSituationIds().contains(rootId)) {
+                devLog("dev_initial_situation_graph_validation outcome=failed expectedOpeningSituationId={} actualOpeningStageRequiredIds={} failureKind=ROOT_NOT_IN_OPENING_STAGE nextAction=reject_preparation",
+                        rootId, stages.getFirst().requiredSituationIds());
+                throw new IllegalStateException("required situation graph root must be assigned to the opening stage");
             }
         }
     }
@@ -300,8 +337,6 @@ public final class StageArtifactPreparationApplicationService implements StageAr
             List<StageBackboneEntry> backboneStages, List<RequiredSituation> required) {
         java.util.Map<String, SituationDefinition> situations = new java.util.LinkedHashMap<>();
         java.util.Map<String, String> situationStages = new java.util.HashMap<>();
-        java.util.Map<String, Integer> stageOrders = new java.util.HashMap<>();
-        backboneStages.forEach(stage -> stageOrders.put(stage.stageId(), stage.order()));
         for (DetailedStage stage : stages) {
             for (SituationDefinition situation : stage.situations()) {
                 SituationDefinition previous = situations.putIfAbsent(situation.situationId(), situation);
@@ -318,20 +353,15 @@ public final class StageArtifactPreparationApplicationService implements StageAr
                 }
             }
         }
-        long intermediateCandidates = situations.values().stream()
-                .filter(situation -> !situation.opening() && !situation.required())
-                .count();
         if (situations.values().stream().noneMatch(SituationDefinition::required)) {
             throw new IllegalStateException("initial situation set must include a required situation");
-        }
-        if (intermediateCandidates < 2) {
-            throw new IllegalStateException("initial situation set must include multiple intermediate candidates");
         }
         for (RequiredSituation item : required) {
             SituationDefinition actual = situations.get(item.situationId());
             if (actual == null || !actual.required() || actual.provenance() != SituationProvenance.SOURCE_EXTRACTED
                     || !java.util.Set.copyOf(actual.sourceRefs()).equals(java.util.Set.copyOf(item.sourceRefs()))
-                    || !actual.prerequisiteSituationIds().equals(item.prerequisiteSituationIds())) {
+                    || !actual.prerequisiteSituationIds().equals(item.prerequisiteSituationIds())
+                    || actual.isEnding() != item.isEnding()) {
                 devLog("dev_initial_situation_prepare stage=required_validation outcome=failed requiredSituationId={} expectedSourceRefs={} expectedPrerequisiteIds={} actualSituation={} allActualSituationIds={}",
                         item.situationId(), sourceReferences(item.sourceRefs()), item.prerequisiteSituationIds(),
                         actual == null ? "MISSING" : situationAudit(List.of(actual)), situations.keySet());
@@ -352,30 +382,19 @@ public final class StageArtifactPreparationApplicationService implements StageAr
                 throw new IllegalStateException("situation prerequisite does not exist in the initial set");
             }
         }
-        for (RequiredSituation item : required) {
-            Integer dependentOrder = stageOrders.get(situationStages.get(item.situationId()));
-            for (String prerequisiteId : item.prerequisiteSituationIds()) {
-                Integer prerequisiteOrder = stageOrders.get(situationStages.get(prerequisiteId));
-                if (dependentOrder == null || prerequisiteOrder == null) {
-                    throw new IllegalStateException("required situation prerequisite has no initial stage");
-                }
-                if (prerequisiteOrder > dependentOrder) {
-                    throw new IllegalStateException("required situation prerequisite must be in the same or an earlier stage");
-                }
-            }
-        }
-        devLog("dev_initial_situation_prepare stage=required_validation outcome=passed requiredSituationIds={} situationCount={} intermediateCandidateCount={}",
-                required.stream().map(RequiredSituation::situationId).toList(), situations.size(), intermediateCandidates);
+        devLog("dev_initial_situation_prepare stage=required_validation outcome=passed expectedRequiredSituationCount={} actualRequiredSituationCount={} situationCount={} result=matched",
+                required.size(), situations.values().stream().filter(SituationDefinition::required).count(), situations.size());
         java.util.Set<String> visiting = new java.util.HashSet<>();
         java.util.Set<String> visited = new java.util.HashSet<>();
-        for (String id : situations.keySet()) visit(id, situations, visiting, visited);
+        for (String id : situations.keySet()) visit(id, situations, Set.of(), visiting, visited);
     }
 
     private static void visit(String id, java.util.Map<String, SituationDefinition> situations,
-            java.util.Set<String> visiting, java.util.Set<String> visited) {
-        if (visited.contains(id)) return;
+            java.util.Set<String> priorSituationIds, java.util.Set<String> visiting, java.util.Set<String> visited) {
+        if (priorSituationIds.contains(id) || visited.contains(id)) return;
         if (!visiting.add(id)) throw new IllegalStateException("situation prerequisites cannot contain a cycle");
-        situations.get(id).prerequisiteSituationIds().forEach(prerequisite -> visit(prerequisite, situations, visiting, visited));
+        situations.get(id).prerequisiteSituationIds().forEach(prerequisite ->
+                visit(prerequisite, situations, priorSituationIds, visiting, visited));
         visiting.remove(id);
         visited.add(id);
     }

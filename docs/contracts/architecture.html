@@ -1,0 +1,151 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>DDD 아키텍처</title><style>body{max-width:1200px;margin:2rem auto;font:16px system-ui;padding:1rem}svg{max-width:100%;height:auto}pre{white-space:pre-wrap;line-height:1.6}section:target{background:#fff5cc}a{color:#174eb6}</style><h1>DDD 아키텍처 · v41</h1><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentStyleType="text/css" height="433px" preserveAspectRatio="none" style="width:791px;height:433px;background:#FFFFFF;" version="1.1" viewBox="0 0 791 433" width="791px" zoomAndPan="magnify"><defs/><g><!--cluster adventure--><g id="cluster_adventure"><a href="#adventure-runtime" target="_top" title="../architecture.md#adventure-runtime" xlink:actuate="onRequest" href="#adventure-runtime" xlink:show="new" xlink:title="../architecture.md#adventure-runtime" xlink:type="simple"><rect fill="none" height="201" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:1.0;" width="211.94" x="7" y="7"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacing" textLength="69.2737" x="78.3331" y="21.9951">&#47784;&#54744; &#47088;&#53440;&#51076;</text></a></g><!--cluster scenario_prep--><g id="cluster_scenario_prep"><a href="#scenario-preparation" target="_top" title="../architecture.md#scenario-preparation" xlink:actuate="onRequest" href="#scenario-preparation" xlink:show="new" xlink:title="../architecture.md#scenario-preparation" xlink:type="simple"><rect fill="none" height="87" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:1.0;" width="163.94" x="31" y="50"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacing" textLength="82.1537" x="71.8932" y="64.9951">&#49884;&#45208;&#47532;&#50724; &#51456;&#48708;</text></a></g><!--cluster knowledge--><g id="cluster_knowledge"><a href="#document-knowledge" target="_top" title="../architecture.md#document-knowledge" xlink:actuate="onRequest" href="#document-knowledge" xlink:show="new" xlink:title="../architecture.md#document-knowledge" xlink:type="simple"><rect fill="none" height="87" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:1.0;" width="138.18" x="376.46" y="7"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacing" textLength="56.3938" x="417.3531" y="21.9951">&#47928;&#49436; &#51648;&#49885;</text></a></g><!--cluster characters--><g id="cluster_characters"><a href="#character-management" target="_top" title="../architecture.md#character-management" xlink:actuate="onRequest" href="#character-management" xlink:show="new" xlink:title="../architecture.md#character-management" xlink:type="simple"><rect fill="none" height="87" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:1.0;" width="151.06" x="370.02" y="118"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacing" textLength="69.2737" x="410.9131" y="132.9951">&#52880;&#47533;&#53552; &#44288;&#47532;</text></a></g><!--cluster map--><g id="cluster_map"><a href="#combat-map" target="_top" title="../architecture.md#combat-map" xlink:actuate="onRequest" href="#combat-map" xlink:show="new" xlink:title="../architecture.md#combat-map" xlink:type="simple"><rect fill="none" height="87" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:1.0;" width="138.18" x="376.46" y="229"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacing" textLength="56.3938" x="417.3531" y="243.9951">&#51204;&#53804; &#51648;&#46020;</text></a></g><!--cluster gm--><g id="cluster_gm"><a href="#ai-game-master" target="_top" title="../architecture.md#ai-game-master" xlink:actuate="onRequest" href="#ai-game-master" xlink:show="new" xlink:title="../architecture.md#ai-game-master" xlink:type="simple"><rect fill="none" height="87" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:1.0;" width="169.22" x="360.94" y="340"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacing" textLength="90.1917" x="400.4541" y="354.9951">AI &#44172;&#51076; &#47560;&#49828;&#53552;</text></a></g><!--cluster identity--><g id="cluster_identity"><a href="#identity-access" target="_top" title="../architecture.md#identity-access" xlink:actuate="onRequest" href="#identity-access" xlink:show="new" xlink:title="../architecture.md#identity-access" xlink:type="simple"><rect fill="none" height="87" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:1.0;" width="151.06" x="37.44" y="340"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacing" textLength="69.2737" x="78.3331" y="354.9951">&#49324;&#50857;&#51088; &#51064;&#51613;</text></a></g><!--cluster relay--><g id="cluster_relay"><a href="#agent-relay" target="_top" title="../architecture.md#agent-relay" xlink:actuate="onRequest" href="#agent-relay" xlink:show="new" xlink:title="../architecture.md#agent-relay" xlink:type="simple"><rect fill="none" height="87" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:1.0;" width="141" x="644.16" y="340"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacing" textLength="125.3168" x="652.0016" y="354.9951">&#49324;&#50857;&#51088; PC &#49892;&#54665; &#51473;&#44228;</text></a></g><!--entity adventure_unit--><g id="elem_adventure_unit"><rect fill="#F1F1F1" height="36.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="119.06" x="53.44" y="155.85"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="99.06" x="63.44" y="178.8451">&#47784;&#54744; &#47088;&#53440;&#51076; &#44221;&#44228;</text></g><!--entity scenario_prep_unit--><g id="elem_scenario_prep_unit"><rect fill="#F1F1F1" height="36.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="131.9399" x="47" y="84.85"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="111.9399" x="57" y="107.8451">&#49884;&#45208;&#47532;&#50724; &#51456;&#48708; &#52293;&#51076;</text></g><!--entity knowledge_unit--><g id="elem_knowledge_unit"><rect fill="#F1F1F1" height="36.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="106.1801" x="392.46" y="41.85"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="86.1801" x="402.46" y="64.8451">&#47928;&#49436; &#51648;&#49885; &#44221;&#44228;</text></g><!--entity characters_unit--><g id="elem_characters_unit"><rect fill="#F1F1F1" height="36.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="119.06" x="386.02" y="152.85"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="99.06" x="396.02" y="175.8451">&#52880;&#47533;&#53552; &#44288;&#47532; &#44221;&#44228;</text></g><!--entity map_unit--><g id="elem_map_unit"><rect fill="#F1F1F1" height="36.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="106.1801" x="392.46" y="263.85"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="86.1801" x="402.46" y="286.8451">&#51204;&#53804; &#51648;&#46020; &#44221;&#44228;</text></g><!--entity gm_unit--><g id="elem_gm_unit"><rect fill="#F1F1F1" height="36.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="137.2162" x="376.94" y="374.85"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="117.2162" x="386.94" y="397.8451">AI &#44172;&#51076; &#47560;&#49828;&#53552; &#44221;&#44228;</text></g><!--entity identity_unit--><g id="elem_identity_unit"><rect fill="#F1F1F1" height="36.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="119.06" x="53.44" y="374.85"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="99.06" x="63.44" y="397.8451">&#49324;&#50857;&#51088; &#51064;&#51613; &#44221;&#44228;</text></g><!--entity relay_unit--><g id="elem_relay_unit"><rect fill="#F1F1F1" height="36.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="106.1801" x="661.07" y="374.85"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="86.1801" x="671.07" y="397.8451">&#49892;&#54665; &#51473;&#44228; &#44221;&#44228;</text></g><!--link adventure_unit to knowledge_unit--><g id="link_adventure_unit_knowledge_unit"><path d="M172.52,162.02 C219.9,151.44 287.88,134.24 344.94,112 C368.75,102.72 389.0454,92.2702 408.2954,81.4002 " fill="none" id="adventure_unit-to-knowledge_unit" style="stroke:#181818;stroke-width:1.0;"/><polygon fill="#181818" points="413.52,78.45,403.7163,79.3922,409.1662,80.9085,407.6499,86.3584,413.52,78.45" style="stroke:#181818;stroke-width:1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="68.0647" x="255.94" y="108.0669">&#47344; &#44540;&#44144; &#51312;&#54924;</text></g><!--link scenario_prep_unit to knowledge_unit--><g id="link_scenario_prep_unit_knowledge_unit"><path d="M179.28,94.5 C241.66,86.39 328.5101,75.0935 386.2001,67.5935 " fill="none" id="scenario_prep_unit-to-knowledge_unit" style="stroke:#181818;stroke-width:1.0;"/><polygon fill="#181818" points="392.15,66.82,382.7094,64.0137,387.1917,67.4646,383.7408,71.9469,392.15,66.82" style="stroke:#181818;stroke-width:1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="108.077" x="235.94" y="69.9769">&#47928;&#49436;&#183;&#52628;&#52636; &#44540;&#44144; &#52280;&#51312;</text></g><!--link adventure_unit to characters_unit--><g id="link_adventure_unit_characters_unit"><path d="M172.84,176.16 C219.52,177.54 286.42,178.76 344.94,177 C358.1,176.6 366.24,176.2555 379.59,175.4855 " fill="none" id="adventure_unit-to-characters_unit" style="stroke:#181818;stroke-width:1.0;"/><polygon fill="#181818" points="385.58,175.14,376.3646,171.6649,380.5883,175.4279,376.8253,179.6516,385.58,175.14" style="stroke:#181818;stroke-width:1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="91.9847" x="244.44" y="173.0669">&#52880;&#47533;&#53552; &#49345;&#53468; &#47749;&#47161;</text></g><!--link adventure_unit to map_unit--><g id="link_adventure_unit_map_unit"><path d="M170.8,192.57 C232.92,212.86 325.9266,243.247 386.2966,262.967 " fill="none" id="adventure_unit-to-map_unit" style="stroke:#181818;stroke-width:1.0;"/><polygon fill="#181818" points="392,264.83,384.6869,258.2332,387.2471,263.2775,382.2028,265.8377,392,264.83" style="stroke:#181818;stroke-width:1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="80.0247" x="249.94" y="211.2169">&#51648;&#46020;&#183;&#51060;&#46041; &#47749;&#47161;</text></g><!--link adventure_unit to gm_unit--><g id="link_adventure_unit_gm_unit"><path d="M134.6,192.4 C158.08,212.92 197.97,246.58 234.94,272 C293.46,312.23 360.7517,349.2732 403.3417,371.7132 " fill="none" id="adventure_unit-to-gm_unit" style="stroke:#181818;stroke-width:1.0;"/><polygon fill="#181818" points="408.65,374.51,402.5522,366.7759,404.2264,372.1793,398.823,373.8536,408.65,374.51" style="stroke:#181818;stroke-width:1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="108.077" x="235.94" y="268.0669">&#51077;&#47141; &#51204;&#45804;&#183;&#51228;&#50504; &#49688;&#49888;</text></g><!--link gm_unit to relay_unit--><g id="link_gm_unit_relay_unit"><path d="M514.51,393 C560.03,393 613.04,393 654.88,393 " fill="none" id="gm_unit-to-relay_unit" style="stroke:#181818;stroke-width:1.0;"/><polygon fill="#181818" points="660.88,393,651.88,389,655.88,393,651.88,397,660.88,393" style="stroke:#181818;stroke-width:1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="80.0247" x="547.16" y="389.0669">&#50896;&#44201; &#49892;&#54665; &#50836;&#52397;</text></g><!--link identity_unit to gm_unit--><g id="link_identity_unit_gm_unit"><path d="M172.69,393 C229.84,393 310.61,393 370.68,393 " fill="none" id="identity_unit-to-gm_unit" style="stroke:#181818;stroke-width:1.0;"/><polygon fill="#181818" points="376.68,393,367.68,389,371.68,393,367.68,397,376.68,393" style="stroke:#181818;stroke-width:1.0;"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="91.9847" x="244.44" y="389.0669">&#49324;&#50857;&#51088; &#50672;&#44208; &#44428;&#54620;</text></g><!--SRC=[VLDVRz9G57_lfpYPpyLt7qoCJxwP-BWioxMzAmsq9MrnMSmI72n18HaccqCiY16PMrZIuSAOqHS_Jk_jT_2qq5BQijTxV__EkRzRfdiss0QOgbAqGLPDAjcgeGjMITKhn2GQL8XK8WfzPH-KAGJNH5VAD06mYaGszbLTWJrIjgYm9C0Mk_hfdtU1VNNzUeqF6bj0B23o6whRLPF2zdQXy9YOKb6rKHLF2fhyABuMpQfkgnhTsO6t0goCixBWJVzwlrBgkrLTjP4NX-4jXnrrsNZ2koFWengxNp0iYUh4L8tTYaah-PaYY1X0SEHWGSjOQy5oB83V74UJhpb5-Gw5myJ29dFUS81Vr7Yh7t9Akh5VfhAoOLko8LKr75YCSJdhIeecTnLp5baIEVZl3XjV-mqNlDiQpXF2fIAEBjdKjFApnFUYHdIK2N9bqwIbau5M3jb4muRVd0H3i9C5M2CRNaiojDV4nX2L7FUaJD8QqHdFPoyGqGuAnYwQ_CC8GuTOHTjGNLLKY4RHsS8PikOvUia8YfQT-cZ2UvTyq07Ud_FneXAgZ8jLxOFy4D6jI2I9MbRE2bAQoGWH-O4WBvy3RutyJ- -nu1yZdadBP4CUf6CzGq1EbgHICaY8ZrAi_saGnQUfwi8JODznbtT_l1iN-3VNxxM5x6_Rm0o_nxyxFZlbCoSMSUUeasUTAYagh2hDw-_ykWFiwfWDx_F8KSq2LjX1zEtVifFF3t2MlGWe0yJy02mnQqsGENJuMHDuiyjRGo621PJL-WBMbuutlOnVhNVAfzV2sakdRLODENUzAIvsrlRFdFy0]--></g></svg>
+<!-- harness-source-sha256: ef241bdc8bf4db127a1dcea8e02cc8ecc518b002f4c05a6ff14b67bfa3abf712 -->
+<section id="adventure-runtime"><h2>모험 런타임</h2><pre>수정일: 2026-10-21
+
+### 설명
+시나리오 준비, 모험 세션, 상황 선택, 전투 진행과 턴 확정을 소유하는 `adventure-service` 내부 경계다. 기능: <a href="product.md#scenario-runtime">시츄에이션 기반 모험 진행</a>, <a href="product.md#combat-loop">전투 진행</a>, <a href="product.md#gm-context">GM 입력</a>.
+
+### 커뮤니케이션
+- AI 게임 마스터에 입력 문맥과 허용된 실행 요청을 전달하고 제안을 받는다. 제안은 상태 적용 전에 검증한다.
+- 문서 지식에 허가된 룰북·시나리오 근거를 조회한다.
+- 캐릭터 관리와 전투 지도에 상태 변경 명령을 보내며 각 소유 서비스의 중복 방지·명령 이력에 맞춰 재시도한다.
+- 서비스 간 정합성은 분산 트랜잭션이 아니라 식별 가능한 요청과 소유자 측 이력·복구로 유지한다. 근거: `CONTEXT-MAP.md` 모험 런타임 소유권 계약.
+
+### 내부 구성요소
+- 모험 세션과 전투 조우 모델은 이 경계의 정본이다. 실제 예시는 <a href="../../src/adventure-service/src/main/java/com/dndmaster/adventure/domain/adventure/AdventureSession.java">AdventureSession</a>, <a href="../../src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatEncounter.java">CombatEncounter</a>.
+- <a href="#scenario-preparation">시나리오 준비</a>와 런타임 턴 조립은 같은 배포 모듈 내부의 별도 책임이다. 외부 서비스로 분리하지 않는다.
+- 능력 상세 정의는 현재 모험 범위에 저장되고, 캐릭터별 능력 식별자와 연결된다.
+- 모험 시작 때 선택한 룰북·판본·소유자에 맞는 적용 규칙 모음을 모험에 저장한다. 복구 때는 소유자와 예상 규칙 모음 식별자를 확인하고 기존 저장 자료를 재사용한다. 근거: <a href="../../src/adventure-service/src/main/java/com/dndmaster/adventure/application/session/AdventureSessionApplicationService.java">모험 세션 저장·복구</a>.
+- 상황 진행 계약: 준비 API는 허용값 짧게/보통/길게 중 하나의 storyLength를 받아 세션에 저장·복원하고 초기 StoryRuntimeState에 전달한다. 필수 상황은 원문에서 명시한 isEnding 표시와 선행 그래프를 보존한다. RuntimeTurnApplicationService.situationSelectionContext는 활성 선택 상황 종료를 반영한 허용량이 남을 때 자연스럽게 이어지는 같은 단계 선택 상황과, 모든 명시적 선행 노드가 USED이고 아직 UNUSED인 필수 상황만 전체 단계에서 후보로 담는다. 입력은 `RuntimeGmInputBudget`의 실제 구역 배분을 따른다: 전체 80% 한도 안에서 고정 지침·잠긴 자료 최대 40%, 장기 기록 최대 10%, 압축 대화 최대 15%, 최근 대화 최대 20%, 최신 문맥은 실제 잔여량이다. 전체 단계의 선택 가능 후보 전체를 턴 문맥 JSON으로 직렬화한 크기는 8,192 UTF-8 byte 이내이며 후보 개수 자체에는 고정 상한을 두지 않는다. 후보 설명을 자르거나 조용히 생략하지 않는다. 전환 응답은 적격 준비 후보 선택만 허용하며 새 장면 전환 분기는 거부한다. 현재 활성 선택 상황의 종료·`USED` 전환과 사용량 증가는 원자적 턴 확정에서 한 번만 반영한다. 명시적 isEnding 필수 상황 하나가 USED로 확정되면 완료하며 다른 ending은 방문하지 않아도 된다. 필수 후보는 이미 USED인 경우 재선택할 수 없고, 합류 노드는 모든 명시적 선행 상황이 USED여야 한다. 선택한 길이·허용량·사용량은 StoryRuntimeState에, 증가 대기 상태는 PendingRuntimeState에 저장해 기존 원자적 확정과 복원 규칙을 따른다. `RuntimeGmPromptComposer`와 기존 조회·진행 경계를 사용하며 비공개 준비 내용을 플레이어에게 그대로 노출하지 않는다. 구현 완료로 표시하지 않는다.
+- 적 시트 준비는 기존 `enemy-sheet-preparation-response.json`의 `전투수치` 계약을 사용한다. `HttpTypedRuntimeGmAgentPort`가 수치와 근거키를 역직렬화하고 제공된 자료에서 문서·버전·위치를 연결한다. `RuntimeTurnApplicationService`가 검증한 시트를 저장·재사용하고 전투 준비에 전달한다. 계약 단위 검증은 통과했으며 실제 전투 E2E 성공은 아직 확인하지 않았다.
+- 일반 GM 턴의 근거 조회는 <a href="https://github.com/omegafrog/dnd-master/issues/379">#379 상황 선택·턴 조회·오케스트레이션 계획</a>의 한 번의 혼합 자료 dense 검색과 출처별 최대 다섯 발췌를 사용한다. 이 경로에서는 별도 재정렬·충분성 판단 AI 요청을 추가하지 않는다. 다른 작업의 근거 정책과 구분한다.
+
+### 배포
+독립 `adventure-service` 부트스트랩과 `app-all` 통합 실행에 포함된다. 런타임 상태와 대화 기록을 소유한다. 분리 배포 시에도 캐릭터·지도 변경은 해당 소유 서비스 API를 통한다. 근거: `src/adventure-service`, `src/app-all`, `src/start-dev.sh`.
+
+</pre></section>
+<section id="scenario-preparation"><h2>시나리오 준비</h2><pre>수정일: 2026-10-20
+
+### 설명
+`adventure-service` 안에서 문서·추출 결과를 참조해 플레이 가능한 시나리오 묶음을 준비한다. 이는 별도 배포 서비스가 아닌 모험 런타임 내부 경계다. 기능: <a href="product.md#scenario-runtime">시츄에이션 기반 모험 진행</a>.
+
+### 필요 엔티티
+- 입력: 모험 생성 요청, 선택된 문서와 추출 결과 식별자, 준비 설정.
+- 조회: 허가된 문서 근거와 기존 준비 상태.
+- 변경: 시나리오 묶음과 시츄에이션 준비 결과.
+- GM 구조화 응답은 내부 식별자나 배열 위치 번호를 만들지 않는다. 출처는 서버가 전달한 허용 ID를 돌려주고, 필수 상황은 고유 요약과 요약으로 된 선행 관계를 돌려준다. 모험 런타임이 출처·단계·상황 ID를 부여하고, 요청 순서와 개수로 상세 결과를 대응시켜 관계를 복원한다. 필수 상황의 실행 순서는 원문 선행 관계 그래프만 제한한다.
+- 승인된 내용 개선 목표는 기존 `SituationDefinition`에 이름(`title`, 120 Unicode 코드 포인트 이내)과 장면 설명(`description`, 2,000 이내)을 추가하는 것이다. 공백 제거 후 비어 있지 않아야 하며 내부 의도·관계·출처·지도 참조를 보존한다. `DetailedStage`의 기존 JSON 저장과 복원을 사용하고 새 테이블·과거 자료 이관·삭제를 추가하지 않는다.
+
+### 동작
+- 입력을 검증한 뒤 필요한 구조를 생성·검증해 모험 런타임의 준비 상태에 저장한다.
+- 문서 내용 전체를 복제하는 대신 출처 참조와 필요한 파생 구조를 보존한다.
+- 재시도는 같은 모험 식별자를 유지하며, 초기 단계 일부가 실패하면 게시하지 않고 전체 준비를 다시 수행한다. 구현 세부는 <a href="../../src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/ScenarioPreparationApplicationService.java">ScenarioPreparationApplicationService</a>에서 확인한다.
+- 각 단계의 기존 `StageDetailedGenerationPort.Request`에는 해당 단계의 문제·연결 요약과 같은 준비 요청에서 이미 얻은 관련 검색 발췌를 전달한다. 발췌는 출처 범위를 검증한 뒤 합계 2,000 Unicode 코드 포인트로 제한한다. 초기 준비는 골격의 모든 단계를 시작 전에 생성·검증한 뒤 한 번에 게시하며, 이미 게시된 완성 자료가 있으면 재사용한다. 부분 준비 실패는 임시 결과를 폐기하고 같은 모험에서 모든 단계를 다시 생성·검증한다. 실패한 단계부터 이어 생성하지 않는다. 원문 재검색이나 영속 발췌 캐시는 추가하지 않는다.
+- 생성 스키마·프롬프트 및 `validatePreparedStage`·`validateInitialSituationSet`에서 중간 후보 최소 두 개 조건을 제거하고 후보 수 자체는 제한하지 않으며 선택 가능 후보 문맥 JSON에 8,192 UTF-8 byte 한도를 적용한다. 초과 응답 JSON을 한 차례 보정 요청 입력으로 재사용해 필수 상황을 보존한다. 재초과하면 준비를 실패시킨다. 시작 상황·필수 상황·원문 선행 관계와 제공 지도 검증은 유지한다. 형식 검증만으로 장면의 서사 적합성을 증명하지 않으며 실제 모델의 생성 결과를 별도 확인한다.
+- 초기 준비 게시와 실제 시작 경계에서 필수 opening의 미완료 선행 필수 상황을 검증한다. 새 모험에는 완료된 필수 상황이 없으므로 선행 상황이 있는 필수 opening은 거부하고, 시작 상태나 현재 상황을 저장하지 않는다. 같은 모험에서 맵 파일의 이미지 식별값이 저장된 격자 조정이 있는 맵과 같으면 기존 준비 화면에서 재사용 또는 직접 수정을 먼저 묻는다. 재사용은 대상 맵에 저장된 격자 조정을 그대로 적용하고, 직접 수정은 기존 격자 편집 흐름을 사용한다.
+
+### 메서드
+- `prepareScenario`: 준비 요청을 받아 문서 식별자를 확인하고 시나리오 묶음 생성·검증을 조립한다. 도메인 판단은 해당 소유 모델과 검증기로 위임한다.
+
+</pre></section>
+<section id="document-knowledge"><h2>문서 지식</h2><pre>수정일: 2026-10-19
+
+### 설명
+`CONTEXT-MAP.md`에서 Document Knowledge라 부르는 경계로, 룰북·시나리오 자료의 등록·추출·색인·근거 검색을 제공하는 `rule-knowledge-service`다. 기능: <a href="product.md#rule-evidence">룰북 근거 검색</a>, 폐기된 검색 설계의 기록 보관.
+
+### 커뮤니케이션
+- 모험 런타임과 검색 요청·근거 위치를 주고받는다. 허가 범위와 문서 식별자를 조회 조건에 포함한다.
+- 저장소와 벡터 검색은 문서 지식 소유 서비스가 관리한다. 검색 실패는 빈 근거로 구분해 호출자에게 돌려준다.
+- 검색 순위는 근거 충분성 자체를 대신하지 않으며, 최종 적용 판단은 소비자 경계의 계약에 따른다.
+
+### 내부 구성요소
+- 룰북 등록·추출, 색인 생성, 검색 애플리케이션과 `RulebookIndex`, `EmbeddedRulebookChunk` 모델. 근거: <a href="../../src/rule-knowledge-service/src/main/java/com/dndmaster/ruleknowledge/domain/index/RulebookIndex.java">RulebookIndex</a>, `src/rule-knowledge-service/src/main/java/com/dndmaster/ruleknowledge/application/`.
+
+### 배포
+독립 `rule-knowledge-service` 부트스트랩이 있으며 `app-all` 실행에도 포함된다. 벡터 확장 데이터베이스는 개발 Compose에 정의된다. 근거: `src/rule-knowledge-service`, `src/infra/compose.yaml`.
+
+</pre></section>
+<section id="character-management"><h2>캐릭터 관리</h2><pre>수정일: 2026-10-19
+
+### 설명
+캐릭터 시트와 캐릭터별 정본 값 변경을 소유하는 `character-management-service`다. 기능: <a href="product.md#character-sheet">캐릭터 시트 관리</a>, <a href="product.md#ability-use">주문·기술 준비</a>.
+
+### 커뮤니케이션
+- 모험 런타임에서 캐릭터와 승인된 상태 변경 명령을 받는다.
+- 캐릭터의 정본 시트와 파생 값을 소유 경계에서 검증한다. 모험 런타임은 시트 전체를 복제해 정본으로 취급하지 않는다.
+- 실패·중복 요청은 소유 서비스 명령 이력과 재시도 계약을 따른다.
+
+### 내부 구성요소
+- `CharacterSheet`와 시트 변경 응용 흐름. 근거: <a href="../../src/character-management-service/src/main/java/com/dndmaster/character/domain/CharacterSheet.java">CharacterSheet</a>, `src/character-management-service/src/main/java/com/dndmaster/character/application/`.
+
+### 배포
+독립 `character-management-service` 부트스트랩 및 `app-all` 통합 실행에 포함된다. 캐릭터 저장소와 상태 변경을 소유한다. 근거: `src/character-management-service`, `src/app-all`.
+
+</pre></section>
+<section id="combat-map"><h2>전투 지도</h2><pre>수정일: 2026-10-21
+
+### 설명
+맵, 공간 요소, 토큰 이동, 전장의 안개와 플레이어 공개 정보를 소유하는 `combat-map-service`다. 기능: <a href="product.md#map-runtime">전장 지도 준비</a>, <a href="product.md#spatial-movement">지도 이동과 조우</a>.
+
+### 커뮤니케이션
+- 모험 런타임이 지도 준비·활성화와 이동 명령을 보낸다.
+- 소유 서비스가 이동 경로와 공간 상태를 검증하고 공개 가능한 지도 투영을 반환한다.
+- 요청 실패나 재시도는 이동 명령 식별자와 소유자 측 작업 상태를 통해 중복 적용을 막는다.
+
+### 내부 구성요소
+- `CombatMap`과 이동 해결 흐름. 모험·소유자에 연결한 지도 정의는 바꾸지 않으며, 같은 정의의 저장된 지도를 재사용한다. 첫 진입에서만 시작 배치를 해결하고 재방문은 저장된 지도 상태를 유지한다. 시작 위치 후보 생성은 후보가 없거나 제공자 요청에 실패하면 최초 요청을 포함해 최대 6회 시도하며, 소진하면 수동 배치 경로를 제공한다. 같은 모험 안에서 동일한 맵 파일에 저장 격자가 있으면 준비 화면에서 사용자에게 재사용 또는 직접 수정을 먼저 묻는다. 재사용은 기존 정렬값을 유지해 대상 지도에 적용하며, 직접 수정은 기존 편집기와 저장 경계를 사용한다. 격자 보정은 <a href="../../src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/view/CombatMapViewService.java">CombatMapViewService.calibrateGrid</a>의 별도 경로에서 가로·세로 칸 수 변경을 검증한다. 변경 시 새 범위 밖 콘텐츠는 거부하고, 이전 칸 좌표 기준의 `MAP_BOUNDARIES` 레이어는 제거해 다시 그리게 한다. 정렬 전용 API는 칸 수를 변경하지 않는다. 근거: <a href="../../src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/view/CombatMapViewService.java">CombatMapViewService</a>, <a href="../../src/combat-map-service/src/main/java/com/dndmaster/combatmap/domain/CombatMap.java">CombatMap</a>, `src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/movement/`.
+
+### 배포
+독립 `combat-map-service` 부트스트랩 및 `app-all` 통합 실행에 포함된다. 지도와 이동 상태를 소유한다. 근거: `src/combat-map-service`, `src/app-all`.
+
+</pre></section>
+<section id="ai-game-master"><h2>AI 게임 마스터</h2><pre>수정일: 2026-10-19
+
+### 설명
+모험 런타임이 구성한 입력을 바탕으로 GM 서술·판정·구조화 제안을 반환하는 `ai-game-master-service`다. 기능: <a href="product.md#scenario-runtime">시츄에이션 진행</a>, <a href="product.md#gm-context">GM 입력</a>, <a href="product.md#combat-loop">전투 행동</a>.
+
+### 커뮤니케이션
+- 모험 런타임에서 요청을 받아 결과를 반환한다. AI 응답은 제안이며 정본 상태 적용 권한을 갖지 않는다.
+- 실행 포트에서 개발용 로컬 Codex 또는 원격 사용자 PC 실행기를 사용한다.
+- 출력 구조·정보 공개·근거 범위 검사는 호출자인 모험 런타임이 적용 전에 수행한다.
+
+### 내부 구성요소
+- 프롬프트 구성, 공급자 실행 어댑터, 구조 응답 해석과 진단. 관련 소스는 `src/ai-game-master-service/src/main/java/` 및 `src/ai-game-master-local-codex/`다.
+
+### 배포
+독립 `ai-game-master-service`와 `app-all` 통합 실행이 있다. 로컬 Codex 어댑터는 개발 실행 경로다. 근거: `src/ai-game-master-service`, `src/ai-game-master-local-codex`.
+
+</pre></section>
+<section id="identity-access"><h2>사용자 인증</h2><pre>수정일: 2026-10-19
+
+### 설명
+사용자 인증과 세션 신원 확인을 소유하는 `identity-access-service`다. 기능: <a href="product.md#ai-provider">AI 제공자 연결</a>.
+
+### 커뮤니케이션
+- 애플리케이션 서비스가 인증된 사용자 식별을 검증한다.
+- 사용자별 AI 연결 자격 정보는 공개 응답·진단 로그에 노출하지 않는다.
+- 인증 실패는 요청을 거부하며 다른 사용자의 세션이나 자격 정보를 조회하지 않는다.
+
+### 내부 구성요소
+- 인증 API, 인증된 주체 해석기, 세션 조회 응용 흐름. 근거: `src/identity-access-service/src/main/java/`.
+
+### 배포
+독립 `identity-access-service`와 `app-all` 통합 실행에 포함된다. 사용자 인증과 연결 권한을 소유한다. 근거: `src/identity-access-service`, `src/app-all`.
+
+</pre></section>
+<section id="agent-relay"><h2>사용자 PC 실행 중계</h2><pre>수정일: 2026-10-19
+
+### 설명
+원격 AI 실행 요청을 인증된 사용자 PC 에이전트와 연결하는 중계 경계다. 기능: <a href="product.md#remote-agent">사용자 PC AI 요청 실행</a>.
+
+### 커뮤니케이션
+- AI 실행 서버와 사용자 PC 에이전트가 WebSocket 연결을 사용한다.
+- 요청 식별자와 사용자 식별자를 유지해 응답을 원 호출자에게 전달한다.
+- 연결 단절·시간 초과는 명시적 실패로 돌려보내고 모험 상태 변경은 호출자 확정 전에 하지 않는다.
+
+### 내부 구성요소
+- 중계 서비스, 연결 등록과 요청 전달. 근거: `src/agent-connection-relay-service/src/main/java/` 및 `src/user-pc-agent/`.
+
+### 배포
+중계 서비스와 사용자 PC 에이전트는 별도 실행 경계다. 로컬 Codex 실행 경로와 혼동하지 않는다. 근거: `src/agent-connection-relay-service`, `src/user-pc-agent`.
+</pre></section></html>

@@ -24,7 +24,15 @@ public final class AdventureSessionController {
         this.providerBindings = providerBindings;
     }
 
-    @PostMapping SessionView create(@RequestBody CreateSessionRequest request) { return SessionView.from(service.create(owner(), request.scenarioPackageId(), request.blueprintId(), request.blueprintRevision(), request.runtimeConfiguration(), request.partySize(), request.preparationId())); }
+    @PostMapping SessionView create(@RequestBody CreateSessionRequest request) {
+        if (request.storyLength() == null) {
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                LOGGER.info("dev_flow operation=adventure_session_create outcome=blocked expectedStoryLength=SHORT|NORMAL|LONG actualStoryLength=missing reason=required_request_field recovery=choose_story_length");
+            }
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_STORY_LENGTH");
+        }
+        return SessionView.from(service.create(owner(), request.scenarioPackageId(), request.blueprintId(), request.blueprintRevision(), request.runtimeConfiguration(), request.partySize(), request.preparationId(), request.storyLength()));
+    }
     @GetMapping List<SessionView> list(@RequestParam UUID scenarioPackageId) { return service.listByScenarioPackageId(scenarioPackageId, owner()).stream().map(SessionView::from).toList(); }
     @GetMapping("/{sessionId}") SessionView read(@PathVariable UUID sessionId) {
         SessionView result = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
@@ -55,7 +63,7 @@ public final class AdventureSessionController {
     @DeleteMapping("/{sessionId}/party/{characterSheetId}") SessionView remove(@PathVariable UUID sessionId, @PathVariable UUID characterSheetId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.removeMember(new SessionId(sessionId), owner(), version, new CharacterSheetId(characterSheetId))); }
     @PostMapping("/{sessionId}/start") SessionView start(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version, @RequestHeader("Idempotency-Key") UUID requestId, @RequestBody StartRequest request) {
         String context = "sessionId=" + sessionId + " adventureId=" + request.adventureId()
-                + " requestId=" + requestId + " mapApprovalRequired=false";
+                + " requestId=" + requestId + " prepareMapOnly=" + request.prepareMapOnly();
         long startedAt = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics
                 .begin(LOGGER, "session_start_http", context);
         try {
@@ -91,8 +99,8 @@ public final class AdventureSessionController {
                 session.status() != AdventureSession.Status.COMPLETED && session.status() != AdventureSession.Status.DELETED);
     }
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
-    private static GmProviderSelection defaultProvider() { return new GmProviderSelection("codex-cli", "gpt-5.6-luna", "medium"); }
-    public record CreateSessionRequest(UUID scenarioPackageId, UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer partySize, UUID preparationId) {}
+    private static GmProviderSelection defaultProvider() { return new GmProviderSelection("codex-cli", "gpt-6-luna", "medium"); }
+    public record CreateSessionRequest(UUID scenarioPackageId, UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer partySize, UUID preparationId, StoryLength storyLength) {}
     public record StartRequest(UUID adventureId, boolean prepareMapOnly) {
         public StartRequest(UUID adventureId) { this(adventureId, false); }
     }
@@ -120,7 +128,7 @@ public final class AdventureSessionController {
     public record AiCandidateView(UUID candidateId, String name, String race, String characterClass, String sheetSummary) {
         static AiCandidateView from(com.dndmaster.adventure.domain.adventure.AiCompanionCandidate candidate) { return new AiCandidateView(candidate.candidateId(), candidate.name(), candidate.race(), candidate.characterClass(), candidate.sheetSummary()); }
     }
-    public record SessionView(UUID sessionId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, String characterEdition, int characterLimit, long version, AdventureSession.Status status, UUID adventureId, AdventureSessionRuntimeConfiguration runtimeConfiguration, List<PartyMemberRequest> party) {
-        static SessionView from(AdventureSession session) { return new SessionView(session.id().value(), session.scenarioPackageId(), session.scenarioPackageRevision(), session.blueprintId(), session.blueprintRevision(), session.characterEdition(), session.characterLimit(), session.version(), session.status(), session.startedAdventureId() == null ? null : session.startedAdventureId().value(), session.runtimeConfiguration(), session.party().stream().map(m -> new PartyMemberRequest(m.characterSheetId().value(), m.controlMode(), m.nameMutableAfterStart(), m.raceMutableAfterStart(), m.characterClassMutableAfterStart(), m.backgroundMutableAfterStart(), m.startingAbilitiesMutableAfterStart(), m.levelMutableAfterStart())).toList()); }
+    public record SessionView(UUID sessionId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, String characterEdition, int characterLimit, long version, AdventureSession.Status status, UUID adventureId, AdventureSessionRuntimeConfiguration runtimeConfiguration, StoryLength storyLength, List<PartyMemberRequest> party) {
+        static SessionView from(AdventureSession session) { return new SessionView(session.id().value(), session.scenarioPackageId(), session.scenarioPackageRevision(), session.blueprintId(), session.blueprintRevision(), session.characterEdition(), session.characterLimit(), session.version(), session.status(), session.startedAdventureId() == null ? null : session.startedAdventureId().value(), session.runtimeConfiguration(), session.storyLength(), session.party().stream().map(m -> new PartyMemberRequest(m.characterSheetId().value(), m.controlMode(), m.nameMutableAfterStart(), m.raceMutableAfterStart(), m.characterClassMutableAfterStart(), m.backgroundMutableAfterStart(), m.startingAbilitiesMutableAfterStart(), m.levelMutableAfterStart())).toList()); }
     }
 }

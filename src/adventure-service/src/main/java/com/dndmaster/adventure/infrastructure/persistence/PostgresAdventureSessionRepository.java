@@ -23,6 +23,15 @@ public final class PostgresAdventureSessionRepository implements AdventureSessio
             s.setObject(1, id.value()); try (ResultSet row = s.executeQuery()) { return row.next() ? Optional.of(map(c, row)) : Optional.empty(); }
         } catch (SQLException e) { throw new AdventurePersistenceException("could not load adventure session", e); }
     }
+    @Override public Optional<AdventureSession> findByStartedAdventureId(UUID adventureId, OwnerPlayerId ownerPlayerId) {
+        try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement(
+                "SELECT session_id FROM adventure_session WHERE started_adventure_id=? AND owner_player_id=?")) {
+            s.setObject(1, adventureId); s.setObject(2, ownerPlayerId.value());
+            try (ResultSet row = s.executeQuery()) {
+                return row.next() ? findById(new SessionId(row.getObject("session_id", UUID.class))) : Optional.empty();
+            }
+        } catch (SQLException e) { throw new AdventurePersistenceException("could not load session for started adventure", e); }
+    }
     @Override public List<AdventureSession> findByScenarioPackageId(UUID scenarioPackageId) {
         try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement("SELECT session_id FROM adventure_session WHERE scenario_package_id=? ORDER BY session_id")) {
             s.setObject(1, scenarioPackageId); List<AdventureSession> sessions = new ArrayList<>();
@@ -65,11 +74,11 @@ public final class PostgresAdventureSessionRepository implements AdventureSessio
             boolean autoCommit = c.getAutoCommit(); if (!managed) c.setAutoCommit(false);
             try {
                 String sql = expectedVersion == 0 && session.version() == 0
-                        ? "INSERT INTO adventure_session(session_id, owner_player_id, scenario_package_id, scenario_package_revision, blueprint_id, blueprint_revision, character_edition, character_limit, runtime_scenario_id, runtime_rule_set_id, runtime_rulebook_ids_json, runtime_engine_id, runtime_tool_ids_json, runtime_initial_scene, status, started_adventure_id, start_request_id, active_ai_request_id, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                        : "UPDATE adventure_session SET blueprint_id=?, blueprint_revision=?, character_edition=?, character_limit=?, runtime_scenario_id=?, runtime_rule_set_id=?, runtime_rulebook_ids_json=?, runtime_engine_id=?, runtime_tool_ids_json=?, runtime_initial_scene=?, status=?, started_adventure_id=?, start_request_id=?, active_ai_request_id=?, version=? WHERE session_id=? AND version=?";
+                        ? "INSERT INTO adventure_session(session_id, owner_player_id, scenario_package_id, scenario_package_revision, blueprint_id, blueprint_revision, character_edition, character_limit, runtime_scenario_id, runtime_rule_set_id, runtime_rulebook_ids_json, runtime_engine_id, runtime_tool_ids_json, runtime_initial_scene, status, started_adventure_id, start_request_id, active_ai_request_id, story_length, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                        : "UPDATE adventure_session SET blueprint_id=?, blueprint_revision=?, character_edition=?, character_limit=?, runtime_scenario_id=?, runtime_rule_set_id=?, runtime_rulebook_ids_json=?, runtime_engine_id=?, runtime_tool_ids_json=?, runtime_initial_scene=?, status=?, started_adventure_id=?, start_request_id=?, active_ai_request_id=?, story_length=?, version=? WHERE session_id=? AND version=?";
                 try (PreparedStatement s = c.prepareStatement(sql)) {
-                    if (expectedVersion == 0 && session.version() == 0) { s.setObject(1, session.id().value()); s.setObject(2, session.ownerPlayerId().value()); s.setObject(3, session.scenarioPackageId()); s.setLong(4, session.scenarioPackageRevision()); s.setObject(5, session.blueprintId()); s.setLong(6, session.blueprintRevision()); s.setString(7, session.characterEdition()); s.setInt(8, session.characterLimit()); bindConfiguration(s, 9, session.runtimeConfiguration()); bindStart(s, 15, session); s.setLong(19, session.version()); }
-                    else { s.setObject(1, session.blueprintId()); s.setLong(2, session.blueprintRevision()); s.setString(3, session.characterEdition()); s.setInt(4, session.characterLimit()); bindConfiguration(s, 5, session.runtimeConfiguration()); bindStart(s, 11, session); s.setLong(15, session.version()); s.setObject(16, session.id().value()); s.setLong(17, expectedVersion); }
+                    if (expectedVersion == 0 && session.version() == 0) { s.setObject(1, session.id().value()); s.setObject(2, session.ownerPlayerId().value()); s.setObject(3, session.scenarioPackageId()); s.setLong(4, session.scenarioPackageRevision()); s.setObject(5, session.blueprintId()); s.setLong(6, session.blueprintRevision()); s.setString(7, session.characterEdition()); s.setInt(8, session.characterLimit()); bindConfiguration(s, 9, session.runtimeConfiguration()); bindStart(s, 15, session); s.setLong(20, session.version()); }
+                    else { s.setObject(1, session.blueprintId()); s.setLong(2, session.blueprintRevision()); s.setString(3, session.characterEdition()); s.setInt(4, session.characterLimit()); bindConfiguration(s, 5, session.runtimeConfiguration()); bindStart(s, 11, session); s.setLong(16, session.version()); s.setObject(17, session.id().value()); s.setLong(18, expectedVersion); }
                     if (s.executeUpdate() != 1) throw new OptimisticAdventureLockException();
                 }
                 try (PreparedStatement s = c.prepareStatement("DELETE FROM adventure_session_party_member WHERE session_id=?")) { s.setObject(1, session.id().value()); s.executeUpdate(); }
@@ -92,6 +101,7 @@ public final class PostgresAdventureSessionRepository implements AdventureSessio
                 row.getObject("scenario_package_id", UUID.class), row.getLong("scenario_package_revision"),
                 row.getObject("blueprint_id", UUID.class), row.getLong("blueprint_revision"),
                 row.getString("character_edition"), row.getInt("character_limit"), party, configuration(row),
+                StoryLength.valueOf(row.getString("story_length")),
                 AdventureSession.Status.valueOf(row.getString("status")),
                 adventureId == null ? null : new AdventureId(adventureId),
                 row.getObject("start_request_id", UUID.class), row.getObject("active_ai_request_id", UUID.class),
@@ -107,5 +117,5 @@ public final class PostgresAdventureSessionRepository implements AdventureSessio
         UUID scenarioId = row.getObject("runtime_scenario_id", UUID.class); if (scenarioId == null) return null;
         try { return new AdventureSessionRuntimeConfiguration(new ScenarioId(scenarioId), new RuleSetId(row.getObject("runtime_rule_set_id", UUID.class)), objectMapper.readValue(row.getString("runtime_rulebook_ids_json"), new TypeReference<List<UUID>>() {}), row.getString("runtime_engine_id"), objectMapper.readValue(row.getString("runtime_tool_ids_json"), new TypeReference<List<String>>() {}), row.getString("runtime_initial_scene")); } catch (Exception e) { throw new SQLException("could not read runtime configuration", e); }
     }
-    private static void bindStart(PreparedStatement s, int offset, AdventureSession session) throws SQLException { s.setString(offset, session.status().name()); s.setObject(offset + 1, session.startedAdventureId() == null ? null : session.startedAdventureId().value()); s.setObject(offset + 2, session.startRequestId()); s.setObject(offset + 3, session.activeAiRequestId()); }
+    private static void bindStart(PreparedStatement s, int offset, AdventureSession session) throws SQLException { s.setString(offset, session.status().name()); s.setObject(offset + 1, session.startedAdventureId() == null ? null : session.startedAdventureId().value()); s.setObject(offset + 2, session.startRequestId()); s.setObject(offset + 3, session.activeAiRequestId()); s.setString(offset + 4, session.storyLength().name()); }
 }

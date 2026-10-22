@@ -76,7 +76,7 @@ class MapModelContractTest {
     }
 
     @Test
-    void sendsFirstNarrationAndLocationToEntryPlacementPrompt() {
+    void sendsEntryNarrationWithoutDuplicateOpeningNarration() {
         java.util.concurrent.atomic.AtomicReference<String> prompt = new java.util.concurrent.atomic.AtomicReference<>();
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override
@@ -91,7 +91,9 @@ class MapModelContractTest {
                 "양조장 뒤편에서 계단을 발견했습니다.", "계단을 내려갑니다", "계단 진입", "나무 계단 끝에 도착합니다", "{\"gridWidth\":12,\"gridHeight\":18}", ""));
 
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("LOCATION=지하 저장고"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("FIRST_NARRATION=양조장 뒤편에서 계단을 발견했습니다."));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("ENTRY_NARRATION=나무 계단 끝에 도착합니다"));
+        org.junit.jupiter.api.Assertions.assertFalse(prompt.get().contains("FIRST_NARRATION="));
+        org.junit.jupiter.api.Assertions.assertFalse(prompt.get().contains("GM_NARRATION="));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("MAP_DATA={\"gridWidth\":12,\"gridHeight\":18}"));
         org.junit.jupiter.api.Assertions.assertFalse(prompt.get().contains("20x20"));
     }
@@ -118,7 +120,7 @@ class MapModelContractTest {
 
         assertEquals("RESOLVED", output.status());
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains(
-                "A new door or stair transition is not required when TARGET_SCENE, LOCATION, or FIRST_NARRATION already establishes that the party is inside this mapped area."));
+                "A new door or stair transition is not required when TARGET_SCENE, LOCATION, or ENTRY_NARRATION already establishes that the party is inside this mapped area."));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains(
                 "MAP_DATA.validGridCellCenterBoundsNormalized gives the allowed image-coordinate rectangle for cell centers"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains(

@@ -127,6 +127,57 @@ it('starts an exploration cycle and advances group then environment through the 
   expect(await screen.findByText(/지난 시간 6초 · 그룹 이동/)).toBeInTheDocument()
 })
 
+it('waits for the committed map turn and refreshes the adventure version before finishing the group turn', async () => {
+  const diagnostic = vi.spyOn(diagnostics, 'diagnosticEvent')
+  const api = fakeApi()
+  const group = { id: 'g1', mapTokenId: 'p1', speed: 20, members: [
+    { characterSheetId: 'sheet-1', formation: 'FRONT' as const, speed: 20 },
+  ] }
+  let version = 8
+  const cycle: ExplorationCycle = { id: 'cycle-1', cycleNumber: 1, currentPhaseCommandId: 'phase-1', groupOrder: ['g1'], completedGroups: [], phase: 'GROUP_TURNS',
+    environmentPhase: 'ENEMIES_PATROLS_AND_DETECTION', elapsedSeconds: 0, combatLinked: false }
+  api.getCombatMap = vi.fn(async () => ({ adventureId: 'a1', status: 'map', mapId: 'm1', version: 0, sessionVersion: 8,
+    grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }],
+    current: [{ x: 1, y: 1 }, { x: 2, y: 1 }], explored: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }))
+  api.getExplorationGroups = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.saveExplorationGroups = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.startExplorationCycle = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.resolveExplorationMovementEvent = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.advanceExplorationEnvironment = vi.fn(async () => ({ version, groups: [group], cycle }))
+  let acceptMapAction!: (result: { turnId: string; version: number }) => void
+  api.submitMapAction = vi.fn(async () => new Promise<{ turnId: string; version: number }>(resolve => { acceptMapAction = resolve }))
+  api.finishExplorationGroupTurn = vi.fn(async (_adventureId: string, _groupId: string, expectedVersion: number) => ({
+    version: expectedVersion + 1, groups: [group], cycle: { ...cycle, completedGroups: ['g1'], phase: 'ENVIRONMENT' as const },
+  }))
+  const user = userEvent.setup()
+  const { rerender } = render(<CombatMapView adventureId="a1" api={api} refreshToken={0} />)
+
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
+  dragMovementPath('격자 2,1')
+  await user.click(screen.getByRole('button', { name: '확인' }))
+  await waitFor(() => expect(api.submitMapAction).toHaveBeenCalledTimes(1))
+  expect(diagnostic).toHaveBeenCalledWith('exploration_cycle_runtime_turn_wait', { outcome: 'started', expectedVersion: 8 })
+  const finishTurn = screen.getByRole('button', { name: '현재 그룹 차례 완료' })
+  expect(finishTurn).toBeDisabled()
+
+  await act(async () => acceptMapAction({ turnId: 'turn-pending-1', version }))
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: '맵 행동 확인' })).not.toBeInTheDocument())
+  expect(finishTurn).toBeDisabled()
+
+  rerender(<CombatMapView adventureId="a1" api={api} refreshToken={1} />)
+  await waitFor(() => expect(api.getExplorationGroups).toHaveBeenCalledTimes(2))
+  expect(finishTurn).toBeDisabled()
+  expect(diagnostic).toHaveBeenCalledWith('exploration_cycle_runtime_turn_wait', { outcome: 'waiting', expectedVersion: 8, actualVersion: 8 })
+
+  version = 9
+  rerender(<CombatMapView adventureId="a1" api={api} refreshToken={2} />)
+  await waitFor(() => expect(finishTurn).toBeEnabled())
+  expect(diagnostic).toHaveBeenCalledWith('exploration_cycle_runtime_turn_wait', { outcome: 'completed', expectedVersion: 8, actualVersion: 9 })
+  await user.click(finishTurn)
+  await waitFor(() => expect(api.finishExplorationGroupTurn).toHaveBeenCalledWith('a1', 'g1', 9, expect.any(String)))
+  diagnostic.mockRestore()
+})
+
 it('animates only the server committed traversed path', async () => {
   vi.useFakeTimers()
   const before: CombatMapState = { adventureId: 'a1', status: 'map', mapId: 'm1', version: 0,
@@ -180,12 +231,31 @@ function fakeApi(): AdventurePlayApi {
   }
 }
 
+function dragMovementPath(...cellNames: string[]) {
+  const map = screen.getByLabelText('tactical-map')
+  const player = screen.getByRole('button', { name: /PLAYER.*1,1/ })
+  fireEvent.pointerDown(player, { button: 0, pointerId: 1 })
+  for (const name of cellNames) fireEvent.pointerMove(screen.getByRole('button', { name }), { pointerId: 1, buttons: 1 })
+  fireEvent.pointerUp(cellNames.length ? screen.getByRole('button', { name: cellNames[cellNames.length - 1] }) : map, { button: 0, pointerId: 1 })
+}
+
+async function enterMapSetupEdit(user: ReturnType<typeof userEvent.setup>, nextButton: string) {
+  await waitFor(() => expect(
+    screen.queryByRole('button', { name: '격자·벽 다시 설정' })
+      ?? screen.queryByRole('button', { name: nextButton }),
+  ).toBeTruthy())
+  const reconfigure = screen.queryByRole('button', { name: '격자·벽 다시 설정' })
+  if (reconfigure) await user.click(reconfigure)
+}
+
 async function confirmCrop(user: ReturnType<typeof userEvent.setup>) {
+  await enterMapSetupEdit(user, '전체 지도')
   await user.click(await screen.findByRole('button', { name: '전체 지도' }))
   await user.click(screen.getByRole('button', { name: '자르기 적용' }))
 }
 
 async function openGridEditor(user: ReturnType<typeof userEvent.setup>) {
+  await enterMapSetupEdit(user, '격자 맞추기')
   await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
   const image = await screen.findByAltText('공개된 지도 이미지')
   Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 1000 })
@@ -260,6 +330,29 @@ it('falls back to the reviewed preparation image when the play image is not read
   expect(map).toHaveStyle({ backgroundImage: 'url(/reviewed-preparation.png)' })
 })
 
+it('loads the preparation image before restoring its grid alignment', async () => {
+  const api = fakeApi()
+  let sourceImageAttached = false
+  api.getCombatMapPreparation = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 2, height: 2 }, tokens: [],
+  })
+  api.getCombatMapPreparationImage = vi.fn(async () => {
+    sourceImageAttached = true
+    return '/preparation-map.png'
+  })
+  api.getMapGridAlignment = vi.fn(async () => {
+    if (!sourceImageAttached) throw new Error('map image is not attached yet')
+    return { mapId: 'm1', version: 0, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 }
+  })
+  render(<CombatMapView adventureId="a1" api={api} preparationMode />)
+
+  expect(await screen.findByLabelText('tactical-map')).toHaveStyle({ backgroundImage: 'url(/preparation-map.png)' })
+  await waitFor(() => expect(api.getMapGridAlignment).toHaveBeenCalled())
+  expect(screen.queryByText('저장된 격자 정보를 읽을 수 없어 현재 설정을 확정할 수 없습니다. 다시 설정을 선택하세요.')).not.toBeInTheDocument()
+  expect(api.getCombatMapPreparationImage!.mock.invocationCallOrder[0]).toBeLessThan(api.getMapGridAlignment!.mock.invocationCallOrder[0])
+})
+
 it('falls back to the public image when the preparation image request fails', async () => {
   const api = fakeApi()
   api.getCombatMapPreparation = async () => ({
@@ -270,28 +363,37 @@ it('falls back to the public image when the preparation image request fails', as
   api.getPublicMapImage = async () => '/public-map-fallback.png'
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
-  expect(await screen.findByAltText('자르기 대상 지도')).toHaveAttribute('src', '/public-map-fallback.png')
+  expect(await screen.findByLabelText('tactical-map')).toHaveStyle({ backgroundImage: 'url(/public-map-fallback.png)' })
 })
 
 it('renders only the reviewed crop in the player map', async () => {
   const api = fakeApi()
   api.getPublicMapImage = async () => '/public-map-image.png'
+  api.getMapGridAlignment = async () => ({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 20, originY: 10, cellSize: 90 })
   api.getCombatMap = async () => ({
     adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
     grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 0 }],
     current: [{ x: 1, y: 0 }], explored: [{ x: 1, y: 0 }],
-    layers: [{ type: 'GRID_BOUNDS', value: '0,0,300,200,300,200' }, { type: 'MAP_CROP', value: '100,0,100,200' }],
+    layers: [
+      { type: 'GRID_BOUNDS', value: '20,10,270,180,300,200' }, { type: 'MAP_CROP', value: '120,0,100,200' },
+      { type: 'MAP_BOUNDARIES', value: '1,1,HORIZONTAL,DOOR,false;1,0,VERTICAL,DOOR,false;0,0,HORIZONTAL,WALL,false' },
+    ],
   })
   render(<CombatMapView adventureId="a1" api={api} />)
   const map = await screen.findByLabelText('tactical-map')
-  expect(map).toHaveStyle({ '--map-aspect': '100 / 200' })
+  expect(map).toHaveStyle({ '--map-aspect': '90 / 180' })
+  expect(map).toHaveStyle({ '--map-background-size': '333.33333333333337% 111.11111111111111%', '--map-background-position': '52.38095238095239% 50%' })
   expect(map.querySelectorAll('button')).toHaveLength(2)
+  expect(map.querySelector('[data-boundary="HORIZONTAL:1:1"]')).toHaveStyle({ left: '0%', top: '50%', width: '100%' })
+  expect(map.querySelector('[data-boundary="VERTICAL:1:0"]')).toHaveStyle({ left: '0%', top: '0%', height: '50%' })
+  expect(map.querySelector('[data-boundary="HORIZONTAL:0:0"]')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'PLAYER 1,0' })).toBeInTheDocument()
   expect(screen.queryByLabelText('지도 밖 영역')).not.toBeInTheDocument()
 })
 
-it('renders reviewed wall and door boundaries during an active turn', async () => {
+it('keeps raster walls from duplicating and preserves door overlays during an active turn', async () => {
   const api = fakeApi()
+  api.getPublicMapImage = async () => '/public-map-image.png'
   api.getCombatMap = async () => ({
     adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 4,
     grid: { width: 2, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 0, y: 0 }],
@@ -300,7 +402,8 @@ it('renders reviewed wall and door boundaries during an active turn', async () =
   })
   render(<CombatMapView adventureId="a1" api={api} />)
   const map = await screen.findByLabelText('tactical-map')
-  expect(map.querySelector('[data-boundary="HORIZONTAL:1:0"]')).toHaveClass('map-boundary-wall')
+  await waitFor(() => expect(map).toHaveStyle({ backgroundImage: 'url(/public-map-image.png)' }))
+  expect(map.querySelector('[data-boundary="HORIZONTAL:1:0"]')).not.toBeInTheDocument()
   expect(map.querySelector('[data-boundary="VERTICAL:0:1"]')).toHaveClass('map-boundary-door')
 })
 
@@ -447,6 +550,7 @@ it('always shows all three map preparation steps while earlier data is loading',
 
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
+  await userEvent.click(await screen.findByRole('button', { name: '격자·벽 다시 설정' }))
   expect(await screen.findByRole('heading', { name: '1. 맵 여백 자르기' })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: '2. 맵 격자 맞추기' })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: '3. AI 초안 생성 및 검수' })).toBeInTheDocument()
@@ -466,13 +570,9 @@ it('keeps the saved grid scale while reviewing a separately cropped image', asyn
   api.getCombatMapPreparationImage = async () => '/preparation-map.png'
   api.getMapGridAlignment = async () => ({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
   api.applyMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 2, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
-  const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
-  await openGridEditor(user)
-  await user.click(screen.getByRole('button', { name: '적용' }))
-  await user.click(await screen.findByRole('button', { name: '벽·문 편집' }))
-  const map = within(screen.getByLabelText('맵 초안 검수')).getByLabelText('tactical-map')
+  const map = await screen.findByLabelText('tactical-map')
   expect(map.getAttribute('style')).toContain('--map-background-size: 200% 150%')
   expect(map.getAttribute('style')).not.toContain('--map-background-size: 120% 112.5%')
 })
@@ -491,6 +591,7 @@ it('restores an already applied crop when map preparation is reopened', async ()
 
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
+  await userEvent.click(await screen.findByRole('button', { name: '격자·벽 다시 설정' }))
   expect(await screen.findByRole('button', { name: '자르기 다시 수정' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '격자 맞추기' })).toBeInTheDocument()
   expect(screen.queryByText('1단계에서 여백 자르기를 적용하면 격자를 맞출 수 있습니다.')).not.toBeInTheDocument()
@@ -517,11 +618,10 @@ it('updates boundary feedback while dragging and restores the stroke on cancel',
   const canvas = within(editor).getByLabelText('tactical-map')
   Object.defineProperty(canvas, 'getBoundingClientRect', { value: () => ({ left: 0, top: 0, width: 200, height: 200 }) })
 
-  fireEvent.pointerDown(canvas, { clientX: 25, clientY: 100, pointerId: 1 })
-  expect(await screen.findByText(/벽 그리는 중/)).toBeInTheDocument()
-  await waitFor(() => expect(canvas.querySelector('.map-boundary-preview')).toHaveClass('map-boundary-wall'))
-  fireEvent.pointerMove(canvas, { clientX: 175, clientY: 100, pointerId: 1 })
-  await waitFor(() => expect(canvas.querySelector('.map-boundary-preview')).toHaveClass('map-boundary-wall'))
+  fireEvent.pointerDown(canvas, { button: 0, clientX: 25, clientY: 100, pointerId: 1, buttons: 1 })
+  expect(await screen.findByText('벽 미리 보기 · 1개 선분')).toBeInTheDocument()
+  fireEvent.pointerMove(canvas, { clientX: 175, clientY: 100, pointerId: 1, buttons: 1 })
+  expect(screen.getByText(/벽 미리 보기/)).toBeInTheDocument()
   fireEvent.pointerCancel(canvas, { pointerId: 1 })
   expect(canvas.querySelector('[data-boundary="HORIZONTAL:0:1"]')).not.toBeInTheDocument()
   expect(canvas.querySelector('[data-boundary="HORIZONTAL:1:1"]')).not.toBeInTheDocument()
@@ -612,6 +712,7 @@ it('allows selecting a start cell directly on the preparation map outside wall e
 
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
+  await user.click(await screen.findByRole('button', { name: '격자·벽 다시 설정' }))
   await user.click(await screen.findByRole('button', { name: '빈 격자 1,1' }))
   expect(screen.getByText('수동 대안으로 선택한 시작 칸: (1,1)')).toBeInTheDocument()
 })
@@ -660,6 +761,7 @@ it('does not treat a draft saved for an older grid as ready after reload', async
   api.getMapGridAlignment = async () => ({ mapId: 'm1', version: 2, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
+  await userEvent.click(await screen.findByRole('button', { name: '격자·벽 다시 설정' }))
   const ready = await screen.findByRole('button', { name: '맵 준비 완료, 모험 시작' })
   expect(ready).toBeDisabled()
 })
@@ -771,15 +873,29 @@ it('fails closed when visibility metadata is missing and only shows visible toke
   expect(screen.getByLabelText('맵 범례')).not.toHaveTextContent('적대 몬스터')
 })
 
-it('keeps a drag candidate local until confirmed, and cancel sends nothing', async () => {
+it('draws a movement path by dragging across cells, and cancel sends nothing', async () => {
   const api = fakeApi()
+  const initialMap = await api.getCombatMap('a1')
+  const knownCells = Array.from({ length: 6 }, (_, index) => ({ x: index % 3, y: Math.floor(index / 3) }))
+  api.getCombatMap = vi.fn(async () => ({ ...initialMap, current: knownCells, explored: knownCells }))
+  const preview = vi.fn(api.previewMapMovement)
+  api.previewMapMovement = preview
+  const diagnostic = vi.spyOn(diagnostics, 'diagnosticEvent')
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} />)
 
-  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
-  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
+  const destination = screen.getByRole('button', { name: '격자 2,1' })
+  await user.click(destination)
+  expect(preview).not.toHaveBeenCalled()
+  dragMovementPath('격자 1,0', '격자 2,0', '격자 2,1')
+  expect(diagnostic).toHaveBeenCalledWith('combat_map_movement_stroke', expect.objectContaining({ outcome: 'started', tokenId: 'p1' }))
+  expect(diagnostic).toHaveBeenCalledWith('combat_map_movement_stroke', expect.objectContaining({ outcome: 'completed', tokenId: 'p1', pathCells: 3, waypoints: 2 }))
 
-  expect(screen.getByRole('dialog', { name: '맵 행동 확인' })).toHaveTextContent('이동: (1,1) → (2,1)')
+  expect(await screen.findByRole('dialog', { name: '맵 행동 확인' })).toHaveTextContent('이동: (1,1) → (2,1)')
+  expect(preview).toHaveBeenCalledWith('a1', expect.objectContaining({
+    destination: { x: 2, y: 1 }, waypoints: [{ x: 1, y: 0 }, { x: 2, y: 0 }],
+  }))
   await user.click(screen.getByRole('button', { name: '취소' }))
   expect(screen.queryByRole('dialog', { name: '맵 행동 확인' })).not.toBeInTheDocument()
   expect(api.submitMapAction).not.toHaveBeenCalled()
@@ -804,8 +920,8 @@ it('submits exactly one typed map action after confirmation', async () => {
   const api = fakeApi()
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} />)
-  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
-  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
+  dragMovementPath('격자 2,1')
   await user.click(screen.getByRole('button', { name: '확인' }))
   expect(api.submitMapAction).toHaveBeenCalledTimes(1)
   expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', path: [{ x: 1, y: 1 }, { x: 2, y: 1 }], fingerprint: 'server-preview', waypoints: [] }), expect.objectContaining({ commandId: expect.any(String) }), 7)
@@ -860,8 +976,8 @@ it('reuses the first command identity when the confirmation response is lost', a
     .mockResolvedValueOnce({ turnId: 't1', version: 1 })
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} />)
-  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
-  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
+  dragMovementPath('격자 2,1')
   await user.click(screen.getByRole('button', { name: '확인' }))
   await waitFor(() => expect(api.submitMapAction).toHaveBeenCalledTimes(1))
   await user.click(screen.getByRole('button', { name: '확인' }))
@@ -886,8 +1002,8 @@ it('keeps a typed retry operation available for reconnect and resume', async () 
   api.resumeRuntimeTurn = vi.fn(async () => ({ turnId: 't1', version: 1, movementResult: result }))
   const user = userEvent.setup()
   const { unmount } = render(<CombatMapView adventureId="a1" api={api} />)
-  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
-  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
+  dragMovementPath('격자 2,1')
   await user.click(screen.getByRole('button', { name: '확인' }))
 
   expect(await screen.findByText('이동 재시도 필요')).toBeInTheDocument()
@@ -914,8 +1030,8 @@ it('restores a safe pending check projection without exposing hidden feature det
   api.submitMapAction = vi.fn(async () => ({ turnId: 't1', version: 0, movementResult: result }))
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} />)
-  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
-  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
+  dragMovementPath('격자 2,1')
   await user.click(screen.getByRole('button', { name: '확인' }))
 
   expect(await screen.findByText('이동 판정 확인 필요')).toBeInTheDocument()
@@ -948,8 +1064,8 @@ it('resumes the adventure turn after a successful player roll and uses its typed
   api.resumeRuntimeTurn = vi.fn(async () => ({ turnId: 'turn-330', version: 1, movementResult: interrupted }))
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} />)
-  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
-  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
+  dragMovementPath('격자 2,1')
   await user.click(screen.getByRole('button', { name: '확인' }))
   await user.click(await screen.findByRole('button', { name: '주사위 굴리기' }))
 
@@ -972,8 +1088,8 @@ it('keeps the confirmed path and shows the enemy observation interruption from A
   api.submitMapAction = vi.fn(async () => ({ turnId: 'turn-331', version: 1, movementResult: result }))
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} />)
-  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
-  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
+  dragMovementPath('격자 2,1')
   await user.click(screen.getByRole('button', { name: '확인' }))
 
   await waitFor(() => expect(screen.getAllByText('이동이 중단되었습니다.').length).toBeGreaterThan(0))
@@ -1059,8 +1175,8 @@ it('shows the server preview path and ghost destination before confirmation', as
   })
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} />)
-  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
-  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
+  dragMovementPath('격자 2,1')
 
   await waitFor(() => expect(document.querySelector('[data-ghost-token="true"]')).toBeTruthy())
   expect(document.querySelectorAll('[data-movement-preview="true"]').length).toBe(3)
@@ -1087,10 +1203,10 @@ it('allows a destination in an explored cell outside the current view', async ()
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} />)
 
-  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
   const exploredDestination = screen.getByRole('button', { name: '탐험한 격자 2,1' })
   expect(exploredDestination).not.toBeDisabled()
-  await user.click(exploredDestination)
+  dragMovementPath('탐험한 격자 2,1')
 
   await waitFor(() => expect(api.previewMapMovement).toHaveBeenCalledWith('a1', expect.objectContaining({
     destination: { x: 2, y: 1 },
@@ -1099,11 +1215,12 @@ it('allows a destination in an explored cell outside the current view', async ()
 
 it('refreshes and recomputes when the preview sees a stale map version', async () => {
   const api = fakeApi()
+  const diagnostic = vi.spyOn(diagnostics, 'diagnosticEvent')
   const initial = await api.getCombatMap('a1')
   const refreshed = { ...initial, version: 1 }
   api.getCombatMap = vi.fn().mockResolvedValueOnce(initial).mockResolvedValueOnce(refreshed)
   api.previewMapMovement = vi.fn()
-    .mockRejectedValueOnce(Object.assign(new Error('stale'), { status: 409 }))
+    .mockRejectedValueOnce(Object.assign(new Error('stale'), { status: 409, code: 'STALE_MOVEMENT_PROPOSAL' }))
     .mockResolvedValueOnce({
       mapId: 'm1', orderedPositions: [{ x: 1, y: 1 }, { x: 2, y: 1 }],
       distance: 5, baseMapVersion: 1, fingerprint: 'fresh',
@@ -1111,25 +1228,58 @@ it('refreshes and recomputes when the preview sees a stale map version', async (
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} />)
 
-  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
-  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
+  dragMovementPath('격자 2,1')
 
   await waitFor(() => expect(api.previewMapMovement).toHaveBeenCalledTimes(2))
   expect(api.previewMapMovement).toHaveBeenLastCalledWith('a1', expect.objectContaining({ mapVersion: 1 }))
   expect(await screen.findByText('지도 상태가 바뀌었습니다. 최신 이동 경로를 다시 확인했습니다. 다시 확인해주세요.')).toBeInTheDocument()
+  expect(diagnostic).toHaveBeenCalledWith('combat_map_movement_preview', expect.objectContaining({
+    outcome: 'retry_started', failureCode: 'STALE_MOVEMENT_PROPOSAL', recoveryAction: 'refresh_and_retry',
+  }))
+  diagnostic.mockRestore()
+})
+
+it('shows an exploration movement budget rejection without refreshing or retrying the map', async () => {
+  const api = fakeApi()
+  const readMap = vi.spyOn(api, 'getCombatMap')
+  const preview = vi.fn().mockRejectedValue(Object.assign(new Error('request rejected'), {
+    status: 409, code: 'EXPLORATION_MOVEMENT_BUDGET_EXCEEDED',
+  }))
+  api.previewMapMovement = preview
+  const diagnostic = vi.spyOn(diagnostics, 'diagnosticEvent')
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
+  readMap.mockClear()
+  dragMovementPath('격자 2,1')
+
+  expect(await screen.findByText('이번 탐험 차례에 남은 이동량을 초과합니다.')).toBeInTheDocument()
+  expect(preview).toHaveBeenCalledTimes(1)
+  expect(readMap).not.toHaveBeenCalled()
+  expect(screen.queryByRole('dialog', { name: '맵 행동 확인' })).not.toBeInTheDocument()
+  expect(diagnostic).toHaveBeenCalledWith('combat_map_movement_preview', expect.objectContaining({
+    outcome: 'failed', failureStatus: 409, failureCode: 'EXPLORATION_MOVEMENT_BUDGET_EXCEEDED', recoveryAction: 'show_error',
+  }))
+  diagnostic.mockRestore()
 })
 
 it('does not invent a local path when the server preview API is unavailable', async () => {
   const api = fakeApi()
+  const diagnostic = vi.spyOn(diagnostics, 'diagnosticEvent')
   api.previewMapMovement = undefined
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} />)
 
-  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
-  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
+  dragMovementPath('격자 2,1')
 
   expect(await screen.findByText('서버 이동 경로 미리보기를 사용할 수 없습니다.')).toBeInTheDocument()
   expect(screen.queryByRole('dialog', { name: '맵 행동 확인' })).not.toBeInTheDocument()
+  expect(diagnostic).toHaveBeenCalledWith('combat_map_movement_preview', expect.objectContaining({
+    outcome: 'failed', mapId: 'm1', tokenId: 'p1', toX: 2, toY: 1, waypoints: 0, failureClass: 'Error', failureStatus: null,
+  }))
+  diagnostic.mockRestore()
 })
 
 it('keeps the latest destination when previews finish out of order', async () => {
@@ -1146,9 +1296,9 @@ it('keeps the latest destination when previews finish out of order', async () =>
     .mockImplementationOnce(() => new Promise(resolve => { resolveSecond = resolve }))
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} />)
-  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
-  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
-  await user.click(screen.getByRole('button', { name: '격자 0,1' }))
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
+  dragMovementPath('격자 2,1')
+  dragMovementPath('격자 0,1')
 
   resolveSecond({ mapId: 'm1', orderedPositions: [{ x: 1, y: 1 }, { x: 0, y: 1 }], distance: 5, baseMapVersion: 0, fingerprint: 'second' })
   await waitFor(() => expect(screen.getByText('이동: (1,1) → (0,1)')).toBeInTheDocument())
@@ -1160,18 +1310,21 @@ it('keeps the latest destination when previews finish out of order', async () =>
 
 it('reconciles a committed move when the turn response reports a conflict', async () => {
   const api = fakeApi()
+  const diagnostic = vi.spyOn(diagnostics, 'diagnosticEvent')
   const user = userEvent.setup()
   const initial = await api.getCombatMap('a1')
   const moved = { ...initial, tokens: [{ id: 'p1', type: 'PLAYER', x: 2, y: 1 }] }
   api.getCombatMap = vi.fn().mockResolvedValueOnce(initial).mockResolvedValueOnce(moved)
-  api.submitMapAction = vi.fn().mockRejectedValueOnce(Object.assign(new Error('conflict'), { status: 409 }))
+  api.submitMapAction = vi.fn().mockRejectedValueOnce(Object.assign(new Error('conflict'), { status: 409, code: 'STALE_MOVEMENT_PROPOSAL' }))
   render(<CombatMapView adventureId="a1" api={api} />)
-  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
-  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await screen.findByRole('button', { name: /PLAYER.*1,1/ })
+  dragMovementPath('격자 2,1')
   await user.click(screen.getByRole('button', { name: '확인' }))
   expect(await screen.findByRole('button', { name: /PLAYER.*2,1/ })).toBeInTheDocument()
-  expect(screen.getByText('지도 상태가 바뀌었습니다. 최신 이동 경로를 다시 확인하고 확인해주세요.')).toBeInTheDocument()
-  expect(screen.getByRole('dialog', { name: '맵 행동 확인' })).toBeInTheDocument()
+  expect(screen.getByText('맵 이동이 반영되었습니다.')).toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: '맵 행동 확인' })).not.toBeInTheDocument()
+  expect(diagnostic).toHaveBeenCalledWith('combat_map_stale_movement', expect.objectContaining({ outcome: 'committed_map_reconciled', mapId: 'm1', tokenId: 'p1', toX: 2, toY: 1, mapVersion: 0 }))
+  diagnostic.mockRestore()
 })
 
 it('refetches the map when the parent refresh token changes', async () => {
@@ -1222,10 +1375,8 @@ it('refreshes the grid alignment after saving the map draft', async () => {
   await user.click(screen.getByRole('button', { name: '적용' }))
   await user.click(screen.getByRole('button', { name: '벽·문 편집' }))
   await user.click(screen.getByRole('button', { name: '맵 초안 저장' }))
-  await openGridEditor(user)
-  await user.click(screen.getByRole('button', { name: '적용' }))
-
-  expect(api.applyMapGridAlignment).toHaveBeenLastCalledWith('a1', expect.objectContaining({ mapId: 'm2', expectedVersion: 2, imageRevision: 'r2' }))
+  await waitFor(() => expect(api.getMapGridAlignment).toHaveBeenCalledTimes(2))
+  expect(api.getMapGridAlignment).toHaveBeenLastCalledWith('a1')
 })
 
 it('retries a map draft against the latest version after an AI update wins the race', async () => {

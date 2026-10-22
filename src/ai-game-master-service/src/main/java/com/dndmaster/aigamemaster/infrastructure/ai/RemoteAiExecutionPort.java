@@ -11,12 +11,14 @@ import java.net.URI;
 import java.net.http.*;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import io.micrometer.core.instrument.*;
 import org.slf4j.*;
 
 /** Sends the server-completed prompt to the authenticated connection relay API. */
 public final class RemoteAiExecutionPort implements AiExecutionPort {
     private static final Logger log = LoggerFactory.getLogger(RemoteAiExecutionPort.class);
+    private static final Duration CONNECTION_RETRY_DELAY = Duration.ofSeconds(1);
     private final HttpClient client;
     private final ObjectMapper mapper;
     private final URI endpoint;
@@ -39,7 +41,34 @@ public final class RemoteAiExecutionPort implements AiExecutionPort {
         log.info("remote AI execution started requestId={} implementation=remote-relay", AiCallObservability.safe(request.requestId()));
         var trace = new ExecutionTrace();
         devLog(request.requestId(), "relay_dispatch", null, null, null, trace, started, "started", "unknown");
-        AiExecutionResult result = executeInternal(request, trace, started);
+        long deadline = System.nanoTime() + timeout.toNanos();
+        AiExecutionResult result;
+        int retryCount = 0;
+        while (true) {
+            result = executeInternal(request, trace, started, deadline);
+            if (endpoint == null || !isConnectionRetryable(result)) break;
+            if (deadline - System.nanoTime() <= 0) {
+                result = failure(AiExecutionFailure.Reason.TIMEOUT);
+                break;
+            }
+            retryCount++;
+            devLog(request.requestId(), "connection_retry_wait_attempt_" + retryCount, trace.httpStatus,
+                    ((AiExecutionFailure) result).reason().name(), null, trace, started, "retrying", "safe_connection_failure");
+            try {
+                TimeUnit.NANOSECONDS.sleep(Math.min(CONNECTION_RETRY_DELAY.toNanos(), deadline - System.nanoTime()));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        if (retryCount > 0) {
+            devLog(request.requestId(), "connection_retry_complete_attempts_" + (retryCount + 1), trace.httpStatus,
+                    result instanceof AiExecutionFailure failure ? failure.reason().name() : null,
+                    null, trace, started, result instanceof AiExecutionSuccess ? "success" : "failed",
+                    result instanceof AiExecutionSuccess ? "connection_restored"
+                            : ((AiExecutionFailure) result).reason() == AiExecutionFailure.Reason.TIMEOUT
+                                    ? "retry_deadline_expired" : "connection_still_unavailable");
+        }
         String outcome = result instanceof AiExecutionSuccess ? "success" : ((AiExecutionFailure) result).reason().name();
         Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
         if (metrics != null) {
@@ -56,18 +85,21 @@ public final class RemoteAiExecutionPort implements AiExecutionPort {
         devLog(request.requestId(), "execution_complete", trace.httpStatus, null, null, trace, started, outcome, retrySafety(result));
         return result;
     }
-    private AiExecutionResult executeInternal(AiExecutionRequest request, ExecutionTrace trace, long started) {
+    private AiExecutionResult executeInternal(AiExecutionRequest request, ExecutionTrace trace, long started, long deadline) {
         if (endpoint == null) {
             devLog(request.requestId(), "endpoint_unavailable", null, null, null, trace, started, "failed", "safe_not_dispatched");
             return failure(AiExecutionFailure.Reason.CONNECTION_UNAVAILABLE);
         }
         try {
+            Duration remaining = Duration.ofNanos(deadline - System.nanoTime());
+            if (remaining.isZero() || remaining.isNegative())
+                return failure(AiExecutionFailure.Reason.TIMEOUT);
             var body = new RelayRequest(request.soloPlayerId(), request.requestId(), request.workId(), request.completedPrompt(),
                     request.model(), request.reasoning(), request.outputFormat(), request.outputSchema(),
                     request.imageDataUri().isBlank() ? List.of() : List.of(request.imageDataUri()),
                     request.subtasks().stream().map(task -> new RelaySubtask(task.stageId(), task.prompt(), task.outputSchema())).toList(),
-                    System.currentTimeMillis() + timeout.toMillis(), request.ragSearchContext());
-            var httpRequest = HttpRequest.newBuilder(endpoint).timeout(timeout).header("Content-Type", "application/json")
+                    System.currentTimeMillis() + remaining.toMillis(), request.ragSearchContext());
+            var httpRequest = HttpRequest.newBuilder(endpoint).timeout(remaining).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken).POST(HttpRequest.BodyPublishers.ofByteArray(mapper.writeValueAsBytes(body))).build();
             trace.dispatched = true;
             var response = client.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
@@ -126,6 +158,11 @@ public final class RemoteAiExecutionPort implements AiExecutionPort {
         if (result instanceof AiExecutionSuccess) return "unsafe_already_completed";
         return ((AiExecutionFailure) result).reason() == AiExecutionFailure.Reason.CONNECTION_UNAVAILABLE
                 ? "safe_no_connection" : "unknown";
+    }
+    private static boolean isConnectionRetryable(AiExecutionResult result) {
+        if (!(result instanceof AiExecutionFailure failure)) return false;
+        return failure.reason() == AiExecutionFailure.Reason.CONNECTION_UNAVAILABLE
+                || failure.reason() == AiExecutionFailure.Reason.CONNECTION_LOST;
     }
     private static void devLog(String requestId, String stage, Integer httpStatus, String relayFailureType,
                                String exceptionClass, ExecutionTrace trace, long started, String outcome, String retrySafety) {

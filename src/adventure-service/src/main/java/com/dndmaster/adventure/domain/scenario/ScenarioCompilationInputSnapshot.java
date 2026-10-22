@@ -34,6 +34,7 @@ public record ScenarioCompilationInputSnapshot(
         List<StorybookInput> storybooks = documents.stream()
                 .filter(Objects::nonNull)
                 .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType()))
+                .filter(document -> document.role() != ScenarioBundleDocumentRole.MAP)
                 .map(document -> new StorybookInput(document.knowledgeDocumentId().value(), document.extractionVersion(),
                         document.role(), document.documentType()))
                 .toList();

@@ -1,0 +1,16 @@
+@startuml
+ title 사용자 PC의 AI 요청 실행 (remote-agent)
+ participant "AI 게임 마스터" as GM
+ participant "중계 서비스" as Relay
+ participant "사용자 PC 실행기" as Agent
+ GM -> Relay : 사용자·요청 식별자와 실행 요청
+ Relay -> Agent : 인증된 연결로 요청 전달
+ alt 응답 수신
+   Agent --> Relay : 같은 요청 식별자의 응답
+   Relay --> GM : 상관된 실행 결과
+ else 연결 단절·시간 초과·실행 실패
+   Agent --> Relay : 실패 또는 응답 없음
+   Relay --> GM : 명시적 실행 실패
+ end
+ note over GM,Relay : 최종 응답 전 실패는 모험 상태를 바꾸지 않는다.
+@enduml

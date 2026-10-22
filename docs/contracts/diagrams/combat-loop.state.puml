@@ -1,0 +1,10 @@
+@startuml
+ title 전투 진행 상태 (combat-loop)
+ [*] --> PREPARING : 전투 준비
+ PREPARING --> ACTIVE : 초기 자료 준비 완료
+ ACTIVE --> REACTION_PENDING : 반응 발동 조건 발생
+ REACTION_PENDING --> ACTIVE : 반응 선택 해결
+ ACTIVE --> ACTIVE : 행동 확정·차례 진행
+ ACTIVE --> ENDED : 전투 종료 확정
+ ENDED --> [*]
+@enduml

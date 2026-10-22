@@ -55,6 +55,21 @@ public final class PostgresStageArtifactRepository implements StageArtifactRepos
     }
 
     @Override
+    public List<DetailedStage> findDetailedStages(AdventureId adventureId, UUID packageId, long backboneRevision) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
+                "SELECT DISTINCT ON (stage_id) artifact_json FROM adventure_detailed_stage WHERE adventure_id=? AND scenario_package_id=? AND backbone_revision=? ORDER BY stage_id, detailed_stage_revision DESC")) {
+            statement.setObject(1, adventureId.value()); statement.setObject(2, packageId); statement.setLong(3, backboneRevision);
+            try (ResultSet rows = statement.executeQuery()) {
+                List<DetailedStage> result = new java.util.ArrayList<>();
+                while (rows.next()) result.add(read(rows.getString(1), DetailedStage.class));
+                return List.copyOf(result);
+            }
+        } catch (SQLException exception) {
+            throw new StageArtifactPersistenceException("could not load detailed stages", exception);
+        }
+    }
+
+    @Override
     public void saveBackbone(AdventureId adventureId, StageBackbone backbone, long expectedRevision) {
         if (backbone.revision() != expectedRevision + 1) throw new IllegalStateException("stage backbone revision is stale");
         try (Connection connection = dataSource.getConnection()) {

@@ -4,6 +4,7 @@ import com.dndmaster.adventure.application.scenario.compilation.ResolutionExtrac
 import com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -50,14 +51,20 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
 
     @Override
     public List<ResolutionExtractionPort.SourceExcerpt> load(ScenarioSourceBundle bundle) {
-        List<DocumentRequest> storybookDocuments = new java.util.ArrayList<>(bundle.currentRevision().documents().stream()
+        List<DocumentRequest> storybookDocuments = bundle.currentRevision().documents().stream()
                     .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType()))
+                    .filter(document -> document.role() != ScenarioBundleDocumentRole.MAP)
                     .map(document -> new DocumentRequest(document.knowledgeDocumentId().value(), document.extractionVersion()))
-                .toList());
+                .toList();
         List<DocumentRequest> rulebookDocuments = bundle.currentRevision().documents().stream()
                     .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType()))
                     .map(document -> new DocumentRequest(document.knowledgeDocumentId().value(), document.extractionVersion()))
                 .toList();
+        List<com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection> mapDocuments = bundle.currentRevision().documents().stream()
+                    .filter(document -> document.role() == ScenarioBundleDocumentRole.MAP)
+                    .toList();
+        devLog("dev_scenario_source_route outcome=selected bundleId={} expected=map_assets_without_text_search actualStorybookSearchDocumentCount={} actualRulebookSearchDocumentCount={} mapDocumentCount={} mapTextSearchSkippedCount={} mapRoute=source_preview_assets",
+                bundle.id().value(), storybookDocuments.size(), rulebookDocuments.size(), mapDocuments.size(), mapDocuments.size());
         List<ResolutionExtractionPort.SourceExcerpt> scenarioExcerpts = searchPreparationSources(
                 bundle, storybookDocuments, "STORYBOOK", RULE_QUERY,
                 MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION);
@@ -70,8 +77,7 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
         if (!rulebookDocuments.isEmpty() && rulebookExcerpts.isEmpty()) {
                 throw new ResolutionExtractionException("published rulebook evidence is unavailable");
             }
-        List<ResolutionExtractionPort.SourceExcerpt> mapAssets = bundle.currentRevision().documents().stream()
-                    .filter(document -> document.role() == com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAP)
+        List<ResolutionExtractionPort.SourceExcerpt> mapAssets = mapDocuments.stream()
                     .flatMap(document -> loadMapAssets(document).stream())
                     .toList();
         return java.util.stream.Stream.of(scenarioExcerpts, rulebookExcerpts, mapAssets)
@@ -148,25 +154,49 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
 
     private List<ResolutionExtractionPort.SourceExcerpt> loadMapAssets(
             com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection document) {
+        long startedAt = System.nanoTime();
+        devLog("dev_scenario_map_assets outcome=started documentId={} extractionVersion={} expected=source_preview_assets actual=loading",
+                document.knowledgeDocumentId().value(), document.extractionVersion());
         try {
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve(
                             "api/v1/rulebooks/" + document.knowledgeDocumentId().value() + "/source-preview"))
                     .timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                devLog("dev_scenario_map_assets outcome=failed documentId={} extractionVersion={} expectedStatus=2xx actualStatus={} failureClass=HttpStatus recoveryAction=reject_compilation elapsedMs={}",
+                        document.knowledgeDocumentId().value(), document.extractionVersion(), response.statusCode(),
+                        java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
                 throw new ResolutionExtractionException("map source preview lookup failed with status " + response.statusCode());
             }
             SourcePreviewResponse preview = objectMapper.readValue(response.body(), SourcePreviewResponse.class);
-            if (preview.assets() == null) return List.of();
-            return preview.assets().stream().filter(Objects::nonNull).map(asset ->
-                    new ResolutionExtractionPort.SourceExcerpt(document.documentType(), document.knowledgeDocumentId(), document.extractionVersion(),
-                            "asset:" + asset.locator(), "MAP asset=\"" + asset.locator()
-                                    + "\" image=\"" + asset.locator() + "\" confidence=0.9 safety=SAFE"))
+            List<PreviewAsset> assets = preview == null || preview.assets() == null ? List.of() : preview.assets().stream()
+                    .filter(Objects::nonNull).toList();
+            boolean pdf = document.originalFilename().toLowerCase(java.util.Locale.ROOT).endsWith(".pdf");
+            List<String> imageLocators = pdf
+                    ? assets.stream().map(PreviewAsset::pageNumber).filter(Objects::nonNull).distinct()
+                            .map(page -> "page " + page).toList()
+                    : assets.stream().map(PreviewAsset::locator).toList();
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts = imageLocators.stream().map(locator ->
+                    new ResolutionExtractionPort.SourceExcerpt("MAP", document.knowledgeDocumentId(), document.extractionVersion(),
+                            "asset:" + locator, "MAP asset=\"" + locator
+                                    + "\" image=\"" + locator + "\" confidence=0.9 safety=SAFE"))
                     .toList();
+            devLog("dev_scenario_map_assets outcome={} documentId={} extractionVersion={} expectedImageLocatorCount=at_least_1 actualImageLocatorCount={} previewAssetCount={} imageSource={} locators={} elapsedMs={} nextAction={}",
+                    imageLocators.isEmpty() ? "empty" : "completed", document.knowledgeDocumentId().value(), document.extractionVersion(),
+                    imageLocators.size(), assets.size(), pdf ? "rendered_pdf_page" : "source_image_asset", imageLocators,
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt),
+                    imageLocators.isEmpty() ? "continue_compilation_without_map_definition" : "compile_map_image_assets");
+            return excerpts;
         } catch (IOException exception) {
+            devLog("dev_scenario_map_assets outcome=failed documentId={} extractionVersion={} expected=source_preview_assets actual=failure failureClass={} recoveryAction=reject_compilation elapsedMs={}",
+                    document.knowledgeDocumentId().value(), document.extractionVersion(), exception.getClass().getSimpleName(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
             throw new ResolutionExtractionException("map source preview lookup failed", exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
+            devLog("dev_scenario_map_assets outcome=failed documentId={} extractionVersion={} expected=source_preview_assets actual=interrupted failureClass=InterruptedException recoveryAction=abort_compilation elapsedMs={}",
+                    document.knowledgeDocumentId().value(), document.extractionVersion(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
             throw new ResolutionExtractionException("map source preview lookup interrupted", exception);
         }
     }

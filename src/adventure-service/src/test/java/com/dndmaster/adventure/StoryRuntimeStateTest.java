@@ -51,6 +51,25 @@ class StoryRuntimeStateTest {
     }
 
     @Test
+    void stores_story_length_and_calculates_optional_situation_allowance_from_required_graph_size() throws Exception {
+        assertEquals(2, com.dndmaster.adventure.domain.adventure.StoryLength.SHORT.optionalSituationAllowance(5));
+        assertEquals(3, com.dndmaster.adventure.domain.adventure.StoryLength.NORMAL.optionalSituationAllowance(5));
+        assertEquals(5, com.dndmaster.adventure.domain.adventure.StoryLength.LONG.optionalSituationAllowance(5));
+        for (var length : com.dndmaster.adventure.domain.adventure.StoryLength.values()) {
+            assertEquals(1, length.optionalSituationAllowance(1));
+        }
+        StoryRuntimeState started = StoryRuntimeState.start(stage(), com.dndmaster.adventure.domain.adventure.StoryLength.LONG, 5);
+        assertEquals(com.dndmaster.adventure.domain.adventure.StoryLength.LONG, started.storyLength());
+        assertEquals(5, started.optionalSituationAllowance());
+        assertEquals(0, started.optionalSituationsUsed());
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        StoryRuntimeState restored = mapper.readValue(mapper.writeValueAsBytes(started), StoryRuntimeState.class);
+        assertEquals(com.dndmaster.adventure.domain.adventure.StoryLength.LONG, restored.storyLength());
+        assertEquals(5, restored.optionalSituationAllowance());
+        assertEquals(0, restored.optionalSituationsUsed());
+    }
+
+    @Test
     void leaves_available_situation_selection_to_the_gm_after_prerequisites_are_met() {
         DetailedStage stage = stageWithRequiredFollowup();
         StoryRuntimeState selected = StoryRuntimeRules.finishAndSelectNextSituation(
@@ -62,10 +81,69 @@ class StoryRuntimeStateTest {
         assertEquals(null, StoryRuntimeRules.selectNextSituation(selected, stage).activeSituationId());
         assertEquals(List.of("optional", "required-followup"),
                 StoryRuntimeRules.eligibleSituationIds(selected, stage));
-        StoryRuntimeState activated = StoryRuntimeRules.activateSelectedSituation(selected, stage, "required-followup");
+        StoryRuntimeState optionalActivated = StoryRuntimeRules.activateSelectedSituation(selected, stage, "optional");
+        assertEquals(0, optionalActivated.optionalSituationsUsed());
+        StoryRuntimeState optionalFinishedAtLimit = StoryRuntimeRules.finishAndSelectNextSituation(optionalActivated, stage);
+        assertEquals(1, optionalFinishedAtLimit.optionalSituationsUsed());
+        assertEquals(List.of("required-followup"), StoryRuntimeRules.eligibleSituationIds(optionalFinishedAtLimit, stage));
+        StoryRuntimeState optionalFinished = StoryRuntimeRules.finishAndSelectNextSituation(optionalActivated, stage);
+        assertEquals(List.of("required-followup"), StoryRuntimeRules.eligibleSituationIds(optionalFinished, stage));
+        StoryRuntimeState activated = StoryRuntimeRules.activateSelectedSituation(optionalFinished, stage, "required-followup");
         assertEquals("required-followup", activated.activeSituationId());
         assertThrows(IllegalStateException.class,
                 () -> StoryRuntimeRules.activateSelectedSituation(selected, stage, "opening"));
+    }
+
+    @Test
+    void exposes_only_next_situation_candidates_and_includes_candidates_unlocked_by_finishing_active_one() {
+        DetailedStage base = stageWithRequiredFollowup();
+        DetailedStage stage = new DetailedStage(base.scenarioPackageId(), base.backboneRevision(), base.stageId(), base.revision(),
+                base.coreProblem(), base.revelations(), base.threat(), base.pressure(), base.funnel(),
+                java.util.stream.Stream.concat(base.situations().stream(), java.util.stream.Stream.of(
+                        new SituationDefinition("optional-next", List.of(StageIntent.PRESSURE), List.of(), List.of("pressure"),
+                                List.of(), List.of(), List.of(), false, false, List.of(),
+                                com.dndmaster.adventure.domain.scenario.SituationProvenance.GM_SUPPLEMENTED, null, List.of())))
+                        .toList(), base.importantConsequenceIds(), base.sourceRefs());
+        StoryRuntimeState started = StoryRuntimeState.start(stage);
+
+        assertEquals(List.of("optional", "optional-next", "required-followup"),
+                StoryRuntimeRules.availableSituationCandidates(started, stage).stream()
+                        .map(com.dndmaster.adventure.domain.scenario.SituationDefinition::situationId).toList());
+        StoryRuntimeState afterOpening = StoryRuntimeRules.finishAndSelectNextSituation(started, stage);
+        StoryRuntimeState activeOptional = StoryRuntimeRules.activateSelectedSituation(afterOpening, stage, "optional");
+        assertEquals(List.of("required-followup"), StoryRuntimeRules.availableSituationCandidates(activeOptional, stage).stream()
+                .map(com.dndmaster.adventure.domain.scenario.SituationDefinition::situationId).toList());
+    }
+
+    @Test
+    void carries_all_situation_statuses_and_selects_a_graph_eligible_required_situation_in_another_stage() {
+        DetailedStage first = stageWithRequiredFollowup();
+        DetailedStage second = new DetailedStage(packageId, 1, "stage-2", 1, "Reach the cellar",
+                List.of(new RevelationDefinition("cellar-truth", true, List.of(evidence))),
+                new ThreatDefinition("The cellar is guarded", List.of(evidence)),
+                new PressureDefinition("The cellar is flooding", List.of(evidence)),
+                new FunnelDefinition("Reach the bell", List.of("cellar-truth"), List.of(evidence)),
+                List.of(new SituationDefinition("cross-stage-ending", List.of(StageIntent.REVELATION),
+                        List.of("cellar-truth"), List.of(), List.of(), List.of(), List.of(), false, true,
+                        List.of("required-followup"), com.dndmaster.adventure.domain.scenario.SituationProvenance.SOURCE_EXTRACTED,
+                        null, List.of(evidence), null, "The bell is recovered", "The bell is recovered below the brewery.", true)),
+                List.of(), List.of(evidence));
+        List<DetailedStage> stages = List.of(first, second);
+        StoryRuntimeState state = StoryRuntimeState.start(first, stages,
+                com.dndmaster.adventure.domain.adventure.StoryLength.NORMAL, 2);
+        state = StoryRuntimeRules.finishAndSelectNextSituation(state, first);
+        state = StoryRuntimeRules.activateSelectedSituation(state, first, "required-followup");
+        state = StoryRuntimeRules.finishAndSelectNextSituation(state, first);
+
+        assertEquals(List.of("optional", "cross-stage-ending"), StoryRuntimeRules.eligibleSituationIds(state, stages));
+        assertTrue(StoryRuntimeRules.availableSituationCandidates(state, first, stages).stream()
+                .anyMatch(situation -> situation.situationId().equals("cross-stage-ending")));
+        StoryRuntimeState selected = StoryRuntimeRules.activateRequiredSituation(state, first, second,
+                "cross-stage-ending", stages);
+        assertEquals("stage-2", selected.stageId());
+        assertEquals("cross-stage-ending", selected.activeSituationId());
+        assertEquals(com.dndmaster.adventure.domain.runtime.story.SituationStatus.USED,
+                selected.situationStatuses().get("required-followup"));
     }
 
     @Test

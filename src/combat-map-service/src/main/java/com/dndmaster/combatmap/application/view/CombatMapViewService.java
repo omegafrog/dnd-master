@@ -331,6 +331,18 @@ public final class CombatMapViewService {
         if (diagnosticsEnabled()) LOGGER.info("dev_map_spawn_placement outcome=started mapId={} adventureId={} sceneChars={} locationChars={} entryEvidenceChars={}",
                 state.map().id().value(), state.map().adventureId().value(), context.currentScene().length(), context.location().length(),
                 context.entryEvidence().length());
+        boolean fallbackGrid = state.map().layers().stream()
+                .anyMatch(layer -> layer.type().equals("GRID_SOURCE") && layer.value().equals("FALLBACK"));
+        boolean confirmedUserGrid = fallbackGrid && hasConfirmedUserGrid(state.map());
+        if (fallbackGrid && !confirmedUserGrid) {
+            markPlacementRequired(state.map(), owner, state.version(), context);
+            if (diagnosticsEnabled()) LOGGER.info("dev_map_grid_review outcome=required mapId={} actualGridSource=FALLBACK expectedGridSource=PRINTED_or_MANUAL width={} height={} recoveryAction=open_crop_and_grid_preparation",
+                    state.map().id().value(), state.map().grid().width(), state.map().grid().height());
+            throw new MapPlacementRequiredException();
+        }
+        if (diagnosticsEnabled() && confirmedUserGrid) LOGGER.info(
+                "dev_map_grid_review outcome=confirmed mapId={} actualGridSource=FALLBACK confirmedAlignmentVersion={} recoveryAction=use_saved_user_grid",
+                state.map().id().value(), alignments.find(state.map().id()).orElseThrow().version());
         CombatMap prepared = refreshEntryEvidence(state.map(), context);
         List<CombatToken> nonPlayers = prepared.tokens().stream().filter(t -> t.type() != TokenType.PLAYER).toList();
         Set<GridPosition> occupied = nonPlayers.stream().map(CombatToken::position).collect(Collectors.toSet());
@@ -380,8 +392,9 @@ public final class CombatMapViewService {
         tokens.add(new CombatToken(prepared.tokens().stream().filter(t -> t.type() == TokenType.PLAYER).findFirst().map(CombatToken::id)
                 .orElse(context.playerTokenId().map(TokenId::new).orElse(new TokenId(UUID.randomUUID()))),
                 TokenType.PLAYER, resolution.position(), TokenController.PLAYER, new PlayerId(owner.value())));
-        List<MapLayer> activatedLayers = prepared.layers().stream()
-                .filter(layer -> !"MAP_PLACEMENT_STATUS".equals(layer.type())).toList();
+        List<MapLayer> activatedLayers = new ArrayList<>(prepared.layers().stream()
+                .filter(layer -> !Set.of("MAP_PLACEMENT_STATUS", "MAP_ENTERED").contains(layer.type())).toList());
+        activatedLayers.add(new MapLayer("MAP_ENTERED", "true", LayerVisibility.AI_ONLY));
         CombatMap activated = new CombatMap(prepared.id(), prepared.adventureId(), prepared.ruleSetId(), prepared.grid(), prepared.ownerPlayerId(), tokens, prepared.obstacles(), activatedLayers, state.version() + 1, command.commandId(), command.fingerprint(), prepared.spatialFeatures(), prepared.spatialPreparationBlocked());
         activated.replaceDoors(prepared.doors());
         activated.replaceRuntimeState(prepared.runtimeState());
@@ -389,6 +402,59 @@ public final class CombatMapViewService {
         activated.refreshVisibility(0);
         store.activate(owner, activated, state.version(), context.stagePosition(), activated.operationKey(), activated.operationFingerprint());
         return activated;
+    }
+
+    public long bindDefinition(MapId mapId, MapOwnerId owner, UUID definitionId) {
+        Objects.requireNonNull(definitionId, "map definition id must not be null");
+        VersionedOwnedCombatMap state = owned(mapId, owner);
+        Optional<String> bound = state.map().layers().stream().filter(layer -> "MAP_DEFINITION_ID".equals(layer.type())).map(MapLayer::value).findFirst();
+        if (bound.isPresent()) {
+            if (!definitionId.toString().equals(bound.orElseThrow())) throw new IllegalStateException("map definition binding cannot change");
+            return state.version();
+        }
+        if (diagnosticsEnabled()) LOGGER.info("dev_map_definition_bind outcome=started mapId={} definitionId={} expectedVersion={}", mapId.value(), definitionId, state.version());
+        List<MapLayer> layers = new ArrayList<>(state.map().layers());
+        layers.removeIf(layer -> "MAP_DEFINITION_ID".equals(layer.type()));
+        layers.add(new MapLayer("MAP_DEFINITION_ID", definitionId.toString(), LayerVisibility.AI_ONLY));
+        CombatMap map = state.map();
+        UUID commandId = UUID.nameUUIDFromBytes((mapId + ":definition:" + definitionId).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        CombatMap updated = new CombatMap(map.id(), map.adventureId(), map.ruleSetId(), map.grid(), map.ownerPlayerId(),
+                map.tokens(), map.obstacles(), layers, state.version() + 1, commandId, "MAP_DEFINITION_ID|" + definitionId,
+                map.spatialFeatures(), map.spatialPreparationBlocked());
+        updated.preserveControlStateFrom(map);
+        long version = store.update(owner, updated, state.version());
+        if (diagnosticsEnabled()) LOGGER.info("dev_map_definition_bind outcome=completed mapId={} definitionId={} actualVersion={}", mapId.value(), definitionId, version);
+        return version;
+    }
+
+    public Optional<PreparationResult> reuseDefinition(AdventureId adventureId, MapOwnerId owner, UUID definitionId,
+            Integer stagePosition, MapActivationContext context, SpatialPreparationCommand command) {
+        if (diagnosticsEnabled()) LOGGER.info("dev_map_definition_reuse outcome=started adventureId={} definitionId={} stagePosition={}", adventureId.value(), definitionId, stagePosition);
+        var existing = store.findByDefinition(adventureId, owner, definitionId);
+        if (existing.isEmpty()) {
+            if (diagnosticsEnabled()) LOGGER.info("dev_map_definition_reuse outcome=missing adventureId={} definitionId={} recoveryAction=prepare_map", adventureId.value(), definitionId);
+            return Optional.empty();
+        }
+        var state = existing.orElseThrow();
+        if (!state.owner().equals(owner) || !state.map().adventureId().equals(adventureId)) throw new CombatMapAccessDeniedException();
+        if (state.map().spatialPreparationBlocked()) {
+            if (diagnosticsEnabled()) LOGGER.warn("dev_map_definition_reuse outcome=blocked adventureId={} definitionId={} mapId={} recoveryAction=complete_spatial_preparation", adventureId.value(), definitionId, state.map().id().value());
+            return Optional.of(new PreparationResult(state.map().id(), PreparationStatus.BLOCKED, state.version()));
+        }
+        boolean active = store.findByAdventureId(adventureId, owner).map(current -> current.map().id().equals(state.map().id())).orElse(false);
+        boolean visited = active || state.map().layers().stream().anyMatch(layer -> "MAP_ENTERED".equals(layer.type()))
+                || store.wasActivated(adventureId, owner, state.map().id());
+        if (stagePosition != null && !active) {
+            if (visited) store.activate(adventureId, owner, state.map().id(), stagePosition);
+            else {
+                var activated = activateForAdventure(state, owner, context,
+                        new SpatialPreparationCommand(command.commandId(), command.fingerprint(), state.version()));
+                return Optional.of(new PreparationResult(activated.id(), PreparationStatus.READY, activated.version()));
+            }
+        }
+        if (diagnosticsEnabled()) LOGGER.info("dev_map_definition_reuse outcome=reused adventureId={} definitionId={} mapId={} active={} visited={} recoveryAction=preserve_map_state",
+                adventureId.value(), definitionId, state.map().id().value(), active, visited);
+        return Optional.of(new PreparationResult(state.map().id(), PreparationStatus.READY, state.version()));
     }
 
     public enum PreparationStatus { READY, BLOCKED }
@@ -412,16 +478,24 @@ public final class CombatMapViewService {
                         evidenceLine(context.entryEvidence(), "GM_NARRATION"))
                 .withEntryContext(evidenceLine(context.entryEvidence(), "FIRST_NARRATION"), context.location())
                 .withSoloPlayerId(map.ownerPlayerId().value());
-        PreparedMapData generated;
-        try {
-            generated = aiPort.proposeEntryPlacement(request);
-        } catch (RuntimeException exception) {
-            // A placement response is optional. Provider failure or malformed
-            // placement evidence becomes UNRESOLVED and follows the same
-            // manual-placement path as an empty proposal.
-            if (diagnosticsEnabled()) LOGGER.warn("dev_map_spawn_placement outcome=agent_unresolved mapId={} failureClass={} entryEvidenceChars={} recoveryAction=manual_placement_or_retry",
-                    map.id().value(), exception.getClass().getSimpleName(), context.entryEvidence().length());
-            generated = new PreparedMapData(map.grid(), List.of(), Set.of(), List.of());
+        PreparedMapData generated = null;
+        for (int attempt = 1; attempt <= 6; attempt++) {
+            long started = System.nanoTime();
+            if (diagnosticsEnabled()) LOGGER.info("dev_map_entry_retry outcome=started mapId={} attempt={} maxRetries=5 entryEvidenceChars={}",
+                    map.id().value(), attempt, context.entryEvidence().length());
+            try {
+                generated = aiPort.proposeEntryPlacement(request);
+            } catch (RuntimeException exception) {
+                if (diagnosticsEnabled()) LOGGER.warn("dev_map_spawn_placement outcome=agent_unresolved mapId={} attempt={} failureClass={} entryEvidenceChars={} recoveryAction=retry_or_manual_placement",
+                        map.id().value(), attempt, exception.getClass().getSimpleName(), context.entryEvidence().length());
+                generated = new PreparedMapData(map.grid(), List.of(), Set.of(), List.of());
+            }
+            int candidateCount = scenarioPlayerStartCandidates(generated.layers()).size();
+            if (diagnosticsEnabled()) LOGGER.info("dev_map_entry_retry outcome={} mapId={} attempt={} maxRetries=5 expectedCandidatesMin=1 actualCandidates={} elapsedMs={} recoveryAction={}",
+                    candidateCount > 0 ? "completed" : attempt < 6 ? "retrying" : "exhausted", map.id().value(), attempt,
+                    candidateCount, (System.nanoTime() - started) / 1_000_000,
+                    candidateCount > 0 ? "activate_map" : attempt < 6 ? "retry_entry_placement" : "manual_placement");
+            if (candidateCount > 0) break;
         }
         if (diagnosticsEnabled()) LOGGER.info("dev_map_spawn_placement outcome=agent_result mapId={} proposalLayerCount={} resultLayerCount={}",
                 map.id().value(), generated.layers().stream().filter(layer -> "GM_PLAYER_START_PROPOSAL".equals(layer.type())).count(),
@@ -482,7 +556,20 @@ public final class CombatMapViewService {
         VersionedOwnedCombatMap state=owned(id, owner);
         String fingerprint=id+"|"+owner+"|DOOR|"+position+"|"+open; CombatMap replay=replay(id,owner,commandId,fingerprint); if(replay!=null)return replay;
         if(state.version()!=expectedVersion) throw new IllegalStateException("version mismatch");
-        Set<Door> doors=new HashSet<>(state.map().doors()); doors.removeIf(door->door.position().equals(position)); doors.add(new Door(position,open)); state.map().replaceDoors(doors); state.map().refreshVisibility(state.map().visibilitySnapshot()==null?0:state.map().visibilitySnapshot().ruleTurn());
+        Door current = state.map().doors().stream().filter(door -> door.position().equals(position)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("문이 없는 위치입니다"));
+        Door changed;
+        try {
+            changed = open ? current.opened() : new Door(position, false, current.locked());
+        } catch (com.dndmaster.combatmap.domain.CombatMapMovementDeniedException failure) {
+            if (diagnosticsEnabled()) LOGGER.info("dev_map_door_change outcome=rejected mapId={} locked={} requestedOpen={} recoveryAction=resolve_lock_before_opening",
+                    id.value(), current.locked(), open);
+            throw failure;
+        }
+        Set<Door> doors = new HashSet<>(state.map().doors());
+        doors.remove(current); doors.add(changed); state.map().replaceDoors(doors);
+        state.map().refreshVisibility(state.map().visibilitySnapshot()==null?0:state.map().visibilitySnapshot().ruleTurn());
+        if (diagnosticsEnabled()) LOGGER.info("dev_map_door_change outcome=completed mapId={} locked={} requestedOpen={}", id.value(), changed.locked(), open);
         store.update(owner,state.map(),expectedVersion,expectedVersion+1,commandId,fingerprint); return state.map();
     }
 
@@ -586,9 +673,15 @@ public final class CombatMapViewService {
             PlayerMapImageService.validateCrop(MapGridAlignmentService.mapImage(state.map()), crop);
         }
         Set<String> replacedLayers = new HashSet<>(Set.of("MAP_CROP", "MAP_BOUNDARIES", "MAP_LAYOUT_CONFIRMED", "MAP_BOUNDARY_CANDIDATES", "PLAYER_START_CONFIRMED", "MAP_PLACEMENT_STATUS"));
-        if (committedAlignment != null) replacedLayers.add("GRID_BOUNDS");
+        if (committedAlignment != null) replacedLayers.addAll(Set.of("GRID_BOUNDS", "GRID_SOURCE"));
         List<MapLayer> layers = new ArrayList<>(state.map().layers().stream().filter(layer -> !replacedLayers.contains(layer.type())).toList());
-        if (committedAlignment != null) layers.add(new MapLayer("GRID_BOUNDS", alignmentBounds(state.map(), committedAlignment), LayerVisibility.PLAYER_VISIBLE));
+        if (committedAlignment != null) {
+            layers.add(new MapLayer("GRID_BOUNDS", alignmentBounds(state.map(), committedAlignment), LayerVisibility.PLAYER_VISIBLE));
+            layers.add(new MapLayer("GRID_SOURCE", "MANUAL", LayerVisibility.PLAYER_VISIBLE));
+            if (diagnosticsEnabled()) LOGGER.info("dev_map_grid_confirmation outcome=completed mapId={} previousGridSource={} actualGridSource=MANUAL alignmentVersion={} recoveryAction=preserve_confirmed_alignment_for_adventure_entry",
+                    id.value(), state.map().layers().stream().filter(layer -> layer.type().equals("GRID_SOURCE")).map(MapLayer::value).findFirst().orElse("missing"),
+                    committedAlignment.version());
+        }
         if (crop != null && !crop.isBlank()) layers.add(new MapLayer("MAP_CROP", crop.trim(), LayerVisibility.PLAYER_VISIBLE));
         if (!nextBoundaries.isEmpty()) layers.add(new MapLayer("MAP_BOUNDARIES", nextBoundaries.stream().map(MapBoundary::encoded).sorted().collect(java.util.stream.Collectors.joining(";")), LayerVisibility.PLAYER_VISIBLE));
         layers.add(new MapLayer("MAP_LAYOUT_CONFIRMED", layoutConfirmationValue(id), LayerVisibility.PLAYER_VISIBLE));
@@ -596,7 +689,8 @@ public final class CombatMapViewService {
                 confirmedPlayerStart.x() + "," + confirmedPlayerStart.y(), LayerVisibility.PLAYER_VISIBLE));
         CombatMap updated = new CombatMap(state.map().id(), state.map().adventureId(), state.map().ruleSetId(), state.map().grid(),
                 state.map().ownerPlayerId(), state.map().tokens(), nextObstacles, layers, expectedVersion + 1, commandId, fingerprint, state.map().spatialFeatures(), state.map().spatialPreparationBlocked());
-        updated.replaceDoors(nextDoors);
+        updated.replaceDoors(nextDoors.stream().map(door -> state.map().doors().stream()
+                .filter(existing -> existing.position().equals(door.position())).findFirst().orElse(door)).toList());
         updated.replaceRuntimeState(state.map().runtimeState());
         updated.replaceHostileObservations(state.map().hostileObservations());
         updated.refreshVisibility(state.map().visibilitySnapshot() == null ? 0 : state.map().visibilitySnapshot().ruleTurn());
@@ -610,16 +704,33 @@ public final class CombatMapViewService {
         return "USER|ALIGNMENT_VERSION=" + version;
     }
 
+    private boolean hasConfirmedUserGrid(CombatMap map) {
+        if (alignments == null) return false;
+        MapGridAlignment alignment = alignments.find(map.id()).orElse(null);
+        return alignment != null
+                && alignment.imageRevision().equals(MapGridAlignmentService.imageRevision(map))
+                && map.layers().stream().anyMatch(layer -> layer.type().equals("MAP_LAYOUT_CONFIRMED")
+                        && layer.value().equals("USER|ALIGNMENT_VERSION=" + alignment.version()));
+    }
+
     public CombatMap calibrateGrid(MapId id, MapOwnerId owner, long expectedVersion, GridCalibrationRequest request) {
         VersionedOwnedCombatMap state = owned(id, owner);
         if (state.version() != expectedVersion) throw new IllegalStateException("version mismatch");
         CombatMap current = state.map();
         GridSpec nextGrid = new GridSpec(request.width(), request.height(), request.cellSize(), current.grid().distanceUnit());
-        if (current.tokens().stream().anyMatch(token -> !nextGrid.contains(token.position()))
+        boolean dimensionsChanged = current.grid().width() != nextGrid.width() || current.grid().height() != nextGrid.height();
+        int previousBoundaryCount = current.boundaries().size();
+        if (diagnosticsEnabled()) LOGGER.info("dev_map_grid_calibration outcome=started mapId={} expectedVersion={} actualVersion={} previousGrid={}x{} nextGrid={}x{} previousBoundaries={} dimensionsChanged={}",
+                id.value(), expectedVersion, state.version(), current.grid().width(), current.grid().height(), nextGrid.width(), nextGrid.height(), previousBoundaryCount, dimensionsChanged);
+        boolean otherContentOutside = current.tokens().stream().anyMatch(token -> !nextGrid.contains(token.position()))
                 || current.obstacles().stream().anyMatch(position -> !nextGrid.contains(position))
                 || current.doors().stream().anyMatch(door -> !nextGrid.contains(door.position()))
-                || current.spatialFeatures().stream().flatMap(feature -> feature.cells().stream()).anyMatch(position -> !nextGrid.contains(position))
-                || current.boundaries().stream().anyMatch(boundary -> !boundary.inside(nextGrid))) {
+                || current.spatialFeatures().stream().flatMap(feature -> feature.cells().stream()).anyMatch(position -> !nextGrid.contains(position));
+        long boundariesOutside = current.boundaries().stream().filter(boundary -> !boundary.inside(nextGrid)).count();
+        if (otherContentOutside || (!dimensionsChanged && boundariesOutside > 0)) {
+            if (diagnosticsEnabled()) LOGGER.warn("dev_map_grid_calibration outcome=rejected mapId={} expectedGrid={}x{} actualGrid={}x{} expectedOutsideContent=0 actualOtherContentOutside={} expectedOutsideBoundaries=0 actualOutsideBoundaries={} recoveryAction={}",
+                    id.value(), nextGrid.width(), nextGrid.height(), current.grid().width(), current.grid().height(), otherContentOutside,
+                    boundariesOutside, otherContentOutside ? "keep_existing_grid_and_reposition_content" : "change_grid_dimensions_to_discard_stale_boundaries");
             throw new IllegalArgumentException("new grid dimensions would exclude saved map content");
         }
         GridPosition oldPlayer = current.tokens().stream().filter(token -> token.type() == TokenType.PLAYER)
@@ -634,8 +745,11 @@ public final class CombatMapViewService {
         if (nextPlayer != null && (obstacles.contains(nextPlayer) || doors.stream().anyMatch(door -> !door.open() && door.position().equals(nextPlayer)))) {
             throw new IllegalArgumentException("player start cell is blocked");
         }
+        Set<String> replacedLayers = new HashSet<>(Set.of("GRID_BOUNDS", "GRID_SOURCE", "GRID_META", "MAP_LAYOUT_CONFIRMED", "MAP_BOUNDARY_CANDIDATES"));
+        // Wall coordinates refer to the old grid cells; an explicit dimension change requires redrawing them on the new grid.
+        if (dimensionsChanged) replacedLayers.add("MAP_BOUNDARIES");
         List<MapLayer> layers = new ArrayList<>(current.layers().stream()
-                .filter(layer -> !Set.of("GRID_BOUNDS", "GRID_SOURCE", "GRID_META", "MAP_LAYOUT_CONFIRMED", "MAP_BOUNDARY_CANDIDATES").contains(layer.type())).toList());
+                .filter(layer -> !replacedLayers.contains(layer.type())).toList());
         layers.add(new MapLayer("GRID_BOUNDS", request.originX() + "," + request.originY() + ","
                 + request.width() * request.cellSize() + "," + request.height() * request.cellSize() + ","
                 + request.imageWidth() + "," + request.imageHeight(), LayerVisibility.PLAYER_VISIBLE));
@@ -649,6 +763,9 @@ public final class CombatMapViewService {
         calibrated.replaceHostileObservations(current.hostileObservations());
         calibrated.refreshVisibility(current.visibilitySnapshot() == null ? 0 : current.visibilitySnapshot().ruleTurn());
         store.update(owner, calibrated, expectedVersion, expectedVersion + 1, calibrated.operationKey(), calibrated.operationFingerprint());
+        if (diagnosticsEnabled()) LOGGER.info("dev_map_grid_calibration outcome=completed mapId={} previousGrid={}x{} nextGrid={}x{} previousBoundaries={} discardedBoundaries={} recoveryAction={}",
+                id.value(), current.grid().width(), current.grid().height(), nextGrid.width(), nextGrid.height(), previousBoundaryCount,
+                dimensionsChanged ? previousBoundaryCount : 0, dimensionsChanged ? "redetect_or_redraw_boundaries" : "preserve_boundaries");
         return calibrated;
     }
 
@@ -856,9 +973,12 @@ public final class CombatMapViewService {
                 .map(MapLayer::value).map(CombatMapViewService::parsePosition).flatMap(Optional::stream).findFirst();
     }
     private static List<PlayerStartCandidate> scenarioPlayerStartCandidates(CombatMap map) {
+        return scenarioPlayerStartCandidates(map.layers());
+    }
+    private static List<PlayerStartCandidate> scenarioPlayerStartCandidates(List<MapLayer> layers) {
         List<PlayerStartCandidate> result = new ArrayList<>();
-        boolean hasDedicatedResult = map.layers().stream().anyMatch(layer -> "GM_ENTRY_PLACEMENT_RESULT".equals(layer.type()));
-        for (MapLayer layer : map.layers()) {
+        boolean hasDedicatedResult = layers.stream().anyMatch(layer -> "GM_ENTRY_PLACEMENT_RESULT".equals(layer.type()));
+        for (MapLayer layer : layers) {
             if (hasDedicatedResult && !"GM_ENTRY_PLACEMENT_RESULT".equals(layer.type())) continue;
             if (!hasDedicatedResult && !"GM_PLAYER_START_PROPOSAL".equals(layer.type())) continue;
             try {

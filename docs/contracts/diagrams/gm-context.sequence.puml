@@ -1,0 +1,26 @@
+@startuml
+ title GM 입력과 대화 압축 (gm-context)
+ participant "모험 런타임" as Runtime
+ participant "캐릭터·시츄에이션 정본" as Canonical
+ participant "대화 저장소" as Conversation
+ participant "압축 처리" as Compaction
+ participant "GM 입력 조립" as Context
+ participant "AI 게임 마스터" as GM
+ Runtime -> Canonical : 최신 모험·캐릭터 상태 조회
+ Canonical --> Runtime : 정본 상태
+ Runtime -> Conversation : 압축 요약·최근 대화 조회
+ Conversation --> Runtime : 저장된 대화 이력
+ opt 최근 대화가 압축 기준 초과
+   Runtime -> Compaction : 최근 대화만 압축
+   Compaction --> Runtime : 요약 또는 실패
+   alt 압축 성공
+     Runtime -> Conversation : 요약 저장·오래된 최근 대화 정리
+   else 압축 실패
+     Runtime -> Context : 기존 확정 대화 유지 지시
+   end
+ end
+ Runtime -> Context : 정본·요약·최근 원문·근거 결합
+ Context -> GM : 요청 문맥 전달
+ GM --> Context : 구조화 응답
+ Context --> Runtime : 응답
+@enduml

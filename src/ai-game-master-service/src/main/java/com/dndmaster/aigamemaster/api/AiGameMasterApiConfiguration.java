@@ -152,14 +152,13 @@ public class AiGameMasterApiConfiguration {
                             new GmPrompt("ROLE=MAP_ENTRY_PLACEMENT_AGENT\n"
                             + "TARGET_SCENE=" + input.targetScene() + "\n"
                             + "LOCATION=" + input.location() + "\n"
-                            + "FIRST_NARRATION=" + input.firstNarration() + "\n"
                             + "PLAYER_ACTION=" + input.action() + "\n"
                             + "GM_JUDGMENT=" + input.judgment() + "\n"
-                            + "GM_NARRATION=" + input.narration() + "\n"
+                            + "ENTRY_NARRATION=" + (input.narration().isBlank() ? input.firstNarration() : input.narration()) + "\n"
                             + "MAP_DATA=" + input.mapData() + "\n"
                             + "MAP_IMAGE=" + (input.imageDataUri().isBlank() ? "not provided" : "provided; inspect the attached image") + "\n"
-                            + "TASK=Choose a valid player position on the supplied map image using the saved scene, location, first narration, player action, GM judgment, and GM narration. A new door or stair transition is not required when TARGET_SCENE, LOCATION, or FIRST_NARRATION already establishes that the party is inside this mapped area. For that case, locate the described room or encounter area and choose walkable ground consistent with the actor's described position and nearby landmarks. For a completed door crossing, choose floor immediately inside the doorway; for DESCEND_STAIRS, choose destination-floor ground immediately beyond the visible stairs. Do not invent a transition. MAP_DATA.validGridCellCenterBoundsNormalized gives the allowed image-coordinate rectangle for cell centers; every candidate point MUST lie inside those xMin/xMax/yMin/yMax bounds. First visually identify the confirmed grid rectangle on the image, then choose a point inside both that rectangle and the stated normalized bounds. Do not calculate a grid cell, count rows or columns, infer a map side, or choose the room center unless the narrative places the actor there. The server converts your image point to the confirmed grid.\n"
-                            + "OUTPUT_CONTRACT=Return exactly one JSON object with status, entryInterpretation, candidates, and reason. status must be RESOLVED, AMBIGUOUS, or UNRESOLVED. entryInterpretation must contain transition, targetScene, anchor, placementRelation, and evidence. When the party is already in the mapped area, transition should describe the established presence rather than claiming a new crossing. candidates must be an array of at most three ranked objects with exitPoint, confidence, source, anchor, reason, and evidence. exitPoint must contain xNormalized and yNormalized: decimal image coordinates from 0 to 1, where 0,0 is the supplied image's top-left edge and 1,1 is its bottom-right edge. Never return grid indices, pixels, rows, columns, x/y fields, or map measurements. evidence must contain concrete quoted narrative facts and a description of the matching map feature. Return UNRESOLVED with an empty candidates array only when the saved scene/location cannot be matched to the map image, or no reasonable walkable position can be localized. If a reasonable area is supported but several positions are possible, return them ranked instead of returning an empty array.\n"
+                            + "TASK=Choose a valid player position on the supplied map image using the destination scene, location, PLAYER_ACTION, GM_JUDGMENT, and ENTRY_NARRATION (the narration of entering this situation, not the adventure opening). A new door or stair transition is not required when TARGET_SCENE, LOCATION, or ENTRY_NARRATION already establishes that the party is inside this mapped area. For that case, locate the described room or encounter area and choose walkable ground consistent with the actor's described position and nearby landmarks. For a completed door crossing, choose floor immediately inside the doorway; for DESCEND_STAIRS, choose destination-floor ground immediately beyond the visible stairs. Do not invent a transition. MAP_DATA.validGridCellCenterBoundsNormalized gives the allowed image-coordinate rectangle for cell centers; every candidate point MUST lie inside those xMin/xMax/yMin/yMax bounds. First visually identify the confirmed grid rectangle on the image, then choose a point inside both that rectangle and the stated normalized bounds. Use an explicitly stated map direction such as south in PLAYER_ACTION as evidence; do not infer a direction merely from cellar or downstairs. Do not calculate a grid cell or count rows or columns. Do not choose the room center unless the narrative places the actor there. The server converts your image point to the confirmed grid.\n"
+                            + "OUTPUT_CONTRACT=Return exactly one JSON object with status, entryInterpretation, candidates, and reason. status must be RESOLVED, AMBIGUOUS, or UNRESOLVED. entryInterpretation must contain transition, targetScene, anchor, placementRelation, and evidence. When the party is already in the mapped area, transition should describe the established presence rather than claiming a new crossing. candidates must be an array of at most three ranked objects with exitPoint, confidence, source, anchor, reason, and evidence. exitPoint must contain xNormalized and yNormalized: decimal fractions of the full attached image width and height (not the cropped area) from 0 to 1, where 0,0 is the supplied image's top-left edge and 1,1 is its bottom-right edge. Never return grid indices, pixels, rows, columns, x/y fields, or map measurements. evidence must contain concrete quoted narrative facts and a description of the matching map feature. Return UNRESOLVED with an empty candidates array only when the saved scene/location cannot be matched to the map image, or no reasonable walkable position can be localized. If a reasonable area is supported but several positions are possible, return them ranked instead of returning an empty array.\n"
                             + "Do not use markdown, code fences, or any text outside the JSON object.", input.imageDataUri()),
                     text -> parseEntryPlacement(mapper, text)))
                         .orTimeout(180, java.util.concurrent.TimeUnit.SECONDS)
@@ -223,7 +222,17 @@ public class AiGameMasterApiConfiguration {
     @Bean
     SpatialFeaturePlacementModelPort spatialFeaturePlacementModelPort(GmCompletionAdapter adapter,
             com.fasterxml.jackson.databind.ObjectMapper mapper) {
+        final com.fasterxml.jackson.databind.JsonNode outputSchema;
+        try {
+            outputSchema = mapper.readTree("""
+                    {"type":"object","additionalProperties":false,"required":["candidates","enemies"],"properties":{
+                      "candidates":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["featureId","type","cells","required","evidenceReference"],"properties":{"featureId":{"type":"string","format":"uuid"},"type":{"type":"string"},"cells":{"type":"array","items":{"type":"string"}},"required":{"type":"boolean"},"evidenceReference":{"type":"string"}}}},
+                      "enemies":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["scenarioId","positions"],"properties":{"scenarioId":{"type":"string"},"positions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["x","y"],"properties":{"x":{"type":"number","minimum":0,"maximum":1},"y":{"type":"number","minimum":0,"maximum":1}}}}}}}
+                    }}
+                    """);
+        } catch (java.io.IOException exception) { throw new IllegalStateException("spatial placement output schema is invalid", exception); }
         return input -> adapter.complete(input.soloPlayerId(), "spatial-feature-placement-" + UUID.randomUUID(),
+                new com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt(
                 "ROLE=SPATIAL_FEATURE_PLACEMENT_AGENT\n"
                         + "STORY_PLAN_REFERENCE=" + input.scenarioPackageVersion() + "\n"
                         + "ATTEMPT=" + input.attempt() + "\n"
@@ -231,29 +240,55 @@ public class AiGameMasterApiConfiguration {
                         + "GRID=" + input.gridWidth() + "x" + input.gridHeight() + "\n"
                         + "OBSTACLES=" + input.obstacles() + "\n"
                         + "REQUIREMENTS=" + input.requirements() + "\n"
-                        + "TASK=Return only occupied cells from each requirement's authoritativeCells. Never invent a feature id, type, evidence reference, or coordinate.\n"
-                        + "OUTPUT_CONTRACT={\"candidates\":[{\"featureId\":\"uuid\",\"type\":\"TRAP\",\"cells\":[\"x,y\"],\"required\":true,\"evidenceReference\":\"exact supplied reference\"}]}\n"
-                        + "Do not use markdown or text outside the JSON object.",
-                text -> parseSpatialFeaturePlacement(mapper, text));
+                        + "ENCOUNTERS=" + input.encounters() + "\n"
+                        + "MAP_LAYOUT=" + input.mapLayoutContext() + "\n"
+                        + "MAP_IMAGE=" + (input.imageDataUri().isBlank() ? "not provided" : "attached; inspect the map image") + "\n"
+                        + "TASK=Return feature cells only from authoritativeCells. For each required encounter, return exactly count normalized positions in its source-backed encounter entry. Never invent ids, scenario ids, or encounter counts.\n"
+                        + "OUTPUT_CONTRACT={\"candidates\":[{\"featureId\":\"uuid\",\"type\":\"TRAP\",\"cells\":[\"x,y\"],\"required\":true,\"evidenceReference\":\"exact supplied reference\"}],\"enemies\":[{\"scenarioId\":\"exact supplied id\",\"positions\":[{\"x\":0.25,\"y\":0.5}]}]}\n"
+                        + "Do not use markdown or text outside the JSON object.", input.imageDataUri()),
+                text -> parseSpatialFeaturePlacement(mapper, text), outputSchema);
     }
 
     private static SpatialFeaturePlacementModelPort.PlacementOutput parseSpatialFeaturePlacement(
             com.fasterxml.jackson.databind.ObjectMapper mapper, String text) {
         try {
             var root = mapper.readTree(text);
-            if (root == null || !root.path("candidates").isArray()) throw new IllegalArgumentException("candidates are required");
+            requireFields(root, java.util.Set.of("candidates", "enemies"), "placement response");
+            if (!root.path("candidates").isArray() || !root.path("enemies").isArray()) throw new IllegalArgumentException("candidate and enemy arrays are required");
             List<SpatialFeaturePlacementModelPort.PlacementCandidate> candidates = new java.util.ArrayList<>();
             for (var item : root.path("candidates")) {
+                requireFields(item, java.util.Set.of("featureId", "type", "cells", "required", "evidenceReference"), "feature candidate");
+                if (!item.path("featureId").isTextual() || !item.path("type").isTextual() || !item.path("cells").isArray()
+                        || !item.path("required").isBoolean() || !item.path("evidenceReference").isTextual())
+                    throw new IllegalArgumentException("feature candidate fields have invalid types");
                 List<String> cells = new java.util.ArrayList<>();
-                if (item.path("cells").isArray()) item.path("cells").forEach(cell -> cells.add(cell.asText()));
+                item.path("cells").forEach(cell -> { if (!cell.isTextual()) throw new IllegalArgumentException("feature cell must be text"); cells.add(cell.asText()); });
                 candidates.add(new SpatialFeaturePlacementModelPort.PlacementCandidate(
                         UUID.fromString(item.path("featureId").asText()), item.path("type").asText(), cells,
                         item.path("required").asBoolean(), item.path("evidenceReference").asText("")));
             }
-            return new SpatialFeaturePlacementModelPort.PlacementOutput(candidates);
+            List<SpatialFeaturePlacementModelPort.EnemyCandidate> enemies = new java.util.ArrayList<>();
+            for (var item : root.path("enemies")) {
+                requireFields(item, java.util.Set.of("scenarioId", "positions"), "enemy candidate");
+                if (!item.path("scenarioId").isTextual() || !item.path("positions").isArray()) throw new IllegalArgumentException("enemy candidate fields have invalid types");
+                List<SpatialFeaturePlacementModelPort.Position> positions = new java.util.ArrayList<>();
+                if (item.path("positions").isArray()) for (var point : item.path("positions")) {
+                    requireFields(point, java.util.Set.of("x", "y"), "enemy position");
+                    if (!point.path("x").isNumber() || !point.path("y").isNumber()) throw new IllegalArgumentException("enemy position coordinates are required");
+                    positions.add(new SpatialFeaturePlacementModelPort.Position(point.path("x").asDouble(), point.path("y").asDouble()));
+                }
+                enemies.add(new SpatialFeaturePlacementModelPort.EnemyCandidate(item.path("scenarioId").asText(), positions));
+            }
+            return new SpatialFeaturePlacementModelPort.PlacementOutput(candidates, enemies);
         } catch (RuntimeException | java.io.IOException exception) {
             throw new IllegalArgumentException("invalid spatial feature placement response", exception);
         }
+    }
+
+    private static void requireFields(com.fasterxml.jackson.databind.JsonNode node, java.util.Set<String> fields, String label) {
+        if (node == null || !node.isObject()) throw new IllegalArgumentException(label + " must be an object");
+        java.util.Set<String> actual = new java.util.HashSet<>(); node.fieldNames().forEachRemaining(actual::add);
+        if (!actual.equals(fields)) throw new IllegalArgumentException(label + " fields differ from fixed contract");
     }
 
     private static MapEntryPlacementModelPort.EntryPlacementOutput parseEntryPlacement(

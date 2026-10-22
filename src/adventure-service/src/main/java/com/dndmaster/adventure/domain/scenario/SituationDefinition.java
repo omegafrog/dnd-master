@@ -8,7 +8,38 @@ public record SituationDefinition(String situationId, List<StageIntent> intents,
                                   List<String> funnelPredicateIds, List<String> importantConsequenceIds, boolean opening,
                                   boolean required, List<String> prerequisiteSituationIds,
                                   SituationProvenance provenance, java.util.UUID mapDefinitionId,
-                                  List<ScenarioSourceReference> sourceRefs, Boolean mapNeeded) {
+                                  List<ScenarioSourceReference> sourceRefs, Boolean mapNeeded,
+                                  String title, String description, boolean isEnding, List<String> combatScenarioIds) {
+    public SituationDefinition(String situationId, List<StageIntent> intents,
+            List<String> revelationIds, List<String> pressureIds, List<String> funnelIds,
+            List<String> funnelPredicateIds, List<String> importantConsequenceIds, boolean opening,
+            boolean required, List<String> prerequisiteSituationIds, SituationProvenance provenance,
+            java.util.UUID mapDefinitionId, List<ScenarioSourceReference> sourceRefs, Boolean mapNeeded,
+            String title, String description, boolean isEnding) {
+        this(situationId, intents, revelationIds, pressureIds, funnelIds, funnelPredicateIds,
+                importantConsequenceIds, opening, required, prerequisiteSituationIds, provenance,
+                mapDefinitionId, sourceRefs, mapNeeded, title, description, isEnding, null);
+    }
+    public SituationDefinition(String situationId, List<StageIntent> intents,
+            List<String> revelationIds, List<String> pressureIds, List<String> funnelIds,
+            List<String> funnelPredicateIds, List<String> importantConsequenceIds, boolean opening,
+            boolean required, List<String> prerequisiteSituationIds, SituationProvenance provenance,
+            java.util.UUID mapDefinitionId, List<ScenarioSourceReference> sourceRefs, Boolean mapNeeded,
+            String title, String description) {
+        this(situationId, intents, revelationIds, pressureIds, funnelIds, funnelPredicateIds,
+                importantConsequenceIds, opening, required, prerequisiteSituationIds, provenance,
+                mapDefinitionId, sourceRefs, mapNeeded, title, description, false);
+    }
+    public SituationDefinition(String situationId, List<StageIntent> intents,
+            List<String> revelationIds, List<String> pressureIds, List<String> funnelIds,
+            List<String> funnelPredicateIds, List<String> importantConsequenceIds, boolean opening,
+            boolean required, List<String> prerequisiteSituationIds, SituationProvenance provenance,
+            java.util.UUID mapDefinitionId, List<ScenarioSourceReference> sourceRefs, Boolean mapNeeded) {
+        this(situationId, intents, revelationIds, pressureIds, funnelIds, funnelPredicateIds,
+                importantConsequenceIds, opening, required, prerequisiteSituationIds, provenance,
+                mapDefinitionId, sourceRefs, mapNeeded, situationId, "준비된 상황");
+    }
+
     public SituationDefinition(String situationId, List<StageIntent> intents,
             List<String> revelationIds, List<String> pressureIds, List<String> funnelIds,
             List<String> funnelPredicateIds, List<String> importantConsequenceIds, boolean opening,
@@ -37,11 +68,21 @@ public record SituationDefinition(String situationId, List<StageIntent> intents,
         provenance = Objects.requireNonNull(provenance, "situation provenance must not be null");
         sourceRefs = List.copyOf(Objects.requireNonNull(sourceRefs, "situation source refs must not be null"));
         mapNeeded = mapNeeded == null ? mapDefinitionId != null : mapNeeded;
+        title = requiredText(title, "situation title");
+        description = requiredText(description, "situation description");
+        combatScenarioIds = combatScenarioIds == null ? null : List.copyOf(combatScenarioIds);
+        if (title.codePointCount(0, title.length()) > 120) throw new IllegalArgumentException("situation title is too long");
+        if (description.codePointCount(0, description.length()) > 2000) throw new IllegalArgumentException("situation description is too long");
         if (mapNeeded && mapDefinitionId == null) throw new IllegalArgumentException("map-needed situation requires a map definition");
         if (intents.isEmpty()) throw new IllegalArgumentException("situation must have a stage intent");
         if (revelationIds.isEmpty() && pressureIds.isEmpty() && funnelIds.isEmpty() && funnelPredicateIds.isEmpty() && importantConsequenceIds.isEmpty()) {
             throw new IllegalArgumentException("situation must reference a stage intent target");
         }
+    }
+
+    private static String requiredText(String value, String field) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " is required");
+        return value.trim();
     }
 
     public SituationDefinition(String situationId, List<StageIntent> intents, List<String> revelationIds,

@@ -13,12 +13,17 @@ public interface ScenarioCompilationAgentPort {
         return compile(request);
     }
 
-    record ScenarioCompilationAgentRequest(String operationKey, String storybookContext) {
+    record ScenarioCompilationAgentRequest(String operationKey, String storybookContext, String validationFeedback) {
+        public ScenarioCompilationAgentRequest(String operationKey, String storybookContext) {
+            this(operationKey, storybookContext, "");
+        }
+
         public ScenarioCompilationAgentRequest {
             if (operationKey == null || operationKey.isBlank()) throw new IllegalArgumentException("operation key is required");
             if (storybookContext == null || storybookContext.isBlank()) throw new IllegalArgumentException("storybook context is required");
             operationKey = operationKey.trim();
             storybookContext = storybookContext.trim();
+            validationFeedback = validationFeedback == null ? "" : validationFeedback.trim();
         }
     }
 

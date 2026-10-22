@@ -180,6 +180,19 @@ public class CombatMapController {
         return GmCombatMapResponse.from(mapViewService.displayForGm(new MapId(mapId), new MapOwnerId(ownerId)));
     }
 
+    @GetMapping("/internal/v1/combat-map-source-image")
+    SourceMapImageResponse sourceMapImage(@RequestParam UUID sourceDocumentId, @RequestParam String locator,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
+        if (mapImageEvidence == null) throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "map image source is unavailable");
+        var image = mapImageEvidence.load(sourceDocumentId, locator)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "map image asset not found"));
+        return new SourceMapImageResponse(image.contentType(), image.dataUri());
+    }
+    public record SourceMapImageResponse(String contentType, String imageDataUri) {}
+
     @PostMapping("/internal/v1/combat-maps/{mapId}/tactical-triggers")
     public CombatMapAiStateResponse applyTacticalTrigger(@PathVariable UUID mapId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
@@ -216,11 +229,29 @@ public class CombatMapController {
         }
         SpatialPreparationCommand preparationCommand = new SpatialPreparationCommand(
                 request.commandId(), request.operationFingerprint(), request.expectedVersion());
+        SpatialFeaturePlacementBatch preparationBatch = spatialBatch(request);
+        if (request.mapDefinitionId() != null) {
+            var reused = mapViewService.reuseDefinition(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()),
+                    request.mapDefinitionId(), null, null, preparationCommand);
+            if (reused.isPresent()) {
+                var result = reused.orElseThrow();
+                var prepared = mapViewService.prepareSpatialFeatures(result.mapId(), new MapOwnerId(request.ownerId()),
+                        preparationBatch, request.turnIndex(), new SpatialPreparationCommand(request.commandId(),
+                                request.operationFingerprint(), result.version()));
+                if (!prepared.activationAllowed()) return new PrepareResponse(result.mapId().value(), PrepareStatus.BLOCKED, prepared.warningCount());
+                if (request.stagePosition() != null) {
+                    var activated = mapViewService.reuseDefinition(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()),
+                            request.mapDefinitionId(), request.stagePosition(), entryActivationContext(request),
+                            activationCommand(request, prepared.version())).orElseThrow();
+                    return new PrepareResponse(activated.mapId().value(), activated.activationAllowed() ? PrepareStatus.READY : PrepareStatus.BLOCKED, prepared.warningCount());
+                }
+                return new PrepareResponse(result.mapId().value(), PrepareStatus.READY, prepared.warningCount());
+            }
+        }
         var preparationOwner = new MapOwnerId(request.ownerId());
         var preparationAdventure = new AdventureId(request.adventureId());
         var replay = mapViewService.replaySpatialPreparation(preparationAdventure, preparationOwner, preparationCommand);
         if (replay.isPresent()) return prepareResponse(replay.get());
-        SpatialFeaturePlacementBatch preparationBatch = spatialBatch(request);
         Set<GridPosition> authoredObstacles = authoredPositions(request.obstacles(), "obstacles");
         authoredObstacles.addAll(authoredPositions(request.walls(), "walls"));
         List<Door> authoredDoors = authoredPositions(request.doors(), "doors").stream()
@@ -240,8 +271,10 @@ public class CombatMapController {
                 : mapViewService.prepareTactical(preparationOwner, preparationAdventure,
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.tacticalScene(),
                         preparationBatch, request.turnIndex(), preparationCommand);
-        PrepareResponse preparationResponse = prepareResponse(preparationResult);
-        long preparedVersion = preparationResult.version();
+        long preparedVersion = request.mapDefinitionId() == null ? preparationResult.version()
+                : mapViewService.bindDefinition(preparationResult.mapId(), preparationOwner, request.mapDefinitionId());
+        PrepareResponse preparationResponse = new PrepareResponse(preparationResult.mapId().value(),
+                preparationResult.activationAllowed() ? PrepareStatus.READY : PrepareStatus.BLOCKED, preparationResult.warningCount());
         if (!preparationResult.activationAllowed()) return preparationResponse;
         if (request.stagePosition() != null) {
             java.util.Optional<GridPosition> candidate = request.playerSpawnX() == null || request.playerSpawnY() == null
@@ -255,6 +288,30 @@ public class CombatMapController {
             if (!activation.activationAllowed()) return new PrepareResponse(activation.mapId().value(), PrepareStatus.BLOCKED, 0);
         }
         return preparationResponse;
+    }
+
+    @PostMapping("/internal/v1/combat-maps/reuse")
+    public PrepareResponse reuse(@RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody(required = false) PrepareRequest request) {
+        requestGuard.internal(token);
+        requireRequest(request, "map reuse request is required");
+        requireIdempotencyKey(idempotencyKey, request.commandId());
+        if (request.adventureId() == null || request.ownerId() == null || request.mapDefinitionId() == null
+                || request.stagePosition() == null || request.situationId() == null || request.situationRevision() == null
+                || request.turnIndex() == null || request.operationFingerprint() == null || request.operationFingerprint().isBlank())
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "map reuse request is incomplete");
+        var reused = mapViewService.reuseDefinition(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()),
+                request.mapDefinitionId(), request.stagePosition(), entryActivationContext(request), activationCommand(request, 0))
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "saved map not found"));
+        return new PrepareResponse(reused.mapId().value(), reused.activationAllowed() ? PrepareStatus.READY : PrepareStatus.BLOCKED, 0);
+    }
+
+    private static MapActivationContext entryActivationContext(PrepareRequest request) {
+        var candidate = request.playerSpawnX() == null || request.playerSpawnY() == null
+                ? java.util.Optional.<GridPosition>empty() : java.util.Optional.of(new GridPosition(request.playerSpawnX(), request.playerSpawnY()));
+        return MapActivationContext.from(request.stagePosition(), candidate, java.util.Optional.ofNullable(request.playerTokenId()),
+                request.situationId(), request.situationRevision(), request.turnIndex(), request.currentScene(), request.location(), request.entryEvidence());
     }
 
     @PostMapping("/internal/v1/combat-maps/preparation-replay")
@@ -320,10 +377,12 @@ public class CombatMapController {
             var gridBounds = prepared.layers().stream().filter(layer -> layer.type().equals("GRID_BOUNDS"))
                     .map(com.dndmaster.combatmap.domain.MapLayer::value).findFirst().orElse("");
             double[] geometry = gridGeometry(gridBounds, prepared.grid().cellSize());
+            boolean printedGrid = prepared.layers().stream()
+                    .anyMatch(layer -> layer.type().equals("GRID_SOURCE") && layer.value().equals("PRINTED"));
             return new MapGenerationRequest(request.assetId() + "@" + request.assetLocator(), requestContext(request),
                     prepared.grid().width(), prepared.grid().height(), prepared.grid().cellSize(), prepared.grid().distanceUnit(),
                     authoredObstacles, authoredDoors, playerStart, normalizedImage, geometry[0], geometry[1], geometry[2],
-                    gridBounds, true);
+                    gridBounds, printedGrid);
         }
         return new MapGenerationRequest(request.assetId() + "@" + request.assetLocator(), requestContext(request),
                 20, 20, 30, 5, authoredObstacles, authoredDoors, playerStart, mapImage.orElse(null));
@@ -1029,6 +1088,7 @@ public class CombatMapController {
                                  UUID sourceDocumentId, String sourceAssetLocator,
                                  String spatialPreparationReference,
                                  List<SpatialFeaturePlacementRequest> spatialPlacements,
+                                 List<SpatialEnemyPlacementRequest> enemyPlacements,
                                  boolean spatialPreparationBlocked, List<String> spatialWarnings, List<String> spatialFailures,
                                  UUID commandId, long expectedVersion, String operationFingerprint) {
         public PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId,
@@ -1041,7 +1101,7 @@ public class CombatMapController {
             this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY,
                     sourceImage, sourceImageContentType, tacticalScene, stagePosition, playerTokenId, situationId,
                     situationRevision, turnIndex, currentScene, location, entryEvidence, walls, doors, obstacles,
-                    sourceDocumentId, sourceAssetLocator, "story-plan:unknown", List.of(), false, List.of(), List.of(), UUID.randomUUID(), 0,
+                    sourceDocumentId, sourceAssetLocator, "story-plan:unknown", List.of(), List.of(), false, List.of(), List.of(), UUID.randomUUID(), 0,
                     "legacy-preparation-command");
         }
 
@@ -1049,7 +1109,7 @@ public class CombatMapController {
                 String assetLocator, Integer playerSpawnX, Integer playerSpawnY) {
             this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY,
                     null, null, null, null, null, UUID.randomUUID(), 1L, 0, "unknown", "unknown", "",
-                    List.of(), List.of(), List.of(), null, null, "story-plan:unknown", List.of(), false, List.of(), List.of(), UUID.randomUUID(), 0,
+                    List.of(), List.of(), List.of(), null, null, "story-plan:unknown", List.of(), List.of(), false, List.of(), List.of(), UUID.randomUUID(), 0,
                     "legacy-preparation-command");
         }
         public PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId, String assetId,
@@ -1057,7 +1117,7 @@ public class CombatMapController {
                 String sourceImageContentType, TacticalSceneMaterialization tacticalScene, Integer stagePosition) {
             this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY,
                     sourceImage, sourceImageContentType, tacticalScene, stagePosition, null, UUID.randomUUID(), 1L, 0,
-                    "unknown", "unknown", "", List.of(), List.of(), List.of(), null, null, "story-plan:unknown", List.of(), false, List.of(), List.of(), UUID.randomUUID(), 0,
+                    "unknown", "unknown", "", List.of(), List.of(), List.of(), null, null, "story-plan:unknown", List.of(), List.of(), false, List.of(), List.of(), UUID.randomUUID(), 0,
                     "legacy-preparation-command");
         }
         public PrepareRequest {
@@ -1077,6 +1137,7 @@ public class CombatMapController {
             spatialPreparationReference = spatialPreparationReference == null || spatialPreparationReference.isBlank()
                     ? "story-plan:unknown" : spatialPreparationReference.trim();
             spatialPlacements = spatialPlacements == null ? List.of() : List.copyOf(spatialPlacements);
+            enemyPlacements = enemyPlacements == null ? List.of() : List.copyOf(enemyPlacements);
             spatialWarnings = spatialWarnings == null ? List.of() : List.copyOf(spatialWarnings);
             spatialFailures = spatialFailures == null ? List.of() : List.copyOf(spatialFailures);
             if (commandId == null) throw new IllegalArgumentException("preparation command id must be present");
@@ -1105,9 +1166,15 @@ public class CombatMapController {
                             authoredPositions(evidence.allowedCells(), "allowed spatial feature")), detection, triggers,
                     item.durationTurns(), item.removalPolicy(), item.overlapAllowed(), item.repeatable());
         }).toList();
+        List<SpatialFeaturePlacementBatch.EnemyPlacement> enemies = request.enemyPlacements().stream().map(item ->
+                new SpatialFeaturePlacementBatch.EnemyPlacement(item.scenarioId(), item.enemyKey(), item.positions().stream()
+                        .map(position -> new SpatialFeaturePlacementBatch.Position(position.x(), position.y())).toList())).toList();
         return new SpatialFeaturePlacementBatch(request.spatialPreparationReference(), request.spatialPreparationBlocked(),
-                placements, request.spatialWarnings(), request.spatialFailures());
+                placements, enemies, request.spatialWarnings(), request.spatialFailures());
     }
+
+    public record SpatialEnemyPlacementRequest(String scenarioId, String enemyKey, List<SpatialEnemyPositionRequest> positions) {}
+    public record SpatialEnemyPositionRequest(double x, double y) {}
 
     static Set<SpatialTrigger> requestTriggers(List<String> values) {
         List<String> supplied = values == null ? List.of() : values;

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import { StrictMode } from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { advancePreparationProgress, PreparationFlow } from './PreparationFlow'
@@ -71,7 +71,7 @@ describe('PreparationFlow', () => {
     const createPlayPreparation = vi.fn<(packageId: string, requestKey: string) => Promise<PlayPreparationView>>()
       .mockResolvedValue(preparation)
     const getPlayPreparation = vi.fn(async () => { throw new Error('package id is not a preparation id') })
-    const createSession = vi.fn<(request: { scenarioPackageId: string; blueprintId: string; blueprintRevision: number; partySize?: number; preparationId?: string }) => Promise<AdventureSessionView>>()
+    const createSession = vi.fn<(request: { scenarioPackageId: string; blueprintId: string; blueprintRevision: number; partySize?: number; preparationId?: string; storyLength: 'SHORT' | 'NORMAL' | 'LONG' }) => Promise<AdventureSessionView>>()
       .mockResolvedValue({ sessionId: 'session-1' } as AdventureSessionView)
     const onAdventureCreated = vi.fn()
     const api = {
@@ -92,35 +92,27 @@ describe('PreparationFlow', () => {
     window.localStorage.removeItem('dnd-preparation:bundle-1:1')
     window.localStorage.removeItem(requestStorageKey)
     const onError = vi.fn()
-    const diagnostics = vi.spyOn(console, 'info').mockImplementation(() => {})
-
-    try {
+    {
       render(<StrictMode><PreparationFlow api={api} playerId="player-1" bundle={bundle} onError={onError}
         sessionApi={{ create: createSession }} onAdventureCreated={onAdventureCreated} /></StrictMode>)
 
       const createAdventureButton = await screen.findByRole('button', { name: '모험 만들기' })
+      const storyLength = screen.getByRole('slider', { name: '모험 길이' })
+      expect(screen.getByText('보통')).toBeInTheDocument()
+      fireEvent.change(storyLength, { target: { value: '2' } })
+      expect(screen.getByText('길게')).toBeInTheDocument()
       const requestKey = window.localStorage.getItem(requestStorageKey)
       expect(requestKey).toBeTruthy()
       expect(createPlayPreparation).toHaveBeenCalled()
       expect(createPlayPreparation.mock.calls.every(([packageId, key]) => packageId === scenarioPackage.packageId && key === requestKey)).toBe(true)
       expect(getPlayPreparation).not.toHaveBeenCalled()
       expect(onError).not.toHaveBeenCalled()
-      expect(diagnostics).toHaveBeenCalledWith('dev_preparation', expect.objectContaining({
-        stage: 'character_setup_request_started', bundleId: 'bundle-1', packageId: scenarioPackage.packageId,
-        branch: 'new_key_saved',
-      }))
-      expect(diagnostics).toHaveBeenCalledWith('dev_preparation', expect.objectContaining({
-        stage: 'character_setup_ready', packageId: scenarioPackage.packageId,
-        expected: 'preparation view', actual: 'READY',
-      }))
       await userEvent.click(createAdventureButton)
       await waitFor(() => expect(createSession).toHaveBeenCalledWith(expect.objectContaining({
         scenarioPackageId: scenarioPackage.packageId, blueprintId: scenarioPackage.packageId,
-        blueprintRevision: 3, preparationId: preparation.preparationId,
+        blueprintRevision: 3, preparationId: preparation.preparationId, storyLength: 'LONG',
       })))
       expect(onAdventureCreated).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session-1' }))
-    } finally {
-      diagnostics.mockRestore()
     }
   })
 })

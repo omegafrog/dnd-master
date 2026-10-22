@@ -22,6 +22,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 /** Executes one queued scenario compilation delivery. */
 public final class ScenarioCompilationWorker {
     private static final int MAX_ATTEMPTS = 3;
+    private static final int MAX_ENCOUNTER_EXTRACTION_ATTEMPTS = 2;
     private static final String WORKER_ID = "scenario-compilation-worker";
     private static final Duration LEASE = Duration.ofMinutes(5);
     private static final Logger log = LoggerFactory.getLogger(ScenarioCompilationWorker.class);
@@ -219,6 +220,7 @@ public final class ScenarioCompilationWorker {
             ScenarioPackage scenarioPackage;
             var inputSnapshot = claimed.inputSnapshot();
             var modelDiagnostics = List.<com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic>of();
+            com.dndmaster.adventure.domain.scenario.ScenarioModelCompilationPolicy.Evaluation modelEvaluation = null;
             if (inputSnapshot == null) {
                 scenarioPackage = compiler.compileWithCharacterCandidates(
                         bundle, candidates == null ? List.of() : candidates,
@@ -239,24 +241,51 @@ public final class ScenarioCompilationWorker {
                                         "STORYBOOK_EVIDENCE_UNAVAILABLE", "published Storybook excerpts are required to compile scenario encounters")));
                         return Optional.empty();
                     }
-                    var extracted = scenarioCompilationAgentPort.compile(bundle.ownerPlayerId().value(),
-                            new ScenarioCompilationAgentPort.ScenarioCompilationAgentRequest(
-                                    "scenario-compilation:" + claimed.id(), scenarioContext(storybookExcerpts)));
-                    if (extracted.status() == ScenarioCompilationAgentPort.ScenarioCompilationAgentResult.Status.BLOCKED) {
-                        List<String> reasons = extracted.diagnostics().isEmpty()
-                                ? List.of("scenario material did not support a ready model") : extracted.diagnostics();
-                        processManager.block(claimed, delivery, reasons.stream()
-                                .map(message -> com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic
-                                        .blocking("SCENARIO_MODEL_EXTRACTION_BLOCKED", message))
-                                .toList());
-                        log.info("scenario model extraction blocked compilationId={} diagnostics={}", claimed.id(), extracted.diagnostics());
-                        return Optional.empty();
+                    var resolutionUnits = compiler.validateResolutionCandidates(bundle,
+                            candidates == null ? List.of() : candidates, resolutionExcerpts);
+                    var context = scenarioContext(storybookExcerpts);
+                    var baseOperationKey = "scenario-compilation:" + claimed.id();
+                    for (int attempt = 1; attempt <= MAX_ENCOUNTER_EXTRACTION_ATTEMPTS; attempt++) {
+                        String operationKey = attempt == 1 ? baseOperationKey : baseOperationKey + ":link-retry-" + (attempt - 1);
+                        String feedback = attempt == 1 ? "" : "The previous response could not be linked to the supplied published Storybook evidence: one or more combat encounters had missing or mismatched source references or incomplete required fields. Re-extract only supported combat encounters. Cite each source using an exact supplied DOCUMENT_ID, EXTRACTION_VERSION, and LOCATOR. Do not invent encounters or source references.";
+                        long attemptStartedAt = System.nanoTime();
+                        devLog("dev_compilation_stage compilationId={} bundleId={} stage=encounter_extraction result=started attempt={} maxAttempts={} operationKey={} inputExcerptCount={} feedbackChars={}",
+                                claimed.id(), bundle.id().value(), attempt, MAX_ENCOUNTER_EXTRACTION_ATTEMPTS,
+                                operationKey, storybookExcerpts.size(), feedback.length());
+                        var extracted = scenarioCompilationAgentPort.compile(bundle.ownerPlayerId().value(),
+                                new ScenarioCompilationAgentPort.ScenarioCompilationAgentRequest(
+                                        operationKey, context, feedback));
+                        if (extracted.status() == ScenarioCompilationAgentPort.ScenarioCompilationAgentResult.Status.BLOCKED) {
+                            List<String> reasons = extracted.diagnostics().isEmpty()
+                                    ? List.of("scenario material did not support a ready model") : extracted.diagnostics();
+                            processManager.block(claimed, delivery, reasons.stream()
+                                    .map(message -> com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic
+                                            .blocking("SCENARIO_MODEL_EXTRACTION_BLOCKED", message))
+                                    .toList());
+                            log.info("scenario model extraction blocked compilationId={} diagnostics={}", claimed.id(), extracted.diagnostics());
+                            return Optional.empty();
+                        }
+                        extractedScenarioModel = extracted.scenarioModel();
+                        modelEvaluation = modelCompiler.compile(inputSnapshot, resolutionUnits,
+                                excerpts == null ? List.of() : excerpts, extractedScenarioModel);
+                        boolean linkageFailed = modelEvaluation.diagnostics().stream()
+                                .anyMatch(diagnostic -> "COMBAT_SCENARIO_SOURCE_INVALID".equals(diagnostic.code()));
+                        devLog("dev_compilation_stage compilationId={} bundleId={} stage=encounter_extraction result={} attempt={} maxAttempts={} operationKey={} encounterCount={} inputExcerptCount={} validationCodes={} elapsedMs={} recoveryAction={}",
+                                claimed.id(), bundle.id().value(), linkageFailed ? "source_link_failed" : "validated",
+                                attempt, MAX_ENCOUNTER_EXTRACTION_ATTEMPTS, operationKey,
+                                extractedScenarioModel.encounters().size(), storybookExcerpts.size(),
+                                modelEvaluation.diagnostics().stream().map(diagnostic -> diagnostic.code()).distinct().sorted().toList(),
+                                (System.nanoTime() - attemptStartedAt) / 1_000_000,
+                                linkageFailed && attempt < MAX_ENCOUNTER_EXTRACTION_ATTEMPTS ? "retry_extraction" : "continue_or_block");
+                        if (!linkageFailed) break;
                     }
-                    extractedScenarioModel = extracted.scenarioModel();
+                    if (modelEvaluation == null) throw new IllegalStateException("scenario model extraction was not evaluated");
+                } else {
+                    modelEvaluation = modelCompiler.compile(inputSnapshot,
+                            compiler.validateResolutionCandidates(bundle,
+                                    candidates == null ? List.of() : candidates, resolutionExcerpts),
+                            excerpts == null ? List.of() : excerpts, extractedScenarioModel);
                 }
-                var modelEvaluation = modelCompiler.compile(inputSnapshot,
-                        compiler.validateResolutionCandidates(bundle, candidates == null ? List.of() : candidates, resolutionExcerpts),
-                        excerpts == null ? List.of() : excerpts, extractedScenarioModel);
                 if (modelEvaluation.status() == com.dndmaster.adventure.domain.scenario.ScenarioModelCompilationPolicy.Status.BLOCKED) {
                     processManager.block(claimed, delivery, modelEvaluation.diagnostics());
                     log.info("scenario compilation blocked compilationId={} diagnostics={}", claimed.id(), modelEvaluation.diagnostics());
@@ -533,14 +562,23 @@ public final class ScenarioCompilationWorker {
     }
 
     private static List<CharacterContextSearchPort.DocumentScope> characterOverlayScopes(ScenarioSourceBundle bundle) {
-        return bundle.currentRevision().documents().stream()
-                .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType())
+        long mapDocumentCount = bundle.currentRevision().documents().stream()
+                .filter(document -> document.role() == ScenarioBundleDocumentRole.MAP)
+                .count();
+        List<CharacterContextSearchPort.DocumentScope> scopes = bundle.currentRevision().documents().stream()
+                .filter(document -> ("STORYBOOK".equalsIgnoreCase(document.documentType())
+                        && document.role() != ScenarioBundleDocumentRole.MAP)
                         || document.role() == ScenarioBundleDocumentRole.HANDOUT)
                 .map(document -> new CharacterContextSearchPort.DocumentScope(
                         document.knowledgeDocumentId(),
                         document.documentType(),
                         document.extractionVersion()))
                 .toList();
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            log.info("dev_scenario_character_context_scope outcome=selected expected=map_excluded_from_text_search actualScopeCount={} mapDocumentCount={} mapTextSearchSkippedCount={} route=storybook_and_handout_search",
+                    scopes.size(), mapDocumentCount, mapDocumentCount);
+        }
+        return scopes;
     }
 
     private static Set<String> scopeKeys(List<CharacterContextSearchPort.DocumentScope> scopes) {

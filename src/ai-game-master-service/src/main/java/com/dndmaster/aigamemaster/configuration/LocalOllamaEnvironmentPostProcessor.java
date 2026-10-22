@@ -20,9 +20,9 @@ public final class LocalOllamaEnvironmentPostProcessor implements EnvironmentPos
         if (configured == null || configured.isBlank()) {
             throw new IllegalStateException("Local Ollama base URL is required");
         }
-        URI validated = validateLoopback(configured);
+        URI validated = validateEndpoint(configured);
         String independentOverride = environment.getProperty(SPRING_AI_BASE_URL);
-        if (independentOverride != null && !sameEndpoint(validated, validateLoopback(independentOverride))) {
+        if (independentOverride != null && !sameEndpoint(validated, validateEndpoint(independentOverride))) {
             throw new IllegalStateException("Independent Spring AI Ollama base URL override is forbidden");
         }
         environment.getPropertySources().addFirst(new MapPropertySource(
@@ -34,7 +34,7 @@ public final class LocalOllamaEnvironmentPostProcessor implements EnvironmentPos
         return ConfigDataEnvironmentPostProcessor.ORDER + 1;
     }
 
-    private static URI validateLoopback(String value) {
+    private static URI validateEndpoint(String value) {
         URI uri;
         try {
             uri = URI.create(value);
@@ -42,10 +42,11 @@ public final class LocalOllamaEnvironmentPostProcessor implements EnvironmentPos
             throw new IllegalStateException("Ollama base URL is invalid", exception);
         }
         String host = uri.getHost();
-        boolean loopback = "localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host) || "::1".equals(host);
-        if (!"http".equalsIgnoreCase(uri.getScheme()) || !loopback || uri.getUserInfo() != null
+        boolean allowedHost = "localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host)
+                || "::1".equals(host) || "ollama".equalsIgnoreCase(host);
+        if (!"http".equalsIgnoreCase(uri.getScheme()) || !allowedHost || uri.getUserInfo() != null
                 || uri.getQuery() != null || uri.getFragment() != null) {
-            throw new IllegalStateException("Ollama base URL must be an HTTP loopback endpoint");
+            throw new IllegalStateException("Ollama base URL must use HTTP and a loopback or Compose Ollama host");
         }
         return uri.normalize();
     }

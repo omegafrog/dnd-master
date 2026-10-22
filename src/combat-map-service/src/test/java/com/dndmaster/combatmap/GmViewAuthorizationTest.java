@@ -27,6 +27,36 @@ import org.mockito.ArgumentCaptor;
 
 class GmViewAuthorizationTest {
     @Test
+    void GM_지도_조회에_격자와_문의_현재_상태를_포함한다() {
+        var map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                new GridSpec(22, 23, 42, 5), new PlayerId(UUID.randomUUID()), List.of(), Set.of(), List.of(), 0, null);
+        map.replaceDoors(List.of(new Door(new GridPosition(10, 19), false)));
+        var response = com.dndmaster.combatmap.api.GmCombatMapResponse.from(map);
+        assertEquals(22, response.grid().width());
+        assertEquals(23, response.grid().height());
+        assertEquals(5, response.grid().distanceUnit());
+        assertEquals(10, response.doors().getFirst().x());
+        assertEquals(false, response.doors().getFirst().open());
+    }
+
+    @Test
+    void 시츄에이션의_맵_ID로_저장된_지도를_찾으면_새로_생성하지_않는다() {
+        var maps = mock(CombatMapViewService.class);
+        var controller = new CombatMapController(maps, mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        UUID adventure = UUID.randomUUID(), owner = UUID.randomUUID(), definition = UUID.randomUUID();
+        var request = new CombatMapController.PrepareRequest(adventure, owner, UUID.randomUUID(), definition, "asset", "locator", null, null);
+        MapId saved = new MapId(UUID.randomUUID());
+        when(maps.reuseDefinition(eq(new AdventureId(adventure)), eq(new MapOwnerId(owner)), eq(definition),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull(), any()))
+                .thenReturn(Optional.of(new CombatMapViewService.PreparationResult(saved, CombatMapViewService.PreparationStatus.READY, 9)));
+        var response = controller.prepare("service-secret", request);
+        assertEquals(saved.value(), response.mapId());
+        verify(maps).reuseDefinition(eq(new AdventureId(adventure)), eq(new MapOwnerId(owner)), eq(definition),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull(), any());
+        verifyNoMoreInteractions(maps);
+    }
+
+    @Test
     void starts_a_durable_movement_reservation_through_the_internal_boundary() {
         var movement = mock(CombatMapMovementService.class);
         var controller = new CombatMapController(mock(CombatMapViewService.class), movement, new ApiRequestGuard("service-secret"));
@@ -183,8 +213,9 @@ class GmViewAuthorizationTest {
         verify(maps, never()).prepareGenerated(any(), any(), any(), any(MapGenerationRequest.class));
     }
 
-    @Test
-    void mapPreparationUsesGeometryDetectedFromTheSourceImageInsteadOfAFixedTwentyByTwentyGrid() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = { true, false })
+    void mapPreparationUsesGeometryDetectedFromTheSourceImageInsteadOfAFixedTwentyByTwentyGrid(boolean printed) {
         var maps = mock(CombatMapViewService.class);
         var preparedMap = new SpatialFeatureApplicationService.Result(new MapId(UUID.randomUUID()), 0,
                 SpatialFeatureApplicationService.Status.READY, 0);
@@ -192,7 +223,8 @@ class GmViewAuthorizationTest {
                 any(SpatialFeaturePlacementBatch.class), anyLong(), any(SpatialPreparationCommand.class))).thenReturn(preparedMap);
         MapFilePreparationPort preparation = ignored -> new PreparedMapData(new GridSpec(13, 9, 16, 5), List.of(), Set.of(), List.of(
                 new MapLayer("MAP_IMAGE", "data:image/png;base64,AAECAw==", LayerVisibility.PLAYER_VISIBLE),
-                new MapLayer("GRID_BOUNDS", "7,11,208,144,240,180", LayerVisibility.PLAYER_VISIBLE)));
+                new MapLayer("GRID_BOUNDS", "7,11,208,144,240,180", LayerVisibility.PLAYER_VISIBLE),
+                new MapLayer("GRID_SOURCE", printed ? "PRINTED" : "FALLBACK", LayerVisibility.PLAYER_VISIBLE)));
         var source = new MapImageEvidence("image/png", new byte[] {9, 8, 7});
         var controller = new CombatMapController(maps, mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"),
                 (documentId, locator) -> Optional.of(source), null, null, preparation);
@@ -210,7 +242,7 @@ class GmViewAuthorizationTest {
         assertEquals(7, captured.getValue().gridOriginX());
         assertEquals(11, captured.getValue().gridOriginY());
         assertEquals(16, captured.getValue().gridCellSize());
-        assertTrue(captured.getValue().gridConfirmed());
+        assertEquals(printed, captured.getValue().gridConfirmed());
     }
 
     @Test

@@ -4,7 +4,12 @@ import java.util.List;
 
 /** A story-essential situation and only its source-explicit prerequisites. */
 public record RequiredSituation(String situationId, String summary, List<String> prerequisiteSituationIds,
-        List<ScenarioSourceReference> sourceRefs) {
+        boolean isEnding, List<ScenarioSourceReference> sourceRefs) {
+    public RequiredSituation(String situationId, String summary, List<String> prerequisiteSituationIds,
+            List<ScenarioSourceReference> sourceRefs) {
+        this(situationId, summary, prerequisiteSituationIds, false, sourceRefs);
+    }
+
     public RequiredSituation {
         if (situationId == null || situationId.isBlank() || summary == null || summary.isBlank()) {
             throw new IllegalArgumentException("required situation id and summary are required");

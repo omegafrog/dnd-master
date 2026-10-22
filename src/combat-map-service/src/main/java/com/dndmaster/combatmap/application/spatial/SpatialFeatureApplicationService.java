@@ -11,7 +11,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import com.dndmaster.combatmap.domain.AdventureId;
+import com.dndmaster.combatmap.domain.CombatToken;
+import com.dndmaster.combatmap.domain.GridPosition;
+import com.dndmaster.combatmap.domain.TokenController;
+import com.dndmaster.combatmap.domain.TokenDiscovery;
+import com.dndmaster.combatmap.domain.TokenId;
+import com.dndmaster.combatmap.domain.TokenType;
 
 /** Combat Map capability that validates and atomically materializes Scenario Preparation output. */
 public final class SpatialFeatureApplicationService {
@@ -53,7 +60,7 @@ public final class SpatialFeatureApplicationService {
                 .toList();
         validateEvidenceVersion(batch, features);
         if (!batch.blocked()) current.map().materializeSpatialFeatures(features);
-        CombatMap updated = withDiagnostics(current.map(), batch.warnings(), batch.failures());
+        CombatMap updated = withInitialEnemies(withDiagnostics(current.map(), batch.warnings(), batch.failures()), batch);
         if (batch.blocked()) updated.blockSpatialPreparation();
         else updated.completeSpatialPreparation();
         store.update(owner, updated, command.expectedVersion(), command.expectedVersion() + 1,
@@ -92,7 +99,7 @@ public final class SpatialFeatureApplicationService {
             List<com.dndmaster.combatmap.domain.SpatialFeature> features = batch.placements().stream()
                     .map(placement -> toFeature(current.map(), placement, createdTurn)).toList();
             validateEvidenceVersion(batch, features);
-            CombatMap updated = withDiagnostics(current.map(), batch.warnings(), batch.failures());
+            CombatMap updated = withInitialEnemies(withDiagnostics(current.map(), batch.warnings(), batch.failures()), batch);
             updated.materializeSpatialFeatures(java.util.stream.Stream.concat(
                     current.map().spatialFeatures().stream(), features.stream()).toList());
             updated.completeSpatialPreparation();
@@ -136,7 +143,7 @@ public final class SpatialFeatureApplicationService {
                 : batch.placements().stream().map(placement -> toFeature(map, placement, createdTurn)).toList();
         validateEvidenceVersion(batch, features);
         map.materializeSpatialFeatures(java.util.stream.Stream.concat(map.spatialFeatures().stream(), features.stream()).toList());
-        CombatMap prepared = withDiagnostics(map, batch.warnings(), batch.failures());
+        CombatMap prepared = withInitialEnemies(withDiagnostics(map, batch.warnings(), batch.failures()), batch);
         if (batch.blocked()) prepared.blockSpatialPreparation();
         else prepared.completeSpatialPreparation();
         prepared.markPersisted(0, command.commandId(), command.fingerprint());
@@ -218,6 +225,34 @@ public final class SpatialFeatureApplicationService {
                 map.spatialFeatures(), map.spatialPreparationBlocked());
         updated.replaceDoors(map.doors());
         updated.replaceRuntimeState(map.runtimeState());
+        updated.replaceHostileObservations(map.hostileObservations());
+        if (map.visibilitySnapshot() != null) updated.replaceVisibility(map.visibilitySnapshot());
+        return updated;
+    }
+
+    private static CombatMap withInitialEnemies(CombatMap map, SpatialFeaturePlacementBatch batch) {
+        if (batch.enemies().isEmpty()) return map;
+        List<CombatToken> tokens = new ArrayList<>(map.tokens());
+        java.util.Set<GridPosition> occupied = tokens.stream().map(CombatToken::position)
+                .collect(java.util.stream.Collectors.toCollection(java.util.HashSet::new));
+        for (var encounter : batch.enemies()) for (int index = 0; index < encounter.positions().size(); index++) {
+            UUID tokenUuid = UUID.nameUUIDFromBytes((map.adventureId().value() + "|combat-enemy|"
+                    + encounter.scenarioId() + "|" + (index + 1))
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            TokenId tokenId = new TokenId(tokenUuid);
+            if (tokens.stream().anyMatch(token -> token.id().equals(tokenId))) continue;
+            var normalized = encounter.positions().get(index);
+            GridPosition position = new GridPosition((int) Math.round(normalized.x() * (map.grid().width() - 1)),
+                    (int) Math.round(normalized.y() * (map.grid().height() - 1)));
+            if (!map.grid().contains(position) || map.obstacles().contains(position) || !occupied.add(position))
+                throw new IllegalArgumentException("required enemy position is blocked or overlaps another token");
+            tokens.add(new CombatToken(tokenId, TokenType.ENEMY, position, TokenController.AI_GAME_MASTER,
+                    null, TokenDiscovery.HIDDEN));
+        }
+        CombatMap updated = new CombatMap(map.id(), map.adventureId(), map.ruleSetId(), map.grid(), map.ownerPlayerId(),
+                tokens, map.obstacles(), map.layers(), map.version(), map.operationKey(), map.operationFingerprint(),
+                map.spatialFeatures(), map.spatialPreparationBlocked());
+        updated.replaceDoors(map.doors()); updated.replaceRuntimeState(map.runtimeState());
         updated.replaceHostileObservations(map.hostileObservations());
         if (map.visibilitySnapshot() != null) updated.replaceVisibility(map.visibilitySnapshot());
         return updated;

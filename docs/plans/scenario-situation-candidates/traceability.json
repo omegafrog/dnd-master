@@ -1,0 +1,321 @@
+{
+  "schema_version": 1,
+  "plan_set_id": "scenario-situation-candidates",
+  "ticket_id": "scenario-situation-candidates",
+  "spec_paths": [
+    "docs/specs/scenario-situation-candidates/product-spec.md",
+    "docs/specs/scenario-situation-candidates/architecture-spec.md"
+  ],
+  "product_spec_path": "docs/specs/scenario-situation-candidates/product-spec.md",
+  "architecture_spec_path": "docs/specs/scenario-situation-candidates/architecture-spec.md",
+  "requirements": [
+    {
+      "id": "UC-1",
+      "source_path": "docs/specs/scenario-situation-candidates/product-spec.md",
+      "source_anchor": "### UC-1 초기 필수 상황과 중간 후보 준비",
+      "statement": "모험 준비에서 이야기 길이 선택을 세션에 저장하고, 명시적 결말 표식·선행 관계가 있는 필수 상황 그래프와 중간 후보를 모험별로 준비한다. 동일 맵 저장 격자 선택은 기존 흐름을 따른다.",
+      "owner": "StageArtifactPreparationApplicationService 및 기존 지도 정렬 경계",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-378",
+        "scenario-situation-candidates-380"
+      ],
+      "integration_owner_plan_id": "scenario-situation-candidates-380",
+      "integration_verification": "After #378 is complete, exercise the same-image saved-grid reuse and edit choice through preparation UI and confirm the selected alignment is used for the prepared situation."
+    },
+    {
+      "id": "UC-2",
+      "source_path": "docs/specs/scenario-situation-candidates/product-spec.md",
+      "source_anchor": "### UC-2 플레이에 따른 후보 선택 및 다음 상황 진행",
+      "statement": "플레이어 행동과 확정 사건에 맞는 준비 후보를 선택해 현재 상황을 진행한다.",
+      "owner": "RuntimeTurnApplicationService와 StoryRuntimeRules",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-379"
+      ]
+    },
+    {
+      "id": "UC-3",
+      "source_path": "docs/specs/scenario-situation-candidates/product-spec.md",
+      "source_anchor": "### UC-3 다음 상황 부재 처리 (UC-2 경계 규칙)",
+      "statement": "다음 상황 부재는 UC-2의 그래프 진행 분기이며, 임의 새 상황을 생성해 길이 허용량·필수 상황 순서를 우회하지 않는다.",
+      "owner": "RuntimeTurnApplicationService와 StoryRuntimeRules",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-379"
+      ]
+    },
+    {
+      "id": "R-01",
+      "source_path": "docs/specs/scenario-situation-candidates/product-spec.md",
+      "source_anchor": "**R-01 추가 룰북 기반 상황 후보:**",
+      "statement": "검색된 원문 근거와 명시 선행 관계를 보존하고 원문에 없는 순서를 만들지 않는다.",
+      "owner": "초기 준비 검증과 런타임 진행 규칙",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-378",
+        "scenario-situation-candidates-379"
+      ],
+      "integration_owner_plan_id": "scenario-situation-candidates-379",
+      "integration_verification": "준비한 선행 관계가 opening 게시·시작과 실제 후보 선택에서 함께 지켜지는 흐름."
+    },
+    {
+      "id": "R-02",
+      "source_path": "docs/specs/scenario-situation-candidates/product-spec.md",
+      "source_anchor": "**R-02 선택 상황 준비와 길이:**",
+      "statement": "준비 화면에서 고른 세 단계 이야기 길이를 모험 상태에 저장하고, 그래프 크기와 길이로 선택 상황 완료 허용량을 내부 계산하며 정확한 수는 표시하지 않는다. 단계별 후보 수에는 고정 최솟값을 두지 않는다.",
+      "owner": "StageArtifactPreparationApplicationService",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-378"
+      ]
+    },
+    {
+      "id": "R-03",
+      "source_path": "docs/specs/scenario-situation-candidates/product-spec.md",
+      "source_anchor": "**R-03 구체적인 장면과 서술:**",
+      "statement": "상황에는 구체적인 사건 이름과 짧은 장면 설명이 있고 상세 대본으로 고정하지 않는다.",
+      "owner": "준비 생성 경계와 RuntimeGmPromptComposer",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-378",
+        "scenario-situation-candidates-379"
+      ],
+      "integration_owner_plan_id": "scenario-situation-candidates-379",
+      "integration_verification": "준비 상황 설명이 실제 한국어 턴 서술 입력에 반영되는 흐름."
+    },
+    {
+      "id": "R-04",
+      "source_path": "docs/specs/scenario-situation-candidates/product-spec.md",
+      "source_anchor": "**R-04 다음 상황 선택:**",
+      "statement": "현재 상황 종료 후 자연스러운 동일 단계 선택 상황을 허용량 내에서 먼저 고르고, 그 외에는 미사용이며 모든 선행 노드가 USED인 필수 상황을 고르며, 명시적 ending 하나의 완료로 끝낸다.",
+      "owner": "RuntimeTurnApplicationService",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-379"
+      ]
+    },
+    {
+      "id": "R-05",
+      "source_path": "docs/specs/scenario-situation-candidates/product-spec.md",
+      "source_anchor": "**R-05 다음 상황 부재:**",
+      "statement": "허용량 소진 또는 자연스러운 선택 후보 부재는 새 상황 생성 사유가 아니다. 그래프에서 적격 필수 상황을 찾고, 없으면 ending 완료 또는 상태 변경 없는 진행 거부로 처리한다.",
+      "owner": "RuntimeTurnApplicationService와 StoryRuntimeRules",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-379"
+      ]
+    },
+    {
+      "id": "R-06",
+      "source_path": "docs/specs/scenario-situation-candidates/product-spec.md",
+      "source_anchor": "**R-06 제공 맵만 사용:**",
+      "statement": "제공 맵만 사용하고 같은 지도 파일의 저장 격자는 사용 전 재사용 또는 직접 수정 선택을 받는다.",
+      "owner": "상황 제안의 지도 범위 검증 및 기존 지도 정렬 경계",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-379",
+        "scenario-situation-candidates-380"
+      ],
+      "integration_owner_plan_id": "scenario-situation-candidates-380",
+      "integration_verification": "같은 이미지와 저장 정렬에서 재사용·직접 수정 선택을 실제 준비 UI와 저장 상태까지 확인."
+    },
+    {
+      "id": "R-07",
+      "source_path": "docs/specs/scenario-situation-candidates/product-spec.md",
+      "source_anchor": "**R-07 근거 부족 보완과 출처:**",
+      "statement": "원문 보완은 출처로 구분하고 조회·검증 실패는 준비 실패로 처리한다.",
+      "owner": "StageArtifactPreparationApplicationService",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-378"
+      ]
+    },
+    {
+      "id": "R-08",
+      "source_path": "docs/specs/scenario-situation-candidates/product-spec.md",
+      "source_anchor": "**R-08 기존 확정 및 공개 규칙:**",
+      "statement": "굴림 대기 중에는 상황 변경을 확정하지 않고 공개 범위와 한국어 서술을 지킨다.",
+      "owner": "PendingRuntimeState와 Adventure.commitRuntimeTurn",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-379"
+      ]
+    },
+    {
+      "id": "R-09",
+      "source_path": "docs/specs/scenario-situation-candidates/product-spec.md",
+      "source_anchor": "**R-09 모험별 상황 독립성:**",
+      "statement": "상황 준비·선택·생성·사용은 모험별로 독립된다.",
+      "owner": "기존 준비 저장소와 Adventure Runtime",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-378",
+        "scenario-situation-candidates-379"
+      ],
+      "integration_owner_plan_id": "scenario-situation-candidates-379",
+      "integration_verification": "두 모험에서 준비·진행하면서 한쪽 선택·생성이 다른 쪽 저장 상태를 바꾸지 않는지 확인."
+    },
+    {
+      "id": "R-10",
+      "source_path": "docs/specs/scenario-situation-candidates/product-spec.md",
+      "source_anchor": "**R-10 동일한 맵 파일의 격자 선택:**",
+      "statement": "같은 원본 이미지의 저장 격자가 있을 때 사용 전에 재사용 또는 직접 수정을 묻는다.",
+      "owner": "기존 지도 동일성 검사와 격자 저장 API",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-380"
+      ]
+    },
+    {
+      "id": "ST-03-05",
+      "source_path": "docs/specs/scenario-situation-candidates/architecture-spec.md",
+      "source_anchor": "UC-1..2 및 R-01..10과 ST-03..05가 설계 경계·소유권·검증 기준에 연결되어야 한다.",
+      "statement": "준비 길이 선택·필수 상황 그래프의 명시적 결말/선행 자료 보존과 런타임 허용량·후보 진행이 기존 원자적 턴 확정 경계에 연결되며, 8,192 UTF-8 byte 후보 문맥 제한과 기존 보정·사전 입력 검사를 유지한다.",
+      "owner": "기존 시나리오 준비·모험 런타임·지도 정렬 경계",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-378",
+        "scenario-situation-candidates-379"
+      ],
+      "integration_owner_plan_id": "scenario-situation-candidates-379",
+      "integration_verification": "After #378 and #379, run the actual UI flow: choose or edit the saved map grid, select story length without exposing an exact count, start the prepared adventure, advance through an eligible optional or required graph node, then verify roll-pending resume, one optional-usage increment and one atomic commit. Parent #377 remains open until this passes."
+    },
+    {
+      "id": "INPUT-BUDGET",
+      "source_path": "docs/specs/scenario-situation-candidates/architecture-spec.md",
+      "source_anchor": "전체 단계의 선택 가능 후보를 턴 문맥 JSON으로 직렬화한 UTF-8 크기는 8,192 byte 이하로 제한한다.",
+      "statement": "전체 후보 문맥 크기 제한, 준비 응답의 한 차례 보정 및 재초과 게시 거부, 런타임 입력 한도 사전 검사와 안전한 진단을 지킨다.",
+      "owner": "StageArtifactPreparationApplicationService와 RuntimeTurnApplicationService",
+      "disposition": "covered",
+      "plan_ids": [
+        "scenario-situation-candidates-378",
+        "scenario-situation-candidates-379"
+      ],
+      "integration_owner_plan_id": "scenario-situation-candidates-379",
+      "integration_verification": "준비 후보 크기 초과 보정과 턴 입력 사전 검사가 순서대로 작동하며 오류 때 상황 상태가 미확정인 흐름."
+    }
+  ],
+  "plans": [
+    {
+      "id": "scenario-situation-candidates-378",
+      "requirement_ids": [
+        "docs/specs/scenario-situation-candidates/product-spec.md#UC-1",
+        "docs/specs/scenario-situation-candidates/product-spec.md#R-01",
+        "docs/specs/scenario-situation-candidates/product-spec.md#R-02",
+        "docs/specs/scenario-situation-candidates/product-spec.md#R-03",
+        "docs/specs/scenario-situation-candidates/product-spec.md#R-07",
+        "docs/specs/scenario-situation-candidates/product-spec.md#R-09",
+        "docs/specs/scenario-situation-candidates/architecture-spec.md#ST-03-05",
+        "docs/specs/scenario-situation-candidates/architecture-spec.md#INPUT-BUDGET"
+      ],
+      "acceptance_criteria": [
+        "UI에 세 단계 이야기 길이만 보이고 정확한 선택 상황 개수는 보이지 않으며, 서버 세션 저장·재조회에서 선택값이 보존된다.",
+        "선택 상황 허용량은 필수 그래프 노드 수에 짧게 0.25, 보통 0.5, 길게 1.0을 곱한 뒤 올림한다. 필수 노드 5개 fixture에서 결과는 각각 2·3·5이며, 계산 결과 숫자는 UI에 보이지 않는다.",
+        "명시적 결말 표시는 추출 응답부터 `StageBackbone` 저장·복원까지 보존되고, 끝점의 후속 없음만으로 결말을 추론하지 않는다.",
+        "필수 상황은 시작 하나, 명시 결말 하나 이상, 비결말 결말 도달 가능성, 결말 후속 없음, 비순환성을 지키며 다중 선행/합류를 허용한다.",
+        "원문에서 확인된 필수 상황과 명시 선행 관계를 보존하고, 명시되지 않은 순서를 만들지 않는다. 준비 모델은 원문 발췌와 인접 필수 상황의 요약·설명을 비교해 장면 사이에 서술상 빠진 이동·시간 경과·사건 연결이 있는지 판단한다. 빠진 연결이 명시된 사례에서는 그 연결만 잇는 구체 후보를 만들고, 두 상황이 직접 인과 또는 시간상 이어지는 사례에서는 0개를 허용한다. 이 판단은 후보 최소 개수 규칙으로 바꾸지 않는다.",
+        "검증 fixture는 두 인접 필수 상황 사이에 원문이 명시한 이틀 이동이 있지만 그 이동을 묘사하는 상황이 없는 경우를 연결 필요 사례로 사용한다. 후보 하나가 이 이동을 묘사하고 새 갈등을 추가하지 않으면 통과다. 같은 장면의 문을 열고 안에 있는 인물을 발견하는 직접 연속 사례는 0개 후보로 통과해야 한다.",
+        "opening의 미완료 필수 선행 상황은 게시·시작에서 거부된다."
+      ],
+      "counterexamples": [
+        "후보 개수가 적다는 이유만으로 준비가 실패한다.",
+        "다른 모험의 상황을 재사용하거나 기술 실패를 근거 부족 보완으로 숨긴다.",
+        "보정 과정에서 STORYBOOK을 다시 조회하거나 필수 상황을 누락한다."
+      ],
+      "verification_cases": [
+        "필수 노드 5개에서 세 길이의 허용량이 2·3·5인지, 필수 노드가 1개인 경계에서 세 길이 결과가 모두 1인지 확인한다. 화면에는 길이 선택지만 보이고 계산 숫자는 보이지 않는다.",
+        "원문 발췌와 인접 필수 상황에 이동·시간 경과가 명시된 fixture에서는 그 연결 후보 생성, 두 상황의 직접 인과가 명시된 fixture에서는 후보 0개 수용",
+        "이틀 이동이 명시된 두 필수 상황 fixture에서는 후보가 이동을 묘사하고 새 갈등을 추가하지 않는지 확인한다. 같은 장면에서 문을 열고 인물을 발견하는 직접 연속 fixture는 후보 0개를 허용하는지 확인한다.",
+        "미완료 선행 opening 게시·시작 거부"
+      ],
+      "content_path": ".scratch/issues/issue-378.md"
+    },
+    {
+      "id": "scenario-situation-candidates-379",
+      "requirement_ids": [
+        "docs/specs/scenario-situation-candidates/product-spec.md#UC-2",
+        "docs/specs/scenario-situation-candidates/product-spec.md#UC-3",
+        "docs/specs/scenario-situation-candidates/product-spec.md#R-01",
+        "docs/specs/scenario-situation-candidates/product-spec.md#R-03",
+        "docs/specs/scenario-situation-candidates/product-spec.md#R-04",
+        "docs/specs/scenario-situation-candidates/product-spec.md#R-05",
+        "docs/specs/scenario-situation-candidates/product-spec.md#R-06",
+        "docs/specs/scenario-situation-candidates/product-spec.md#R-08",
+        "docs/specs/scenario-situation-candidates/product-spec.md#R-09",
+        "docs/specs/scenario-situation-candidates/architecture-spec.md#ST-03-05",
+        "docs/specs/scenario-situation-candidates/architecture-spec.md#INPUT-BUDGET"
+      ],
+      "acceptance_criteria": [
+        "자연스러운 선택 상황이 허용량 안에 있으면 우선 선택하고, 없거나 허용량이 소진되면 적격 미사용 필수 상황을 선택한다. 적격 후보가 없고 ending이 미완료라면 새 장면으로 대체하지 않고 진행을 거부한다. 조회 한 번 → 턴 계획 → 검증·도구 실행 → 확정 순서를 지킨다.",
+        "현재 상황이 명시적 ending이면 같은 단계 선택 후보나 필수 후보를 조회·제공하지 않고 즉시 완료를 제안한다. 해당 ending의 `USED`와 모험 완료는 기존 턴 확정에서 함께 적용한다. 명시적 ending 하나가 선택되어 `USED`로 확정되면 다른 ending 갈래는 강제하지 않는다. 미사용 적격 필수 상황이 없고 ending이 확정되지 않은 상태는 임의 상황 생성 대신 진행 거부로 처리한다.",
+        "굴림 제출 전 상황 전환·사용을 확정하지 않는다. 정상 턴 확정 때 게임 결과와 함께 적용한다.",
+        "재시작·저장 실패·중복 재개 뒤 상황이 중복 확정되지 않고 후보가 중복 사용 처리되지 않는다. 기술 실패를 후보 부재나 근거 부족으로 처리하지 않는다."
+      ],
+      "counterexamples": [
+        "현재 단계 순서만을 기준으로 다른 단계 후보를 거부한다.",
+        "굴림 대기·재시작·중복 요청에서 상황을 중복 확정하거나 비공개 계획을 노출한다.",
+        "입력 초과 후보를 자르거나 누락해 호출하거나 동일 입력을 자동 재시도한다."
+      ],
+      "verification_cases": [
+        "다른 단계의 적격 필수 상황, 복수 선행 노드 전부 USED 조건, 이미 사용한 노드 재선택 거부, 선택 상황 허용량 경계, ending 종료 시 후보 조회 없음·원자적 완료·alternate ending 비강제, 새 장면 전환 거부를 검증한다.",
+        "활성 상황이 명시적 ending인 경우 후보 조회 함수가 호출되지 않고, 완료 제안과 USED 상태가 기존 원자적 턴 확정에 함께 반영되는지 검증한다.",
+        "굴림 대기 후 재시작·저장 실패·중복 재개에서 단일 확정과 선택 상황 사용량의 단일 증가를 검증한다."
+      ],
+      "content_path": ".scratch/issues/issue-379.md"
+    },
+    {
+      "id": "scenario-situation-candidates-380",
+      "requirement_ids": [
+        "docs/specs/scenario-situation-candidates/product-spec.md#UC-1",
+        "docs/specs/scenario-situation-candidates/product-spec.md#R-06",
+        "docs/specs/scenario-situation-candidates/product-spec.md#R-10"
+      ],
+      "acceptance_criteria": [
+        "같은 이미지와 저장 격자가 있을 때 재사용 또는 직접 수정을 먼저 묻는다.",
+        "재사용은 기존 정렬을 보존하고 직접 수정은 기존 편집 흐름을 사용한다."
+      ],
+      "counterexamples": [
+        "다른 이미지·모험의 격자를 재사용하거나 사용자 선택 전에 정렬을 덮어쓴다."
+      ],
+      "verification_cases": [
+        "재사용 경로의 대상 지도 적용과 직접 수정 경로의 저장 상태까지 각각 UI에서 확인한다.",
+        "원본 격자 보존, 다른 이미지, 저장 격자 없음의 분기를 검증한다."
+      ],
+      "content_path": ".scratch/issues/issue-393.md"
+    }
+  ],
+  "review": {
+    "reviewer_id": "/root/plan_final_current4",
+    "author_ids": [
+      "/root"
+    ],
+    "fork_turns": "none",
+    "verdict": "pass",
+    "findings": [],
+    "inputs": {
+      "CONTEXT-MAP.md": "38ad518112129eedbbd581013513cee47f81bc2d98a5637d674f40d6a3bdc273",
+      "CONTEXT.md": "2b16537ddd8358011cbbdc72379526b8fe19645f871ce9fde1bcd9f5018e6185",
+      "docs/contracts/architecture.md": "acd7987102be520c5895a2026427ffe3d64c6193346940e27ef328b4aad76e87",
+      "docs/contracts/product.md": "8727f700e4ca5119c435ad200d2945e1d9f9f5f820c6398333d4b88a21d0bc44",
+      "docs/specs/scenario-situation-candidates/request.md": "ac586cf9dde2c01495ef8b7e9c353941c860faf58eaf3bda91ec38838d56147b",
+      "docs/specs/scenario-situation-candidates/product-spec.md": "efa5b1b5596985e61d53e9703159dc4fb43de3013ef7907aeaf5bbeeb9932740",
+      "docs/specs/scenario-situation-candidates/architecture-spec.md": "3978cbe2e4de2bd45232c568c98cb1a377883627a46e947f4e06d255a5c9dee8",
+      "docs/specs/scenario-situation-candidates/system-targets.yaml": "d5e5ed05224291f36be5ed2c7ea5598c31c38da8750bb86e015df26dbab64585",
+      "docs/specs/scenario-situation-candidates/diagrams/product/UC-1.activity.puml": "da79fff85d7d7966a333aec342531e78ee86f0ae116d81acb007549db7c66617",
+      "docs/specs/scenario-situation-candidates/diagrams/product/UC-1.activity.svg": "18005de0a40aabf3f48abe5b627b3277f298e389d5d1ca36b1cc384ca771f61a",
+      "docs/specs/scenario-situation-candidates/diagrams/product/UC-1.usecase.puml": "aa2820b2688463744de7dd0a907750d2f03adfe32dfb2e9a1d99e0c3bc8e9f77",
+      "docs/specs/scenario-situation-candidates/diagrams/product/UC-1.usecase.svg": "89e1270ea4d441057856f8be367e5b9239614173bc8ced7e4bcd2819161b0571",
+      "docs/specs/scenario-situation-candidates/diagrams/product/UC-2.activity.puml": "7c108120882a4046462c58649fd378b5354a21386151dca53c61594b27855167",
+      "docs/specs/scenario-situation-candidates/diagrams/product/UC-2.activity.svg": "5e8ad4ba4b1c8e12eb2410c5d055cefab858a0767acb2bd0c4707a212010d33f",
+      "docs/specs/scenario-situation-candidates/diagrams/architecture/situations.class.puml": "459b5d6142f5159370222dad68b8b79cd539a5ebfce164a99bd717eaeea3c2c0",
+      "docs/specs/scenario-situation-candidates/diagrams/architecture/situations.class.svg": "3c01d16b31497bf35718149dc1d36c6a44d86b3a4d5dd3af1f4778cd5ca1fd06",
+      "docs/specs/scenario-situation-candidates/diagrams/architecture/turn-commit.state.puml": "444abfd3ee28a7d4c59c4b354732018a326279514a7ab1be48496b2447ff9fa6",
+      "docs/specs/scenario-situation-candidates/diagrams/architecture/turn-commit.state.svg": "93275c80a2860a8a834c34f90e75d6d14f1b8cddc0cd4f38227ed09f9956503f",
+      "docs/plans/scenario-situation-candidates/traceability.json#planning": "5fea73ba0d9a01750779eac044933fb934c4da017deaf586b9c4c33ad98a0181",
+      "docs/plans/scenario-situation-candidates/plans/scenario-situation-candidates-378#canonical": "c6fe839ba286f8d7cafd26155abc2580f79bcfda3a4f7569ce7cfb8485f0f62a",
+      "docs/plans/scenario-situation-candidates/plans/scenario-situation-candidates-379#canonical": "29826bb486bbf229db28666bfe588d58fea8a0c6710c33a2e9f40a173a685b39",
+      "docs/plans/scenario-situation-candidates/plans/scenario-situation-candidates-380#canonical": "e6514b9ea6c413460ae2e16d7a87303e9fa2551613cd42934321eefe015d5868"
+    }
+  }
+}

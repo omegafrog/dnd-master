@@ -11,6 +11,7 @@ import java.util.UUID;
 
 /** Owns candidate requests, three-attempt validation, and activation policy. */
 public final class ScenarioSpatialFeaturePreparationService {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(ScenarioSpatialFeaturePreparationService.class);
     public static final int MAX_ATTEMPTS = 3;
     private final ScenarioSpatialFeaturePlacementModelPort model;
 
@@ -19,28 +20,97 @@ public final class ScenarioSpatialFeaturePreparationService {
     }
 
     public ScenarioSpatialFeaturePreparationResult prepare(MapDefinition map, UUID soloPlayerId) {
+        return prepare(map, soloPlayerId, List.of());
+    }
+
+    public ScenarioSpatialFeaturePreparationResult prepare(MapDefinition map, UUID soloPlayerId,
+            List<ScenarioSpatialFeaturePlacementModelPort.EncounterRequirement> encounters) {
         Objects.requireNonNull(map, "map must not be null");
         Objects.requireNonNull(soloPlayerId, "solo player id must not be null");
-        if (map.spatialFeatures().isEmpty()) return new ScenarioSpatialFeaturePreparationResult(true, List.of(), List.of(), List.of(), 0);
+        encounters = List.copyOf(Objects.requireNonNull(encounters, "encounters must not be null"));
+        long startedAt = System.nanoTime();
+        if (diagnosticsEnabled()) LOGGER.info("dev_situation_initial_placement outcome=started mapDefinitionId={} expectedFeatureCount={} expectedEncounterCount={} expectedEnemyCount={} attemptLimit={}",
+                map.id(), map.spatialFeatures().size(), encounters.size(), encounters.stream().mapToInt(ScenarioSpatialFeaturePlacementModelPort.EncounterRequirement::count).sum(), MAX_ATTEMPTS);
+        if (map.spatialFeatures().isEmpty() && encounters.isEmpty()) {
+            if (diagnosticsEnabled()) LOGGER.info("dev_situation_initial_placement outcome=completed mapDefinitionId={} expectedFeatureCount=0 actualFeatureCount=0 expectedEnemyCount=0 actualEnemyCount=0 attempts=0 elapsedMs={} recoveryAction=continue_without_initial_placements",
+                    map.id(), elapsedMs(startedAt));
+            return new ScenarioSpatialFeaturePreparationResult(true, List.of(), List.of(), List.of(), 0);
+        }
         List<String> failures = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             ScenarioSpatialFeaturePlacementModelPort.Proposal proposal;
             try {
-                proposal = model.propose(new ScenarioSpatialFeaturePlacementModelPort.Context(soloPlayerId, map, attempt, failures));
+                if (diagnosticsEnabled()) LOGGER.info("dev_situation_initial_placement outcome=attempt_started mapDefinitionId={} attempt={} expectedEncounterCount={} expectedEnemyCount={} previousFailureCount={}",
+                        map.id(), attempt, encounters.size(), encounters.stream().mapToInt(ScenarioSpatialFeaturePlacementModelPort.EncounterRequirement::count).sum(), failures.size());
+                proposal = model.propose(new ScenarioSpatialFeaturePlacementModelPort.Context(soloPlayerId, map, attempt, failures, encounters));
             } catch (RuntimeException exception) {
                 failures.add("spatial placement proposal was unavailable");
+                if (diagnosticsEnabled()) LOGGER.info("dev_situation_initial_placement outcome=attempt_failed mapDefinitionId={} attempt={} expectedFeatureCount={} expectedEncounterCount={} actualProposal=unavailable failureClass={} nextAction={} elapsedMs={}",
+                        map.id(), attempt, map.spatialFeatures().size(), encounters.size(), exception.getClass().getSimpleName(),
+                        attempt < MAX_ATTEMPTS ? "retry_with_failure_reason" : "block_map_entry", elapsedMs(startedAt));
                 continue;
             }
             Validation validation = validate(map, proposal);
+            EnemyValidation enemyValidation = validateEnemies(encounters, proposal);
             if (validation.requiredFailures.isEmpty()) {
                 warnings.addAll(validation.optionalFailures);
-                return new ScenarioSpatialFeaturePreparationResult(true, validation.placements, warnings, failures, attempt);
+                warnings.addAll(enemyValidation.optionalFailures());
+                if (!enemyValidation.requiredFailures().isEmpty()) {
+                    failures.addAll(enemyValidation.requiredFailures());
+                    continue;
+                }
+                var result = new ScenarioSpatialFeaturePreparationResult(true, validation.placements, enemyValidation.placements(), warnings, failures, attempt);
+                if (diagnosticsEnabled()) LOGGER.info("dev_situation_initial_placement outcome=completed mapDefinitionId={} expectedFeatureCount={} actualFeatureCount={} expectedEnemyCount={} actualEnemyCount={} attempts={} warningCount={} elapsedMs={} recoveryAction=apply_validated_batch",
+                        map.id(), map.spatialFeatures().stream().filter(MapDefinition.SpatialFeatureRequirement::required).count(),
+                        result.placements().size(), encounters.stream().mapToInt(ScenarioSpatialFeaturePlacementModelPort.EncounterRequirement::count).sum(),
+                        result.enemies().stream().mapToInt(item -> item.positions().size()).sum(), attempt, warnings.size(), elapsedMs(startedAt));
+                return result;
             }
             failures.addAll(validation.requiredFailures);
             warnings.addAll(validation.optionalFailures);
+            failures.addAll(enemyValidation.requiredFailures());
+            warnings.addAll(enemyValidation.optionalFailures());
         }
-        return new ScenarioSpatialFeaturePreparationResult(false, List.of(), warnings, failures, MAX_ATTEMPTS);
+        if (diagnosticsEnabled()) LOGGER.info("dev_situation_initial_placement outcome=blocked mapDefinitionId={} expectedFeatureCount={} expectedEnemyCount={} actualFeatureCount=0 actualEnemyCount=0 attempts={} failureCount={} elapsedMs={} recoveryAction=retain_map_inactive",
+                map.id(), map.spatialFeatures().stream().filter(MapDefinition.SpatialFeatureRequirement::required).count(),
+                encounters.stream().mapToInt(ScenarioSpatialFeaturePlacementModelPort.EncounterRequirement::count).sum(),
+                MAX_ATTEMPTS, failures.size(), elapsedMs(startedAt));
+        return new ScenarioSpatialFeaturePreparationResult(false, List.of(), List.of(), warnings, failures, MAX_ATTEMPTS);
+    }
+
+    private static boolean diagnosticsEnabled() {
+        return Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+    }
+    private static long elapsedMs(long startedAt) {
+        return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+    }
+
+    private static EnemyValidation validateEnemies(List<ScenarioSpatialFeaturePlacementModelPort.EncounterRequirement> requirements,
+            ScenarioSpatialFeaturePlacementModelPort.Proposal proposal) {
+        List<ScenarioSpatialFeaturePreparationResult.EnemyPlacement> placements = new ArrayList<>();
+        List<String> requiredFailures = new ArrayList<>();
+        List<String> optionalFailures = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (var candidate : proposal == null ? List.<ScenarioSpatialFeaturePlacementModelPort.EnemyCandidate>of() : proposal.enemies()) {
+            var requirement = requirements.stream().filter(item -> item.scenarioId().equals(candidate.scenarioId())).findFirst().orElse(null);
+            if (requirement == null || !seen.add(candidate.scenarioId())
+                    || requirement != null && candidate.positions().size() != requirement.count()) {
+                (requirement != null && requirement.required() ? requiredFailures : optionalFailures)
+                        .add("enemy placement did not match a supplied encounter and count");
+                continue;
+            }
+            if (candidate.positions().stream().distinct().count() != candidate.positions().size()) {
+                (requirement.required() ? requiredFailures : optionalFailures).add("enemy placements overlap");
+                continue;
+            }
+            placements.add(new ScenarioSpatialFeaturePreparationResult.EnemyPlacement(
+                    requirement.scenarioId(), requirement.enemyKey(), candidate.positions()));
+        }
+        for (var requirement : requirements) if (requirement.required() && !seen.contains(requirement.scenarioId()))
+            requiredFailures.add("required encounter placement was not proposed");
+        return new EnemyValidation(placements, requiredFailures, optionalFailures);
     }
 
     private static Validation validate(MapDefinition map, ScenarioSpatialFeaturePlacementModelPort.Proposal proposal) {
@@ -96,5 +166,7 @@ public final class ScenarioSpatialFeaturePreparationService {
     }
 
     private record Validation(List<ScenarioSpatialFeaturePreparationResult.Placement> placements,
+            List<String> requiredFailures, List<String> optionalFailures) {}
+    private record EnemyValidation(List<ScenarioSpatialFeaturePreparationResult.EnemyPlacement> placements,
             List<String> requiredFailures, List<String> optionalFailures) {}
 }

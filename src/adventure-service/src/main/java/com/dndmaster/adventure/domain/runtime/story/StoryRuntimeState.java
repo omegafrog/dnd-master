@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.domain.runtime.story;
 
 import com.dndmaster.adventure.domain.scenario.DetailedStage;
+import com.dndmaster.adventure.domain.adventure.StoryLength;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -35,6 +36,9 @@ public final class StoryRuntimeState {
     private final List<StageHistoryEntry> stageHistory;
     private final List<PlayCreatedStoryFact> acceptedStoryFacts;
     private final List<PremiseInvalidationAudit> premiseInvalidationAudits;
+    private final StoryLength storyLength;
+    private final int optionalSituationAllowance;
+    private final int optionalSituationsUsed;
 
     /** JSON creator retaining stage history and carry-over context across restarts. */
     @JsonCreator
@@ -56,7 +60,10 @@ public final class StoryRuntimeState {
             @JsonProperty("unresolvedConsequenceIds") List<String> unresolvedConsequenceIds,
             @JsonProperty("stageHistory") List<StageHistoryEntry> stageHistory,
             @JsonProperty("acceptedStoryFacts") List<PlayCreatedStoryFact> acceptedStoryFacts,
-            @JsonProperty("premiseInvalidationAudits") List<PremiseInvalidationAudit> premiseInvalidationAudits) {
+            @JsonProperty("premiseInvalidationAudits") List<PremiseInvalidationAudit> premiseInvalidationAudits,
+            @JsonProperty("storyLength") StoryLength storyLength,
+            @JsonProperty("optionalSituationAllowance") int optionalSituationAllowance,
+            @JsonProperty("optionalSituationsUsed") int optionalSituationsUsed) {
         if (version < 0) throw new IllegalArgumentException("runtime version must not be negative");
         this.version = version;
         this.scenarioPackageId = Objects.requireNonNull(scenarioPackageId, "scenario package id must not be null");
@@ -78,6 +85,11 @@ public final class StoryRuntimeState {
         this.stageHistory = List.copyOf(stageHistory == null ? List.of() : stageHistory);
         this.acceptedStoryFacts = List.copyOf(acceptedStoryFacts == null ? List.of() : acceptedStoryFacts);
         this.premiseInvalidationAudits = List.copyOf(premiseInvalidationAudits == null ? List.of() : premiseInvalidationAudits);
+        this.storyLength = storyLength == null ? StoryLength.NORMAL : storyLength;
+        if (optionalSituationAllowance < 0 || optionalSituationsUsed < 0 || optionalSituationsUsed > optionalSituationAllowance)
+            throw new IllegalArgumentException("optional situation usage must be within its allowance");
+        this.optionalSituationAllowance = optionalSituationAllowance;
+        this.optionalSituationsUsed = optionalSituationsUsed;
         if (this.acceptedStoryFacts.stream().map(PlayCreatedStoryFact::factId).distinct().count() != this.acceptedStoryFacts.size()) {
             throw new IllegalArgumentException("accepted story fact ids must be unique");
         }
@@ -100,7 +112,7 @@ public final class StoryRuntimeState {
             String activeSituationId, boolean openingPresented, Set<UUID> processedProposalIds) {
         this(version, scenarioPackageId, backboneRevision, stageId, detailedStageRevision, situationStatuses,
                 revelationStatuses, pressureStates, activeSituationId, openingPresented, processedProposalIds,
-                Set.of(), StageLifecycle.ACTIVE, null, List.of(), List.of(), List.of(), List.of(), List.of());
+                Set.of(), StageLifecycle.ACTIVE, null, List.of(), List.of(), List.of(), List.of(), List.of(), StoryLength.NORMAL, 0, 0);
     }
 
     /** Source-compatible constructor for callers that supplied the pre-replanning history fields. */
@@ -114,20 +126,50 @@ public final class StoryRuntimeState {
         this(version, scenarioPackageId, backboneRevision, stageId, detailedStageRevision, situationStatuses,
                 revelationStatuses, pressureStates, activeSituationId, openingPresented, processedProposalIds,
                 satisfiedPredicateIds, lifecycle, exitReason, unresolvedThreats, unresolvedConsequenceIds,
-                stageHistory, List.of(), List.of());
+                stageHistory, List.of(), List.of(), StoryLength.NORMAL, 0, 0);
+    }
+
+    public StoryRuntimeState(long version, UUID scenarioPackageId, long backboneRevision, String stageId,
+            long detailedStageRevision, Map<String, SituationStatus> situationStatuses,
+            Map<String, RevelationStatus> revelationStatuses, Map<String, PressureState> pressureStates,
+            String activeSituationId, boolean openingPresented, Set<UUID> processedProposalIds,
+            Set<String> satisfiedPredicateIds, StageLifecycle lifecycle, String exitReason,
+            List<String> unresolvedThreats, List<String> unresolvedConsequenceIds,
+            List<StageHistoryEntry> stageHistory, List<PlayCreatedStoryFact> acceptedStoryFacts,
+            List<PremiseInvalidationAudit> premiseInvalidationAudits) {
+        this(version, scenarioPackageId, backboneRevision, stageId, detailedStageRevision, situationStatuses,
+                revelationStatuses, pressureStates, activeSituationId, openingPresented, processedProposalIds,
+                satisfiedPredicateIds, lifecycle, exitReason, unresolvedThreats, unresolvedConsequenceIds,
+                stageHistory, acceptedStoryFacts, premiseInvalidationAudits, StoryLength.NORMAL, 0, 0);
     }
 
     public static StoryRuntimeState start(DetailedStage stage) {
+        return start(stage, StoryLength.NORMAL, (int) stage.situations().stream()
+                .filter(com.dndmaster.adventure.domain.scenario.SituationDefinition::required).count());
+    }
+
+    public static StoryRuntimeState start(DetailedStage stage, StoryLength storyLength, int requiredSituationCount) {
+        return start(stage, List.of(stage), storyLength, requiredSituationCount);
+    }
+
+    public static StoryRuntimeState start(DetailedStage stage, List<DetailedStage> allStages,
+            StoryLength storyLength, int requiredSituationCount) {
         Objects.requireNonNull(stage, "detailed stage must not be null");
+        Objects.requireNonNull(allStages, "detailed stages must not be null");
+        Objects.requireNonNull(storyLength, "story length must not be null");
         Map<String, SituationStatus> situations = new LinkedHashMap<>();
-        stage.situations().forEach(situation -> situations.put(situation.situationId(), SituationStatus.AVAILABLE));
+        allStages.forEach(value -> value.situations().forEach(situation -> situations.put(situation.situationId(), SituationStatus.AVAILABLE)));
+        if (allStages.stream().noneMatch(value -> value.stageId().equals(stage.stageId())))
+            throw new IllegalArgumentException("current stage must be in the prepared story stages");
         Map<String, RevelationStatus> revelations = new LinkedHashMap<>();
         stage.revelations().forEach(revelation -> revelations.put(revelation.revelationId(), RevelationStatus.UNKNOWN));
         Map<String, PressureState> pressures = Map.of(stage.pressure().pressureId(), PressureState.dormant(stage.pressure().pressureId()));
         String opening = stage.situations().stream().filter(situation -> situation.opening()).map(situation -> situation.situationId())
                 .findFirst().orElse(null);
         return new StoryRuntimeState(0, stage.scenarioPackageId(), stage.backboneRevision(), stage.stageId(), stage.revision(),
-                situations, revelations, pressures, opening, opening != null, Set.of());
+                situations, revelations, pressures, opening, opening != null, Set.of(), Set.of(), StageLifecycle.ACTIVE,
+                null, List.of(), List.of(), List.of(), List.of(), List.of(), storyLength,
+                storyLength.optionalSituationAllowance(requiredSituationCount), 0);
     }
 
     public long version() { return version; }
@@ -151,6 +193,9 @@ public final class StoryRuntimeState {
     public List<StageHistoryEntry> stageHistory() { return stageHistory; }
     public List<PlayCreatedStoryFact> acceptedStoryFacts() { return acceptedStoryFacts; }
     public List<PremiseInvalidationAudit> premiseInvalidationAudits() { return premiseInvalidationAudits; }
+    public StoryLength storyLength() { return storyLength; }
+    public int optionalSituationAllowance() { return optionalSituationAllowance; }
+    public int optionalSituationsUsed() { return optionalSituationsUsed; }
     @JsonIgnore
     public boolean isOpenPlay() { return activeSituationId == null; }
 
@@ -180,7 +225,22 @@ public final class StoryRuntimeState {
         if (proposalId != null) processed.add(proposalId);
         return new StoryRuntimeState(version + 1, scenarioPackageId, backboneRevision, stageId, detailedStageRevision,
                 situations, revelations, pressures, active, opening, processed, predicates, nextLifecycle,
-                nextExitReason, nextUnresolvedThreats, nextUnresolvedConsequences, nextHistory, nextFacts, nextAudits);
+                nextExitReason, nextUnresolvedThreats, nextUnresolvedConsequences, nextHistory, nextFacts, nextAudits,
+                storyLength, optionalSituationAllowance, optionalSituationsUsed);
+    }
+
+    StoryRuntimeState evolve(Map<String, SituationStatus> situations, Map<String, RevelationStatus> revelations,
+            Map<String, PressureState> pressures, String active, boolean opening, UUID proposalId,
+            Set<String> predicates, StageLifecycle nextLifecycle, String nextExitReason,
+            List<String> nextUnresolvedThreats, List<String> nextUnresolvedConsequences,
+            List<StageHistoryEntry> nextHistory, List<PlayCreatedStoryFact> nextFacts,
+            List<PremiseInvalidationAudit> nextAudits, int nextOptionalSituationsUsed) {
+        Set<UUID> processed = new LinkedHashSet<>(processedProposalIds);
+        if (proposalId != null) processed.add(proposalId);
+        return new StoryRuntimeState(version + 1, scenarioPackageId, backboneRevision, stageId, detailedStageRevision,
+                situations, revelations, pressures, active, opening, processed, predicates, nextLifecycle,
+                nextExitReason, nextUnresolvedThreats, nextUnresolvedConsequences, nextHistory, nextFacts, nextAudits,
+                storyLength, optionalSituationAllowance, nextOptionalSituationsUsed);
     }
 
     StoryRuntimeState withProcessedProposal(UUID proposalId) {
@@ -189,7 +249,7 @@ public final class StoryRuntimeState {
         return new StoryRuntimeState(version, scenarioPackageId, backboneRevision, stageId, detailedStageRevision,
                 situationStatuses, revelationStatuses, pressureStates, activeSituationId, openingPresented, processed,
                 satisfiedPredicateIds, lifecycle, exitReason, unresolvedThreats, unresolvedConsequenceIds, stageHistory,
-                acceptedStoryFacts, premiseInvalidationAudits);
+                acceptedStoryFacts, premiseInvalidationAudits, storyLength, optionalSituationAllowance, optionalSituationsUsed);
     }
 
     StoryRuntimeState withTransition(StoryRuntimeState next) {
@@ -208,7 +268,7 @@ public final class StoryRuntimeState {
         return new StoryRuntimeState(version + 1, scenarioPackageId, backboneRevision, stageId, detailedStageRevision,
                 situationStatuses, revelationStatuses, pressureStates, activeSituationId, openingPresented, processed,
                 satisfiedPredicateIds, lifecycle, exitReason, unresolvedThreats, unresolvedConsequenceIds, stageHistory,
-                acceptedStoryFacts, audits);
+                acceptedStoryFacts, audits, storyLength, optionalSituationAllowance, optionalSituationsUsed);
     }
 
     private static String required(String value, String name) {

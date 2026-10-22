@@ -1,0 +1,19 @@
+@startuml
+ title AI 제공자 연결 (ai-provider)
+ actor "사용자" as User
+ participant "클라이언트" as Client
+ participant "사용자 인증" as Identity
+ participant "Codex CLI 연결" as CLI
+ User -> Client : 연결 시작
+ Client -> Identity : 인증된 사용자로 연결 요청
+ Identity -> CLI : 기존 CLI 로그인 상태 확인·연결
+ alt 연결 성공
+   CLI --> Identity : 연결 상태
+   Identity --> Client : 연결 완료 상태
+   Client --> User : 연결됨 표시
+ else 취소·만료·실패
+   CLI --> Identity : 원인 코드
+   Identity --> Client : 재연결 가능한 오류
+   Client --> User : 실패 원인과 재시도 제공
+ end
+@enduml

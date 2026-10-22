@@ -33,8 +33,9 @@ class FakeSetupApi implements SetupApi {
     extractionVersion: 1,
     warnings: [],
     spans: [
-      { kind: 'LINE', path: ['line 1'], pageNumber: null, bounds: null, lineNumber: 1, startInclusive: 0, endExclusive: 5, text: 'alpha', locator: 'line 1 chars 0-5' },
-      { kind: 'LINE', path: ['line 2'], pageNumber: null, bounds: null, lineNumber: 2, startInclusive: 6, endExclusive: 10, text: 'beta', locator: 'line 2 chars 6-10' },
+      { kind: 'LINE', path: ['page 1', 'line 1'], pageNumber: 1, bounds: null, lineNumber: 1, startInclusive: 0, endExclusive: 5, text: 'alpha', locator: 'page 1 line 1' },
+      { kind: 'LINE', path: ['page 2', 'line 1'], pageNumber: 2, bounds: null, lineNumber: 1, startInclusive: 0, endExclusive: 5, text: 'gamma', locator: 'page 2 line 1' },
+      { kind: 'LINE', path: ['page 2', 'line 2'], pageNumber: 2, bounds: null, lineNumber: 2, startInclusive: 6, endExclusive: 10, text: 'beta', locator: 'page 2 line 2' },
     ],
     assets: [],
   }
@@ -115,7 +116,10 @@ async function enterMaterials(user: ReturnType<typeof userEvent.setup>, name = '
 }
 
 describe('new adventure setup', () => {
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
 
   it('resumes an interrupted bundle in the current preparation screen', async () => {
     stubCatalog()
@@ -242,13 +246,17 @@ describe('new adventure setup', () => {
   it('opens source preview in a sheet instead of expanding the page', async () => {
     stubCatalog()
     const user = userEvent.setup()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     render(<RulebookSetup api={new FakeSetupApi({ includeFailed: false })} playerId="p1" />)
     await enterMaterials(user)
 
     await user.click(await screen.findByRole('button', { name: 'phb.txt 미리보기' }))
     const preview = screen.getByRole('dialog')
     expect(within(preview).getByRole('heading', { name: 'phb.txt' })).toBeInTheDocument()
-    expect(within(preview).getByRole('list', { name: '원문 줄 미리보기' })).toHaveTextContent('alpha')
+    const spans = within(preview).getByRole('list', { name: '원문 줄 미리보기' })
+    expect(spans).toHaveTextContent('alpha')
+    expect(spans.querySelectorAll('li')).toHaveLength(3)
+    expect(consoleError.mock.calls.flat().join(' ')).not.toContain('same key')
   })
 
   it('creates the bundle with the entered adventure name and visible material role', async () => {

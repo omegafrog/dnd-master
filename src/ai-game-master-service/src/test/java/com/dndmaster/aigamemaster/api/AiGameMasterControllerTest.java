@@ -43,7 +43,7 @@ class AiGameMasterControllerTest {
                 seen.add(owner);
                 String response = operationId.startsWith("map-")
                         ? "{\"width\":1,\"height\":1,\"boundaries\":[],\"obstacles\":[],\"doors\":[]}"
-                        : operationId.startsWith("spatial-feature-placement-") ? "{\"candidates\":[]}" : "RULE";
+                        : operationId.startsWith("spatial-feature-placement-") ? "{\"candidates\":[],\"enemies\":[]}" : "RULE";
                 return parser.parse(response);
             }
             @Override public <T> T complete(UUID owner, String operationId, GmPrompt prompt, StructuredResponseParser<T> parser) {

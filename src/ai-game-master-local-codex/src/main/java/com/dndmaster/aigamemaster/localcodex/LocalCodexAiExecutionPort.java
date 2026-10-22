@@ -29,6 +29,7 @@ import org.slf4j.LoggerFactory;
 /** Executes Codex through the local app-server and bridges its MCP search tool over the agent WebSocket. */
 public final class LocalCodexAiExecutionPort implements AiExecutionPort, AutoCloseable {
     private static final Logger LOGGER = LoggerFactory.getLogger(LocalCodexAiExecutionPort.class);
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final CodexAppServerClient client;
     private final AtomicReference<String> activeRequestId = new AtomicReference<>();
@@ -75,8 +76,30 @@ public final class LocalCodexAiExecutionPort implements AiExecutionPort, AutoClo
         String requestId = request.ragSearchContext() == null || request.ragSearchContext().isNull()
                 ? null : request.requestId();
         activeRequestId.set(requestId);
+        long lookupStartedAt = System.nanoTime();
         try {
-            var completion = client.completeWithUsage(request.requestId(), request.completedPrompt(), request.model(),
+            String prompt = request.completedPrompt();
+            if (requiresSituationLookup(request.outputSchema())) {
+                if (requestId == null) throw new IllegalStateException("상황 후보 조회에 허용된 자료 범위가 없습니다.");
+                if (diagnosticsEnabled()) LOGGER.info(
+                        "dev_situation_lookup stage=start requestId={} tool=find_available_situations promptChars={} outcome=started",
+                        request.requestId(), prompt.length());
+                JsonNode response = lookupAvailableSituations(requestId);
+                JsonNode situations = response.path("result").path("situations");
+                if (!response.path("success").asBoolean(false) || !situations.isArray()) {
+                    if (diagnosticsEnabled()) LOGGER.warn(
+                            "dev_situation_lookup stage=validate requestId={} expected=success_with_situations_array actualSuccess={} actualSituationsType={} elapsedMs={} recovery=abort_gm_request outcome=failed",
+                            request.requestId(), response.path("success").asBoolean(false), nodeType(situations),
+                            (System.nanoTime() - lookupStartedAt) / 1_000_000);
+                    throw new IllegalStateException("상황 후보 MCP 조회 결과가 올바르지 않습니다.");
+                }
+                prompt += "\nAVAILABLE_SITUATIONS_MCP_RESULT=" + json(response.path("result"));
+                if (diagnosticsEnabled()) LOGGER.info(
+                        "dev_situation_lookup stage=complete requestId={} tool=find_available_situations situationCount={} promptChars={} elapsedMs={} outcome=completed",
+                        request.requestId(), situations.size(), prompt.length(),
+                        (System.nanoTime() - lookupStartedAt) / 1_000_000);
+            }
+            var completion = client.completeWithUsage(request.requestId(), prompt, request.model(),
                     request.reasoning(), request.outputSchema(), request.imageDataUri(), request.subtasks());
             return new AiExecutionSuccess(completion.finalText(), completion.usage());
         } catch (com.dndmaster.aigamemaster.infrastructure.ai.CodexAuthenticationRejectedException rejected) {
@@ -89,11 +112,44 @@ public final class LocalCodexAiExecutionPort implements AiExecutionPort, AutoClo
                 return new AiExecutionFailure(AiExecutionFailure.Reason.OUTPUT_LIMIT, "Codex response output limit reached");
             return new AiExecutionFailure(AiExecutionFailure.Reason.LOCAL_EXECUTION_FAILED, "Codex app-server execution failed");
         } catch (RuntimeException failure) {
+            if (diagnosticsEnabled() && requiresSituationLookup(request.outputSchema())) LOGGER.warn(
+                    "dev_situation_lookup stage=failed requestId={} failureType={} elapsedMs={} recovery=return_execution_failure outcome=failed",
+                    request.requestId(), failure.getClass().getSimpleName(),
+                    (System.nanoTime() - lookupStartedAt) / 1_000_000);
             return new AiExecutionFailure(AiExecutionFailure.Reason.LOCAL_EXECUTION_FAILED,
                     failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage());
         } finally {
             activeRequestId.set(null);
         }
+    }
+
+    private static boolean requiresSituationLookup(JsonNode schema) {
+        return schema != null && schema.path("properties").has("situation");
+    }
+
+    private JsonNode lookupAvailableSituations(String requestId) {
+        try {
+            return mcpToolHandler.call(requestId, "find_available_situations", "");
+        } catch (Exception failure) {
+            throw new IllegalStateException("상황 후보 MCP 조회를 완료하지 못했습니다.", failure);
+        }
+    }
+
+    private static String nodeType(JsonNode node) {
+        return node == null || node.isMissingNode() ? "missing" : node.getNodeType().name();
+    }
+
+    private static String json(JsonNode value) {
+        try {
+            return JSON.writeValueAsString(value);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+            throw new IllegalStateException("상황 후보 결과를 요청에 추가하지 못했습니다.", failure);
+        }
+    }
+
+    private static boolean diagnosticsEnabled() {
+        return "true".equalsIgnoreCase(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
     }
 
     @Override
@@ -109,6 +165,10 @@ public final class LocalCodexAiExecutionPort implements AiExecutionPort, AutoClo
     private static String javaExecutable() {
         return Path.of(System.getProperty("java.home"), "bin",
                 System.getProperty("os.name", "").toLowerCase().contains("win") ? "java.exe" : "java").toString();
+    }
+
+    static String queryArgument(JsonNode call) {
+        return call.path("arguments").path("query").asText("");
     }
 
     private static final class McpRelayServer implements AutoCloseable {
@@ -146,8 +206,9 @@ public final class LocalCodexAiExecutionPort implements AiExecutionPort, AutoClo
                     "mcp_servers.rag_search.default_tools_approval_mode=\"auto\"",
                     "mcp_servers.rag_search.tools.search_rules.approval_mode=\"auto\"",
                     "mcp_servers.rag_search.tools.find_scenario_elements.approval_mode=\"auto\"",
+                    "mcp_servers.rag_search.tools.find_available_situations.approval_mode=\"auto\"",
                     "mcp_servers.rag_search.tools.lookup_learned_ability.approval_mode=\"auto\"",
-                    "mcp_servers.rag_search.enabled_tools=[\"search_rules\",\"find_scenario_elements\",\"lookup_learned_ability\"]",
+                    "mcp_servers.rag_search.enabled_tools=[\"search_rules\",\"find_scenario_elements\",\"find_available_situations\",\"lookup_learned_ability\"]",
                     "mcp_servers.rag_search.startup_timeout_sec=20",
                     "mcp_servers.rag_search.tool_timeout_sec=150");
         }
@@ -171,10 +232,11 @@ public final class LocalCodexAiExecutionPort implements AiExecutionPort, AutoClo
                         + "args = " + tomlArray(args) + "\n"
                         + "enabled = true\nrequired = true\n"
                         + "default_tools_approval_mode = \"auto\"\n"
-                        + "enabled_tools = [\"search_rules\", \"find_scenario_elements\", \"lookup_learned_ability\"]\n"
+                        + "enabled_tools = [\"search_rules\", \"find_scenario_elements\", \"find_available_situations\", \"lookup_learned_ability\"]\n"
                         + "startup_timeout_sec = 20\ntool_timeout_sec = 150\n"
                         + "[mcp_servers.rag_search.tools.search_rules]\napproval_mode = \"auto\"\n"
                         + "[mcp_servers.rag_search.tools.find_scenario_elements]\napproval_mode = \"auto\"\n"
+                        + "[mcp_servers.rag_search.tools.find_available_situations]\napproval_mode = \"auto\"\n"
                         + "[mcp_servers.rag_search.tools.lookup_learned_ability]\napproval_mode = \"auto\"\n";
                 Path temporary;
                 try {
@@ -254,7 +316,7 @@ public final class LocalCodexAiExecutionPort implements AiExecutionPort, AutoClo
                         .put("error", "현재 요청에 허용된 자료 조회 범위가 없습니다.");
             }
             try {
-                JsonNode result = handler.get().call(requestId, call.path("tool").asText("search_rules"), call.path("query").asText());
+                JsonNode result = handler.get().call(requestId, call.path("tool").asText("search_rules"), queryArgument(call));
                 return mapper.createObjectNode().put("success", true).set("result", result);
             } catch (Exception failure) {
                 return mapper.createObjectNode().put("success", false).put("error", "자료 조회 도구를 실행하지 못했습니다.");

@@ -1,0 +1,148 @@
+services:
+  ollama:
+    image: ollama/ollama:0.20.7
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_MODELS: /root/.ollama/models
+    volumes:
+      - type: bind
+        source: ${OLLAMA_MODEL_HOST_DIR:?}
+        target: /root/.ollama/models
+        read_only: true
+    gpus: all
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - infrastructure
+
+  app-all:
+    build:
+      context: ../..
+      dockerfile: src/infra/Dockerfile.app
+      target: app-all
+    image: dnd-master-app-all:dev
+    ports:
+      - "127.0.0.1:${BACKEND_SERVER_PORT:-8080}:8080"
+    environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-development-internal-token}
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/postgres
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-dnd-master-local}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
+      LOCAL_AI_OLLAMA_BASE_URL: http://ollama:11434
+      AGENT_CONNECTION_RELAY_URL: http://agent-connection-relay-e2e:8080
+      RULE_KNOWLEDGE_STORAGE_ROOT: /harness-session/runtime/e2e/rulebooks
+      RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT: /rulebook-assets
+      RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS: ${RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS:-00000000-0000-0000-0000-000000000001}
+      HARNESS_SESSION_DIR: /harness-session
+      ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED: ${ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED:-false}
+      SPRING_APPLICATION_NAME: app-all
+      SPRING_CONFIG_ADDITIONAL_LOCATION: optional:file:/opt/app/spring-local.properties
+      OTEL_JAVAAGENT_CONFIGURATION_FILE: /opt/app/otel-javaagent.properties
+      OTEL_SERVICE_NAME: app-all
+      OTEL_RESOURCE_ATTRIBUTES: diag.project.id=dnd-master-spec-combat-movement-spell-range,deployment.environment.name=local,diag.contract.version=1
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
+      JAVA_TOOL_OPTIONS: -javaagent:/opt/otel/opentelemetry-javaagent.jar
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ${HARNESS_SESSION_DIR:?}
+        target: /harness-session
+      - type: bind
+        source: ${RULE_KNOWLEDGE_ASSET_HOST_DIR:?}
+        target: /rulebook-assets
+        read_only: true
+      - type: bind
+        source: ${WORKSPACE_ROOT:?}/docs/observability/victorialogs/spring-local.properties
+        target: /opt/app/spring-local.properties
+        read_only: true
+      - type: bind
+        source: ${WORKSPACE_ROOT:?}/docs/observability/victorialogs/otel-javaagent.properties
+        target: /opt/app/otel-javaagent.properties
+        read_only: true
+      - type: bind
+        source: ${OTEL_JAVAAGENT_JAR:?}
+        target: /opt/otel/opentelemetry-javaagent.jar
+        read_only: true
+    networks:
+      - infrastructure
+      - observability
+
+  agent-connection-relay:
+    build:
+      context: ../..
+      dockerfile: src/infra/Dockerfile.app
+      target: relay
+    image: dnd-master-agent-connection-relay:dev
+    ports:
+      - "127.0.0.1:${LOCAL_AGENT_CONNECTION_RELAY_PORT:-8081}:8080"
+    environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-development-internal-token}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      RELAY_INTERNAL_ADDRESS: http://app-all:8080
+      IDENTITY_ACCESS_BASE_URL: http://app-all:8080/
+      RELAY_SCENARIO_LOOKUP_BASE_URL: http://app-all:8080/
+    depends_on:
+      - app-all
+    networks:
+      - infrastructure
+      - observability
+
+  agent-connection-relay-e2e:
+    build:
+      context: ../..
+      dockerfile: src/infra/Dockerfile.app
+      target: relay
+    image: dnd-master-agent-connection-relay-e2e:dev
+    ports:
+      - "127.0.0.1:${E2E_AGENT_CONNECTION_RELAY_PORT:-18082}:8080"
+    environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-development-internal-token}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      RELAY_INTERNAL_ADDRESS: http://app-all:8080
+      IDENTITY_ACCESS_BASE_URL: http://app-all:8080/
+      RELAY_SCENARIO_LOOKUP_BASE_URL: http://app-all:8080/
+    depends_on:
+      - app-all
+    networks:
+      - infrastructure
+      - observability
+
+  metrics-scraper:
+    image: victoriametrics/vmagent:v1.154.0
+    command:
+      - -promscrape.config=/etc/vmagent/scrape.json
+      - -remoteWrite.url=http://victoriametrics:8428/api/v1/write
+      - -remoteWrite.tmpDataPath=/vmagent-remotewrite-data
+    volumes:
+      - type: bind
+        source: ${WORKSPACE_ROOT:?}/docs/observability/victorialogs/scrape.json
+        target: /etc/vmagent/scrape.json
+        read_only: true
+      - vmagent-remotewrite-data:/vmagent-remotewrite-data
+    depends_on:
+      - app-all
+    networks:
+      - infrastructure
+      - observability
+
+networks:
+  infrastructure:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME:?}_default
+  observability:
+    external: true
+    name: ${HARNESS_VL_PROJECT:?}_default
+
+volumes:
+  vmagent-remotewrite-data:

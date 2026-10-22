@@ -47,7 +47,7 @@ public final class HttpScenarioCompilationAgentPort implements ScenarioCompilati
     public ScenarioCompilationAgentResult compile(UUID soloPlayerId, ScenarioCompilationAgentRequest request) {
         try {
             String body = mapper.writeValueAsString(new CompilationRequest(soloPlayerId,
-                    request.operationKey(), request.storybookContext()));
+                    request.operationKey(), request.storybookContext(), request.validationFeedback()));
             HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/gm/scenario-compilation"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken)
@@ -221,7 +221,8 @@ public final class HttpScenarioCompilationAgentPort implements ScenarioCompilati
         });
     }
 
-    private record CompilationRequest(UUID soloPlayerId, String operationKey, String storybookContext) { }
+    private record CompilationRequest(UUID soloPlayerId, String operationKey, String storybookContext,
+            String validationFeedback) { }
     record ScenarioModelDeserializationDiagnostic(String code, String path, String expected, String actual) { }
     private record CompilationResponse(String status, Map<String, Object> scenarioModel, List<String> diagnostics) {
         private CompilationResponse {

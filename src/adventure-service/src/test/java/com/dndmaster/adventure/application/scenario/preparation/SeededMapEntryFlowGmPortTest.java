@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.UUID;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.core.read.ListAppender;
@@ -25,18 +26,17 @@ class SeededMapEntryFlowGmPortTest {
         System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
         try {
             JsonNode result = new SeededMapEntryFlowGmPort(request -> json("""
-                    {"openingSituationIndex":0,"situations":[
-                      {"situationId":"opening","mapNeeded":true,"mapDefinitionId":null,"prerequisiteSituationIds":[]},
-                      {"situationId":"destination","mapNeeded":false,"mapDefinitionId":null,"prerequisiteSituationIds":[]},
-                      {"situationId":"later","mapNeeded":false,"mapDefinitionId":null,"prerequisiteSituationIds":[]}]}
+                    {"situations":[
+                      {"mapNeeded":true,"mapDefinitionId":null},
+                      {"mapNeeded":false,"mapDefinitionId":null},
+                      {"mapNeeded":false,"mapDefinitionId":null}]}
                     """)).generate(request("initial-situation:adventure:package:stage:first-stage"));
 
             assertEquals(false, result.path("situations").get(0).path("mapNeeded").asBoolean());
             assertEquals(true, result.path("situations").get(1).path("mapNeeded").asBoolean());
             assertEquals(mapId.toString(), result.path("situations").get(1).path("mapDefinitionId").asText());
-            assertEquals("opening", result.path("situations").get(1).path("prerequisiteSituationIds").get(0).asText());
             assertEquals(false, result.path("situations").get(2).path("mapNeeded").asBoolean());
-            assertEquals("destination", result.path("situations").get(2).path("prerequisiteSituationIds").get(0).asText());
+            org.junit.jupiter.api.Assertions.assertFalse(result.toString().contains("Index"));
             String logs = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
                     .reduce("", (left, right) -> left + "\n" + right);
             org.junit.jupiter.api.Assertions.assertTrue(logs.contains("operation=seed_map_entry_flow outcome=started"));
@@ -60,12 +60,12 @@ class SeededMapEntryFlowGmPortTest {
         System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
         try {
             assertThrows(IllegalStateException.class, () -> new SeededMapEntryFlowGmPort(request -> json(
-                    "{\"openingSituationIndex\":0,\"situations\":[{\"situationId\":\"opening\"}]}"))
+                    "{\"situations\":[{}]}"))
                     .generate(request("initial-situation:adventure:package:stage:first-stage")));
             String logs = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
                     .reduce("", (left, right) -> left + "\n" + right);
-            org.junit.jupiter.api.Assertions.assertTrue(logs.contains("expected=opening_and_destination"));
-            org.junit.jupiter.api.Assertions.assertTrue(logs.contains("actual=invalid_provider_response"));
+            org.junit.jupiter.api.Assertions.assertTrue(logs.contains("expectedSituationCountAtLeast=2 actualSituationCount=1"));
+            org.junit.jupiter.api.Assertions.assertTrue(logs.contains("failure=invalid_provider_response"));
             org.junit.jupiter.api.Assertions.assertTrue(logs.contains("failureClass=IllegalStateException"));
         } finally {
             logger.detachAppender(appender);
@@ -86,11 +86,10 @@ class SeededMapEntryFlowGmPortTest {
         var schema = mapper.createObjectNode().put("type", "object").put("additionalProperties", false);
         schema.putArray("required");
         var properties = schema.putObject("properties");
-        properties.putObject("openingSituationIndex").put("type", "integer");
         properties.putObject("situations").putObject("items").putObject("properties")
                 .putObject("mapDefinitionId").putArray("enum").add(mapId.toString()).addNull();
         return new InitialSituationGmPort.Request(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "fixture",
-                "fixture", "low", operationKey, "fixture", schema);
+                "fixture", "low", operationKey, "fixture", schema, false, List.of(), true, 1);
     }
 
     private JsonNode json(String value) {

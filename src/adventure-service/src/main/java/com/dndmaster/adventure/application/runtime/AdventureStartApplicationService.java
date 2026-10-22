@@ -149,7 +149,9 @@ public final class AdventureStartApplicationService {
                     new com.dndmaster.adventure.domain.adventure.AdventureContext(
                             prepared.openingSituation().situationId(), null, null, null),
                     prepared.currentStage() == null ? null
-                            : com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState.start(prepared.currentStage()));
+                            : com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState.start(prepared.currentStage(),
+                                    prepared.detailedStages(), com.dndmaster.adventure.domain.adventure.StoryLength.NORMAL,
+                                    prepared.backbone().requiredSituations().size()));
             adventures.save(adventure);
         }
         return adventure;

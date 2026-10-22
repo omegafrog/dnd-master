@@ -114,7 +114,8 @@ public class AgentWebSocketHandler implements WebSocketHandler {
         String query = node.path("arguments").path("query").asText("");
         String abilityId = node.path("arguments").path("abilityId").asText("");
         if (!("search_rules".equals(tool) || "find_scenario_elements".equals(tool)
-                || "lookup_learned_ability".equals(tool)) || requestId.isBlank() || callId.isBlank()) {
+                || "find_available_situations".equals(tool) || "lookup_learned_ability".equals(tool))
+                || requestId.isBlank() || callId.isBlank()) {
           logMcpRejected(requestId, tool, query, "INVALID_TOOL_CALL");
           return sendToolResult(transport, requestId, callId, false, null, "invalid MCP tool call");
         }
@@ -142,12 +143,15 @@ public class AgentWebSocketHandler implements WebSocketHandler {
                 ? ragToolSearch.search(soloPlayerId, scope, requestedQuery)
                 : "find_scenario_elements".equals(tool)
                     ? scenarioElementLookup.search(soloPlayerId, scope, requestedQuery)
-                    : scenarioElementLookup.lookupAbility(soloPlayerId, scope, requestedQuery))
+                    : "find_available_situations".equals(tool)
+                        ? scenarioElementLookup.availableSituations(soloPlayerId, scope)
+                        : scenarioElementLookup.lookupAbility(soloPlayerId, scope, requestedQuery))
             .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
             .flatMap(result -> {
               if (diagnosticsEnabled()) org.slf4j.LoggerFactory.getLogger(AgentWebSocketHandler.class).info(
                   "dev_mcp_tool stage=complete requestId={} tool={} resultCount={} elapsedMs={}", requestId, tool,
                   result.path("elements").isArray() ? result.path("elements").size()
+                      : result.path("situations").isArray() ? result.path("situations").size()
                       : result.path("evidence").isArray() ? result.path("evidence").size() : 0,
                   (System.nanoTime() - startedAt) / 1_000_000);
               return sendToolResult(transport, requestId, callId, true, result, "");

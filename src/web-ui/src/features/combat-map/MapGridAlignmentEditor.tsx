@@ -168,7 +168,14 @@ export function MapGridAlignmentEditor({ image, initial, crop, grid, onAnalyze, 
   function changeZoom(delta: number) {
     setZoom(current => {
       const next = Math.min(4, Math.max(.5, current + delta))
-      setPan(previous => clampPan(previous, displayCrop, canvas.current, next))
+      const element = canvas.current
+      const width = element?.clientWidth ?? 1
+      const height = element?.clientHeight ?? 1
+      const view = layout()
+      setPan(previous => clampPan({
+        x: width - view.offsetX - ((width - view.offsetX - previous.x) / (view.scale * current)) * view.scale * next,
+        y: height - view.offsetY - ((height - view.offsetY - previous.y) / (view.scale * current)) * view.scale * next,
+      }, displayCrop, element, next))
       return next
     })
   }
@@ -210,7 +217,6 @@ export function MapGridAlignmentEditor({ image, initial, crop, grid, onAnalyze, 
   const cropViewport = { left: view.offsetX + pan.x, top: view.offsetY + pan.y, width: displayCrop.width * imageScale, height: displayCrop.height * imageScale }
   const canvasStyle: CSSProperties | undefined = crop && crop.width > 0 && crop.height > 0 ? { aspectRatio: `${displayCrop.width} / ${displayCrop.height}` } : undefined
   const magnifierSize = 100
-  const magnifierAt = magnifier && toCanvas(magnifier.x, magnifier.y)
   const numericSize = Number(sizeInput)
   const validSize = Number.isFinite(numericSize) && numericSize > 0
   const validGridSize = Number.isInteger(gridSize.width) && Number.isInteger(gridSize.height) && gridSize.width > 0 && gridSize.height > 0
@@ -253,7 +259,7 @@ export function MapGridAlignmentEditor({ image, initial, crop, grid, onAnalyze, 
       <button type="button" className="map-grid-alignment-handle" aria-label="기준점 이동" style={{ left: origin.left, top: origin.top }} onKeyDown={event => { if (event.key.startsWith('Arrow')) { event.preventDefault(); nudge(event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0, event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0, event) } }} onPointerDown={event => { event.stopPropagation(); beginGridSizing(event, 'origin') }} />
       <button type="button" className="map-grid-alignment-handle map-grid-alignment-size-handle" aria-label="세 칸 뒤 기준점 이동" style={{ left: scaleEnd.left, top: scaleEnd.top }} onKeyDown={event => { if (event.key.startsWith('Arrow')) { event.preventDefault(); const distance = (event.shiftKey ? 10 : 1) / 3; const nextSize = draft.cellSize + (event.key === 'ArrowRight' || event.key === 'ArrowDown' ? distance : -distance); if (nextSize > 0) changeDraft({ ...draft, cellSize: nextSize }) } }} onPointerDown={event => { event.stopPropagation(); beginGridSizing(event, 'size') }} />
       {pending && <span className="map-grid-alignment-pending" role="status">두 번째 기준점을 선택하세요</span>}
-      {magnifier && magnifierAt && <div className="map-grid-magnifier" aria-label="확대경" style={{ left: Math.max(4, Math.min(magnifierAt.left + 18, (canvas.current?.clientWidth ?? 1) - magnifierSize - 4)), top: Math.max(4, Math.min(magnifierAt.top - magnifierSize - 12, (canvas.current?.clientHeight ?? 1) - magnifierSize - 4)) }}><img src={image} alt="" aria-hidden="true" style={{ left: '50%', top: '50%', width: imageSize.width * MAGNIFIER_SCALE, height: imageSize.height * MAGNIFIER_SCALE, transform: `translate(${-magnifier.x * MAGNIFIER_SCALE}px, ${-magnifier.y * MAGNIFIER_SCALE}px)` }} /></div>}
+      {magnifier && <div className="map-grid-magnifier" aria-label="확대경" style={{ left: Math.max(4, (canvas.current?.clientWidth ?? 1) - magnifierSize - 4), top: Math.max(4, (canvas.current?.clientHeight ?? 1) - magnifierSize - 4) }}><img src={image} alt="" aria-hidden="true" style={{ left: '50%', top: '50%', width: imageSize.width * MAGNIFIER_SCALE, height: imageSize.height * MAGNIFIER_SCALE, transform: `translate(${-displayCrop.x * MAGNIFIER_SCALE}px, ${-displayCrop.y * MAGNIFIER_SCALE}px)` }} /></div>}
     </div>
       {error && <p role="alert">{error}</p>}
       {grid && (imageSize.width <= 1 || imageSize.height <= 1) && <p role="status">지도 크기를 확인하고 있습니다.</p>}

@@ -1,0 +1,36 @@
+@startuml
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+package "모험 런타임" as adventure [[../architecture.md#adventure-runtime]] {
+  rectangle "모험 런타임 경계" as adventure_unit
+  package "시나리오 준비" as scenario_prep [[../architecture.md#scenario-preparation]] {
+    rectangle "시나리오 준비 책임" as scenario_prep_unit
+  }
+}
+package "문서 지식" as knowledge [[../architecture.md#document-knowledge]] {
+  rectangle "문서 지식 경계" as knowledge_unit
+}
+package "캐릭터 관리" as characters [[../architecture.md#character-management]] {
+  rectangle "캐릭터 관리 경계" as characters_unit
+}
+package "전투 지도" as map [[../architecture.md#combat-map]] {
+  rectangle "전투 지도 경계" as map_unit
+}
+package "AI 게임 마스터" as gm [[../architecture.md#ai-game-master]] {
+  rectangle "AI 게임 마스터 경계" as gm_unit
+}
+package "사용자 인증" as identity [[../architecture.md#identity-access]] {
+  rectangle "사용자 인증 경계" as identity_unit
+}
+package "사용자 PC 실행 중계" as relay [[../architecture.md#agent-relay]] {
+  rectangle "실행 중계 경계" as relay_unit
+}
+adventure_unit --> knowledge_unit : 룰 근거 조회
+scenario_prep_unit --> knowledge_unit : 문서·추출 근거 참조
+adventure_unit --> characters_unit : 캐릭터 상태 명령
+adventure_unit --> map_unit : 지도·이동 명령
+adventure_unit --> gm_unit : 입력 전달·제안 수신
+gm_unit --> relay_unit : 원격 실행 요청
+identity_unit --> gm_unit : 사용자 연결 권한
+@enduml

@@ -353,6 +353,7 @@ public final class ScenarioPackageCompilationService {
         return bundle.currentRevision().documents().stream().anyMatch(document ->
                 document.knowledgeDocumentId().equals(excerpt.documentId())
                         && document.extractionVersion() == excerpt.extractionVersion()
+                        && document.role() != ScenarioBundleDocumentRole.MAP
                         && "STORYBOOK".equalsIgnoreCase(document.documentType()));
     }
 

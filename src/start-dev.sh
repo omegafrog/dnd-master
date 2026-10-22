@@ -65,21 +65,14 @@ export COMBATMAP_INTEGRATION_RULEKNOWLEDGE_BASEURL="${COMBATMAP_INTEGRATION_RULE
 LOCAL_AGENT_CONNECTION_RELAY_URL="http://127.0.0.1:${LOCAL_AGENT_CONNECTION_RELAY_PORT}"
 export AGENT_CONNECTION_RELAY_URL="${AGENT_CONNECTION_RELAY_URL:-$LOCAL_AGENT_CONNECTION_RELAY_URL}"
 export RELAY_INTERNAL_ADDRESS="${RELAY_INTERNAL_ADDRESS:-$LOCAL_AGENT_CONNECTION_RELAY_URL}"
-export RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT="${RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT:-$ROOT/../docs/assets}"
+export RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT="${RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT:-$ROOT/../../dnd-master/docs/assets}"
 # Keep the repository's local catalog-admin marker and the seeded demo player's
 # actual identity together. The browser Backoffice sends the authenticated
 # player ID, so omitting the seeded ID makes local catalog publication fail
 # with 403 before a Solo Player can select a published Rulebook.
 export RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS="${RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS:-local-catalog-admin,00000000-0000-0000-0000-000000000001,aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}"
 export CODEX_EXECUTABLE="${CODEX_EXECUTABLE:-/home/jiwoo/.nvm/versions/node/v24.12.0/bin/codex}"
-export CODEX_CHARACTER_TAG_MODEL="${CODEX_CHARACTER_TAG_MODEL:-gpt-5.6-luna}"
-# The installed Codex model cache (/home/jiwoo/.codex/models_cache.json)
-# reports context_window=272000 for gpt-5.6-luna. The public model page
-# (https://developers.openai.com/api/docs/models/gpt-5.6-luna) advertises a
-# larger total window, but this local app-server path uses the
-# smaller effective limit until its own model metadata reports otherwise.
-# Other selected provider/model pairs must be configured explicitly.
-export GM_RUNTIME_CONTEXT_LIMITS="${GM_RUNTIME_CONTEXT_LIMITS:-codex-cli/gpt-5.6-luna=272000,codex-cli/gpt-6-luna=272000}"
+export CODEX_CHARACTER_TAG_MODEL="${CODEX_CHARACTER_TAG_MODEL:-gpt-6-luna}"
 export RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE="${RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE:-/home/jiwoo/workspace/dnd-master/.venv-docling/bin/python}"
 export RULE_KNOWLEDGE_PREPROCESSING_WORKING_DIRECTORY="${RULE_KNOWLEDGE_PREPROCESSING_WORKING_DIRECTORY:-$ROOT/..}"
 # The WSL-local Tesseract installation is linked against libraries kept next
@@ -92,14 +85,13 @@ export BACKEND_E2E_EMAIL="${BACKEND_E2E_EMAIL:-demo-player@example.com}"
 export BACKEND_E2E_PASSWORD="${BACKEND_E2E_PASSWORD:-secret-password}"
 export USER_PC_AGENT_RELAY_WEBSOCKET_URL="${USER_PC_AGENT_RELAY_WEBSOCKET_URL:-ws://127.0.0.1:${LOCAL_AGENT_CONNECTION_RELAY_PORT}/ws/agent}"
 if [ -z "${BACKEND_E2E_STORYBOOKS_JSON:-}" ]; then
-    export BACKEND_E2E_STORYBOOKS_JSON="[{\"path\":\"$ROOT/../docs/assets/892902-A_Most_Potent_Brew.pdf\",\"role\":\"MAIN_SCENARIO\"},{\"path\":\"$ROOT/../docs/assets/892902-A_Potent_Brew_Map.pdf\",\"role\":\"MAP\"},{\"path\":\"$ROOT/../docs/assets/892902-A_Most_Potent_Brew_Player_Handout.pdf\",\"role\":\"HANDOUT\"}]"
+    export BACKEND_E2E_STORYBOOKS_JSON="[{\"path\":\"$RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT/892902-A_Most_Potent_Brew.pdf\",\"role\":\"MAIN_SCENARIO\"},{\"path\":\"$RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT/892902-A_Potent_Brew_Map.pdf\",\"role\":\"MAP\"},{\"path\":\"$RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT/892902-A_Most_Potent_Brew_Player_Handout.pdf\",\"role\":\"HANDOUT\"}]"
 fi
 require_env INTERNAL_SERVICE_TOKEN
 require_env AGENT_CONNECTION_RELAY_URL
 require_env RELAY_INTERNAL_ADDRESS
 require_env RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS
 require_env CODEX_EXECUTABLE
-require_env GM_RUNTIME_CONTEXT_LIMITS
 require_env RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE
 require_env BACKEND_E2E_URL
 require_env BACKEND_E2E_EMAIL

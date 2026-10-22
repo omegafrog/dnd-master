@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "victorialogs": {
+      "command": "node",
+      "args": [
+        "/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range/.codex/scripts/harness-victorialogs.mjs",
+        "mcp",
+        "--root",
+        "/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range"
+      ]
+    },
+    "victoriametrics": {
+      "command": "node",
+      "args": [
+        "/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range/.codex/scripts/harness-victorialogs.mjs",
+        "mcp-metrics",
+        "--root",
+        "/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range"
+      ]
+    }
+  }
+}

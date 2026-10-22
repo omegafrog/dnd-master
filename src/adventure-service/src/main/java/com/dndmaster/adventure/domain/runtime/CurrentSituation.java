@@ -6,7 +6,8 @@ import java.util.UUID;
 
 /** Persisted internal runtime context; it is never a player-facing DTO. */
 public record CurrentSituation(UUID situationId, long revision, String location, String problem,
-        String threat, String goal, String activeCombatScenarioId, String firstNarration) {
+        String threat, String goal, String activeCombatScenarioId, String firstNarration,
+        String title, String description, UUID mapDefinitionId) {
     public CurrentSituation {
         Objects.requireNonNull(situationId, "situation id must not be null");
         if (revision < 1) throw new IllegalArgumentException("situation revision must be positive");
@@ -17,20 +18,35 @@ public record CurrentSituation(UUID situationId, long revision, String location,
         activeCombatScenarioId = activeCombatScenarioId == null || activeCombatScenarioId.isBlank()
                 ? null : activeCombatScenarioId.trim();
         firstNarration = optional(firstNarration);
+        title = title == null || title.isBlank() ? location : title.trim();
+        description = description == null || description.isBlank() ? problem : description.trim();
     }
 
     public CurrentSituation(UUID situationId, long revision, String location, String problem,
             String threat, String goal) {
-        this(situationId, revision, location, problem, threat, goal, null, null);
+        this(situationId, revision, location, problem, threat, goal, null, null, null, null, null);
     }
 
     public CurrentSituation(UUID situationId, long revision, String location, String problem,
             String threat, String goal, String activeCombatScenarioId) {
-        this(situationId, revision, location, problem, threat, goal, activeCombatScenarioId, null);
+        this(situationId, revision, location, problem, threat, goal, activeCombatScenarioId, null, null, null, null);
+    }
+
+    public CurrentSituation(UUID situationId, long revision, String location, String problem,
+            String threat, String goal, String activeCombatScenarioId, String firstNarration) {
+        this(situationId, revision, location, problem, threat, goal, activeCombatScenarioId, firstNarration,
+                null, null, null);
     }
 
     public CurrentSituation(UUID situationId, long revision, String problem) {
         this(situationId, revision, "unknown", problem, "unknown", problem);
+    }
+
+    public String promptContext() {
+        return "CurrentSituation[currentStateRecordId=" + situationId + ", revision=" + revision
+                + ", location=" + location + ", problem=" + problem + ", threat=" + threat + ", goal=" + goal
+                + ", title=" + title + ", description=" + description + ", mapDefinitionId=" + mapDefinitionId
+                + ", activeCombatScenarioId=" + activeCombatScenarioId + ", firstNarration=" + firstNarration + "]";
     }
 
     public static CurrentSituation initial(String startingSituation) {
@@ -46,21 +62,24 @@ public record CurrentSituation(UUID situationId, long revision, String location,
 
     public CurrentSituation enterCombatScenario(String scenarioId) {
         if (scenarioId == null || scenarioId.isBlank()) throw new IllegalArgumentException("combat scenario id must not be blank");
-        return new CurrentSituation(situationId, revision + 1, location, problem, threat, goal, scenarioId, firstNarration);
+        return new CurrentSituation(situationId, revision + 1, location, problem, threat, goal, scenarioId, firstNarration,
+                title, description, mapDefinitionId);
     }
 
     public CurrentSituation afterCombat(String summary, boolean enemiesDefeated) {
         if (summary == null || summary.isBlank()) throw new IllegalArgumentException("combat end summary must not be blank");
         if (enemiesDefeated) {
             return new CurrentSituation(situationId, revision + 1, location, summary, summary,
-                    "전투가 끝난 뒤 다음 행동을 결정한다", null, null);
+                    "전투가 끝난 뒤 다음 행동을 결정한다", null, null, null, null, null);
         }
-        return new CurrentSituation(situationId, revision + 1, location, problem, threat, goal, null, firstNarration);
+        return new CurrentSituation(situationId, revision + 1, location, problem, threat, goal, null, firstNarration,
+                title, description, mapDefinitionId);
     }
 
     public CurrentSituation withFirstNarration(String narration) {
         if (firstNarration != null || narration == null || narration.isBlank()) return this;
-        return new CurrentSituation(situationId, revision, location, problem, threat, goal, activeCombatScenarioId, narration);
+        return new CurrentSituation(situationId, revision, location, problem, threat, goal, activeCombatScenarioId, narration,
+                title, description, mapDefinitionId);
     }
 
     private static String required(String value, String name) {

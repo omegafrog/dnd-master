@@ -37,9 +37,14 @@ public final class CombatScenarioGroundingPolicy {
         Objects.requireNonNull(model, "scenario model must not be null");
         Objects.requireNonNull(situation, "current situation must not be null");
         if (proposals == null || proposals.isEmpty()) throw new IllegalArgumentException("COMBAT_SCENARIO_REQUIRED");
+        var confirmed = prepared == null ? java.util.Map.<String, com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock>of() : prepared;
+        if (proposals.stream().anyMatch(proposal -> proposal == null
+                || !confirmed.containsKey(proposal.enemyKey().toLowerCase(java.util.Locale.ROOT)))) {
+            throw new IllegalArgumentException("COMBAT_STAT_BLOCK_NOT_FOUND");
+        }
         Set<String> seen = new HashSet<>();
         return proposals.stream().map(proposal -> groundOne(model, situation, proposal, seen, storybookEvidence,
-                rulebookEvidence, prepared == null ? java.util.Map.of() : prepared)).toList();
+                rulebookEvidence, confirmed)).toList();
     }
 
     private static CombatEnemyProposal groundOne(ScenarioModel model, CurrentSituation situation,

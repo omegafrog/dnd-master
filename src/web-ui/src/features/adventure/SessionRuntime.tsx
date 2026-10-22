@@ -117,7 +117,7 @@ export function SessionRuntime({ adventureId, adventureApi, expectedVersion, pla
     </header>
     <div className={`session-runtime-columns${partyOpen ? '' : ' runtime-party-collapsed'}`}>
       <PartyPanel snapshot={combatSnapshot} characters={partyCharacters} open={partyOpen} onToggle={() => setPartyOpen(value => !value)} />
-      <main className="runtime-feed-panel" aria-label="게임 기록"><AdventureStream adventureId={adventureId} api={adventureApi} playApi={playApi} expectedVersion={expectedVersion} onTurnCommitted={onTurnCommitted} onCurrentSceneChanged={setCurrentScene} /></main>
+      <main className="runtime-feed-panel" aria-label="게임 기록"><AdventureStream adventureId={adventureId} api={adventureApi} expectedVersion={expectedVersion} onTurnCommitted={onTurnCommitted} onCurrentSceneChanged={setCurrentScene} /></main>
       <aside className="runtime-context-panel" aria-label="현재 상황">
         <ContextPanel currentScene={currentScene} combatSnapshot={combatSnapshot} mapOpen={mapOpen} setMapOpen={setMapOpen} noteOpen={noteOpen} setNoteOpen={setNoteOpen} map={mapOpen ? <CombatMapView adventureId={adventureId} api={playApi} refreshToken={mapRefreshToken} compact /> : null} handouts={handouts} handoutsLoading={handoutsLoading} handoutsMessage={handoutsMessage} getHandoutPreview={getHandoutPreview} />
       </aside>
@@ -190,6 +190,7 @@ function ContextPanel({ currentScene, combatSnapshot, mapOpen, setMapOpen, noteO
   }, [getHandoutPreview, selectedHandout])
 
   return <>
+    {map && <div className="runtime-map-drawer"><div className="runtime-map-heading"><BookOpen size={15} aria-hidden="true" /><strong>현재 지도</strong></div>{map}</div>}
     <div className="runtime-panel-heading"><div><p className="eyebrow">CURRENT</p><h2>현재 상황</h2></div><MoreHorizontal size={17} aria-hidden="true" /></div>
     <Separator />
     <dl className="runtime-context-list">
@@ -208,7 +209,6 @@ function ContextPanel({ currentScene, combatSnapshot, mapOpen, setMapOpen, noteO
     </section>
     <div className="runtime-quick-actions"><p className="eyebrow">QUICK ACTIONS</p><Button variant="ghost" onClick={() => setMapOpen(!mapOpen)}><Map size={15} aria-hidden="true" />{mapOpen ? '지도 닫기' : '지도 열기'}</Button><Button variant="ghost" onClick={() => setNoteOpen(!noteOpen)}><NotebookPen size={15} aria-hidden="true" />노트 {noteOpen ? '닫기' : '추가'}</Button><Button variant="ghost"><Dice5 size={15} aria-hidden="true" />주사위 굴리기</Button><Button variant="ghost"><MoreHorizontal size={15} aria-hidden="true" />더보기</Button></div>
     {noteOpen && <div className="runtime-note-box"><label htmlFor="runtime-note">세션 노트</label><textarea id="runtime-note" placeholder="기억할 내용을 적으세요." /><Button variant="outline" onClick={() => setNoteOpen(false)}>노트 닫기</Button></div>}
-    {map && <div className="runtime-map-drawer"><div className="runtime-map-heading"><BookOpen size={15} aria-hidden="true" /><strong>현재 지도</strong></div>{map}</div>}
     <div className="runtime-context-footer"><FileText size={14} aria-hidden="true" /><span>세션 종료 후 기록은 모험의 세션 기록에서 이어집니다.</span></div>
     <Sheet open={selectedHandout !== null} onOpenChange={open => { if (!open) setSelectedHandout(null) }}><SheetContent className="runtime-handout-sheet"><SheetHeader><SheetTitle>{selectedHandout?.originalFilename ?? '핸드아웃'}</SheetTitle></SheetHeader>{handoutPreviewLoading && <p role="status">핸드아웃 내용을 불러오는 중입니다.</p>}{handoutPreviewMessage && <p role="alert">{handoutPreviewMessage}</p>}{handoutPreview && <article className="runtime-handout-preview"><p className="eyebrow">핸드아웃 내용</p><pre>{handoutPreview.content || '표시할 본문이 없습니다.'}</pre></article>}</SheetContent></Sheet>
   </>

@@ -42,7 +42,7 @@ export class HttpIdentityApi implements IdentityApi {
     const response = await fetch('/api/v1/auth/registrations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: credentials.email, password: credentials.password }),
+      body: JSON.stringify({ username: credentials.email, password: credentials.password }),
     })
     if (!response.ok) throw new Error('회원가입하지 못했습니다.')
   }

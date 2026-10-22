@@ -1,0 +1,20 @@
+{
+  "port": 9428,
+  "retention_days": 3,
+  "otel_port": 4318,
+  "metrics_port": 8428,
+  "metrics_retention_days": 3,
+  "projects": [
+    {
+      "id": "dnd-master-spec-combat-movement-spell-range",
+      "root": "/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range",
+      "services": [
+        {
+          "name": "app-all",
+          "metrics_url": "http://127.0.0.1:8080/actuator/prometheus",
+          "scrape_url": "http://app-all:8080/actuator/prometheus"
+        }
+      ]
+    }
+  ]
+}

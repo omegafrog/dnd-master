@@ -52,6 +52,28 @@ class HttpTypedRuntimeGmAgentPortTest {
     }
 
     @Test
+    void reads_contract_numbers_with_server_owned_source_and_rejects_unknown_sources() throws Exception {
+        var documentId = UUID.randomUUID();
+        var evidence = new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK, new KnowledgeDocumentId(documentId),
+                2, "page=134", "앞 몬스터의 수치 뒤에 거대 쥐가 있는 자료");
+        var mapper = new ObjectMapper();
+        var values = mapper.readValue("""
+                {"방어도":12,"최대HP":7,"공격보정치":4,"피해굴림식":"1d4 + 2","우선권보정치":2,"근거키":"%s"}
+                """.formatted(evidence.referenceKey()), HttpTypedRuntimeGmAgentPort.CombatNumbersResponse.class);
+        var result = HttpTypedRuntimeGmAgentPort.combatNumbers(values, java.util.Map.of(evidence.referenceKey(), evidence));
+        org.junit.jupiter.api.Assertions.assertEquals(12, result.armorClass());
+        org.junit.jupiter.api.Assertions.assertEquals(7, result.hitPointMaximum());
+        org.junit.jupiter.api.Assertions.assertEquals(4, result.attackModifier());
+        org.junit.jupiter.api.Assertions.assertEquals(documentId, result.source().knowledgeDocumentId());
+        org.junit.jupiter.api.Assertions.assertEquals(2, result.source().extractionVersion());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> HttpTypedRuntimeGmAgentPort.combatNumbers(values, java.util.Map.of()));
+        var invalidDice = new HttpTypedRuntimeGmAgentPort.CombatNumbersResponse(12, 7, 4, "추측한 피해", 2, evidence.referenceKey());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> HttpTypedRuntimeGmAgentPort.combatNumbers(invalidDice, java.util.Map.of(evidence.referenceKey(), evidence)));
+    }
+
+    @Test
     void sends_the_server_confirmed_solo_player_id_to_the_ai_game_master_contract() {
         server = new WireMockServer(0);
         server.start();
@@ -74,7 +96,7 @@ class HttpTypedRuntimeGmAgentPortTest {
                         java.util.Map.of(), List.of(), List.of(), List.of()));
         HttpTypedRuntimeGmAgentPort port = new HttpTypedRuntimeGmAgentPort(
                 HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2),
-                new ObjectMapper(), "service-token", "codex-cli/gpt-5.6-luna=272000");
+                new ObjectMapper(), "service-token");
 
         port.plan(context);
 
@@ -108,7 +130,7 @@ class HttpTypedRuntimeGmAgentPortTest {
                 List.of(), List.of(), "준비된 시작 상황: 양조장 지하실, 문밖의 다급한 노크", List.of());
         HttpTypedRuntimeGmAgentPort port = new HttpTypedRuntimeGmAgentPort(
                 HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2),
-                new ObjectMapper(), "service-token", "codex-cli/gpt-5.6-luna=272000");
+                new ObjectMapper(), "service-token");
 
         var result = port.plan(context);
 
@@ -126,8 +148,9 @@ class HttpTypedRuntimeGmAgentPortTest {
                         com.github.tomakehurst.wiremock.client.WireMock.containing("상황을 다시 생성·수정·전환하거나"))));
     }
 
-    @Test
-    void exploration_environment_decodes_encounter_handoff_signal() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void 환경_지도_이미지를_텍스트에서_분리하고_상태_정보를_유지한다(boolean hasImage, CapturedOutput output) throws Exception {
         server = new WireMockServer(0);
         server.start();
         UUID ownerId = UUID.randomUUID(), endpointId = UUID.randomUUID();
@@ -136,20 +159,37 @@ class HttpTypedRuntimeGmAgentPortTest {
                         + "\"provider\":\"codex-cli\",\"model\":\"gpt-5.6-luna\",\"reasoning\":\"medium\"}")));
         server.stubFor(post(urlEqualTo("/internal/gm/exploration-environment")).willReturn(aResponse().withStatus(200)
                 .withBody("{\"narration\":\"적대적 접촉이 발생해 전투로 넘어갑니다.\",\"enemyMoves\":[],\"featureInteractions\":[],\"encounterRequested\":true}")));
+        String image = "data:image/png;base64," + "A".repeat(1_100_000);
+        var map = new ObjectMapper().createObjectNode();
+        map.putObject("grid").put("width", 22).put("height", 23);
+        map.putArray("doors").addObject().put("x", 10).put("y", 19).put("open", false);
+        var layers = map.putArray("layers");
+        layers.addObject().put("type", "MAP_BOUNDARIES").put("value", "10,18,HORIZONTAL,WALL,false");
+        if (hasImage) layers.addObject().put("type", "MAP_IMAGE").put("value", image);
+        String action = "환경 순환 GM_MAP_STATE=" + new ObjectMapper().writeValueAsString(map);
         GmContextEnvelope context = new GmContextEnvelope(AdventureId.generate(), new OwnerPlayerId(ownerId),
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1,
-                new AdventureContext("복도", "조용한 통로", "", ""), null, "환경 순환",
+                new AdventureContext("복도", "조용한 통로", "", ""), null, action,
                 new EvidencePack(List.of(), List.of(), List.of()), List.of(), List.of(), "",
                 "codex-cli", "gpt-5.6-luna", "medium",
                 new RequestedGmProviderSelection(endpointId, "codex-cli", "gpt-5.6-luna", "medium"), null);
         HttpTypedRuntimeGmAgentPort port = new HttpTypedRuntimeGmAgentPort(HttpClient.newHttpClient(),
-                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "service-token",
-                "codex-cli/gpt-5.6-luna=272000");
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "service-token");
 
         var proposal = port.planEnvironmentPhase(context);
 
         org.junit.jupiter.api.Assertions.assertTrue(proposal.encounterRequested());
         org.junit.jupiter.api.Assertions.assertTrue(proposal.narration().contains("적대적 접촉"));
+        var sent = server.findAll(postRequestedFor(urlEqualTo("/internal/gm/exploration-environment"))).getFirst();
+        var request = new ObjectMapper().readTree(sent.getBodyAsString());
+        org.junit.jupiter.api.Assertions.assertEquals(hasImage ? image : "", request.path("imageDataUri").asText());
+        org.junit.jupiter.api.Assertions.assertFalse(request.path("prompt").asText().contains("data:image/"));
+        org.junit.jupiter.api.Assertions.assertTrue(request.path("prompt").asText().length() < 10_000);
+        org.junit.jupiter.api.Assertions.assertTrue(request.path("prompt").asText().contains("MAP_BOUNDARIES"));
+        org.junit.jupiter.api.Assertions.assertTrue(request.path("prompt").asText().contains("doors"));
+        org.junit.jupiter.api.Assertions.assertTrue(request.path("prompt").asText().contains("grid"));
+        org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("dev_environment_image_input outcome=prepared"));
+        org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("imageAttached=" + hasImage));
     }
 
     @Test
@@ -182,7 +222,7 @@ class HttpTypedRuntimeGmAgentPortTest {
                 new RequestedGmProviderSelection(endpointId, "codex-cli", "gpt-5.6-luna", "medium"), null);
         HttpTypedRuntimeGmAgentPort port = new HttpTypedRuntimeGmAgentPort(
                 HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2),
-                new ObjectMapper(), "service-token", "codex-cli/gpt-5.6-luna=272000");
+                new ObjectMapper(), "service-token");
 
         var plan = port.plan(context).plan();
 
@@ -224,8 +264,7 @@ class HttpTypedRuntimeGmAgentPortTest {
                 "codex-cli", "gpt-5.6-luna", "medium",
                 new RequestedGmProviderSelection(endpointId, "codex-cli", "gpt-5.6-luna", "medium"), null);
         HttpTypedRuntimeGmAgentPort port = new HttpTypedRuntimeGmAgentPort(HttpClient.newHttpClient(),
-                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "service-token",
-                "codex-cli/gpt-5.6-luna=272000");
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "service-token");
 
         var plan = port.plan(context).plan();
 
@@ -249,11 +288,11 @@ class HttpTypedRuntimeGmAgentPortTest {
         GmContextEnvelope context = new GmContextEnvelope(AdventureId.generate(), new OwnerPlayerId(owner),
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1,
                 new AdventureContext("cellar", "quiet", "inspect", "safe"), null, "look around",
-                new EvidencePack(List.of(), List.of(), List.of()), List.of(), List.of("x".repeat(2000)), "",
+                new EvidencePack(List.of(), List.of(), List.of()), List.of(), List.of("x".repeat(300000)), "",
                 "codex-cli", "gpt-5.6-luna", "medium",
                 new RequestedGmProviderSelection(endpointId, "codex-cli", "gpt-5.6-luna", "medium"), null);
         var port = new HttpTypedRuntimeGmAgentPort(HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"),
-                Duration.ofSeconds(2), new ObjectMapper(), "service-token", "codex-cli/gpt-5.6-luna=1000");
+                Duration.ofSeconds(2), new ObjectMapper(), "service-token");
 
         org.junit.jupiter.api.Assertions.assertThrows(
                 com.dndmaster.adventure.application.runtime.RuntimeGmInputLimitException.class,

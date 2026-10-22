@@ -105,6 +105,36 @@ class RemoteAiExecutionPortTest {
     }
 
     @Test
+    void retriesTheSameRequestAfterConnectionLossUntilTheAgentReconnects(CapturedOutput output) throws Exception {
+        var attempts = new java.util.concurrent.atomic.AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/internal/executions", exchange -> {
+            String body = attempts.incrementAndGet() == 1
+                    ? "{\"requestId\":\"request-reconnect\",\"content\":\"\",\"failureType\":\"CONNECTION_LOST\"}"
+                    : "{\"requestId\":\"request-reconnect\",\"content\":\"reconnected\"}";
+            byte[] response = body.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            var port = new RemoteAiExecutionPort(HttpClient.newHttpClient(), new ObjectMapper(),
+                    URI.create("http://localhost:" + server.getAddress().getPort()), "token", Duration.ofSeconds(4));
+            var result = withDiagnostics(() -> port.execute(request("request-reconnect", "private prompt")));
+
+            assertThat(result).isInstanceOf(com.dndmaster.aigamemaster.application.ai.AiExecutionSuccess.class);
+            assertThat(result.requireFinalText()).isEqualTo("reconnected");
+            assertThat(attempts.get()).isEqualTo(2);
+            assertThat(output.getAll()).contains("stage=connection_retry_wait_attempt_1", "relayFailureType=CONNECTION_LOST",
+                    "stage=connection_retry_complete_attempts_2", "outcome=success", "retrySafety=connection_restored");
+            assertThat(output.getAll()).doesNotContain("private prompt");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void logsRequestIdMismatchWithoutLoggingRelayPayload(CapturedOutput output) throws Exception {
         HttpServer server = serverWithBody("{\"requestId\":\"other-request\",\"content\":\"private response\"}");
         try {

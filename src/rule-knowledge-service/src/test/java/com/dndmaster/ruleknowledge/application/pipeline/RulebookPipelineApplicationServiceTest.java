@@ -1,6 +1,7 @@
 package com.dndmaster.ruleknowledge.application.pipeline;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -153,6 +154,20 @@ class RulebookPipelineApplicationServiceTest {
         assertEquals(1, harness.repository.findByOwner(OWNER).size());
         assertNotSame(first, duplicate);
         assertEquals(1, harness.storage.files.size());
+    }
+
+    @Test
+    void duplicateUploadRestoresMissingSourceWithoutCreatingASecondRegistration() {
+        TestHarness harness = new TestHarness();
+        RulebookProcessingResult first = harness.service.process(command("upload-1", "alpha"));
+        harness.storage.files.remove(first.rulebookId().value().toString());
+
+        RulebookProcessingResult duplicate = harness.service.process(command("upload-2", "alpha"));
+
+        assertEquals(first.rulebookId(), duplicate.rulebookId());
+        assertArrayEquals("alpha".getBytes(StandardCharsets.UTF_8),
+                harness.storage.read(new StoredRulebookFile(first.rulebookId().value().toString())));
+        assertEquals(1, harness.repository.findByOwner(OWNER).size());
     }
 
     @Test

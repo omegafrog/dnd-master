@@ -5,6 +5,7 @@ import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageR
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import com.dndmaster.adventure.domain.scenario.ScenarioModelElement;
+import com.dndmaster.adventure.domain.scenario.StageArtifactRepository;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -23,13 +24,76 @@ public final class ScenarioElementLookupController {
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(ScenarioElementLookupController.class);
     private final AdventureRepository adventures;
     private final ScenarioPackageRepository packages;
+    private final StageArtifactRepository stageArtifacts;
     private final ApiRequestGuard requestGuard;
 
     public ScenarioElementLookupController(AdventureRepository adventures, ScenarioPackageRepository packages,
+            StageArtifactRepository stageArtifacts,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         this.adventures = adventures;
         this.packages = packages;
+        this.stageArtifacts = stageArtifacts;
         this.requestGuard = new ApiRequestGuard(internalToken);
+    }
+
+    @PostMapping("/internal/v1/adventures/situations/available")
+    AvailableSituationResponse availableSituations(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody AvailableSituationRequest request) {
+        requestGuard.internal(token);
+        long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "mcp_available_situations", "sessionId=" + request.sessionId() + " packageId=" + request.scenarioPackageId());
+        try {
+            if (request.ownerId() == null || request.sessionId() == null || request.scenarioPackageId() == null) {
+                throw new ApiRequestGuard.ApiContractException(400, "INVALID_SITUATION_LOOKUP_SCOPE");
+            }
+            var adventure = adventures.findBySessionId(new SessionId(request.sessionId()))
+                    .filter(value -> value.ownerPlayerId().value().equals(request.ownerId()))
+                    .filter(value -> request.scenarioPackageId().equals(value.lockedScenarioPackageId()))
+                    .orElseThrow(() -> new ApiRequestGuard.ApiContractException(404, "LOCKED_SCENARIO_NOT_FOUND"));
+            var state = adventure.storyRuntimeState();
+            if (state == null || state.isOpenPlay()) {
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                        "mcp_available_situations", "sessionId=" + request.sessionId() + " packageId="
+                                + request.scenarioPackageId() + " candidateCount=0 status=NOT_FOUND reason=NO_ACTIVE_STAGE", started);
+                return new AvailableSituationResponse("NOT_FOUND", List.of());
+            }
+            var stage = stageArtifacts.findDetailedStage(adventure.id(), state.scenarioPackageId(), state.stageId(),
+                            state.backboneRevision(), state.detailedStageRevision())
+                    .orElseThrow(() -> new ApiRequestGuard.ApiContractException(404, "ACTIVE_PREPARED_STAGE_NOT_FOUND"));
+            if (stage.situations().stream().anyMatch(item -> item.situationId().equals(state.activeSituationId()) && item.isEnding())) {
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                        "mcp_available_situations", "sessionId=" + request.sessionId() + " packageId="
+                                + request.scenarioPackageId() + " stageId=" + state.stageId()
+                                + " candidateCount=0 status=NOT_FOUND reason=ACTIVE_ENDING_SITUATION", started);
+                return new AvailableSituationResponse("NOT_FOUND", List.of());
+            }
+            var backbone = stageArtifacts.findBackbone(adventure.id(), state.scenarioPackageId(), state.backboneRevision())
+                    .orElseThrow(() -> new ApiRequestGuard.ApiContractException(404, "PREPARED_STORY_GRAPH_NOT_FOUND"));
+            var allStages = backbone.stages().stream().map(entry -> stageArtifacts.findDetailedStage(adventure.id(),
+                    state.scenarioPackageId(), entry.stageId(), state.backboneRevision(), 1)
+                    .orElseThrow(() -> new ApiRequestGuard.ApiContractException(404, "PREPARED_STORY_STAGE_NOT_FOUND"))).toList();
+            var candidates = com.dndmaster.adventure.domain.runtime.story.StoryRuntimeRules
+                    .availableSituationCandidates(state, stage, allStages).stream()
+                    .map(situation -> new AvailableSituationCandidate(situation.situationId(), situation.intents(),
+                            situation.required(), situation.prerequisiteSituationIds(), situation.revelationIds(),
+                            situation.pressureIds(), situation.funnelIds(), situation.importantConsequenceIds(),
+                            situation.mapNeeded(), allStages.stream().filter(item -> item.situations().contains(situation))
+                                    .map(com.dndmaster.adventure.domain.scenario.DetailedStage::stageId).findFirst().orElse(state.stageId()),
+                            situation.title(), situation.description(), situation.isEnding()))
+                    .toList();
+            String status = candidates.isEmpty() ? "NOT_FOUND" : "FOUND";
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "mcp_available_situations", "sessionId=" + request.sessionId() + " packageId="
+                            + request.scenarioPackageId() + " stageId=" + state.stageId() + " expectedCandidateCount="
+                            + stage.situations().size() + " actualCandidateCount=" + candidates.size() + " status=" + status, started);
+            return new AvailableSituationResponse(status, candidates);
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "mcp_available_situations", "sessionId=" + request.sessionId() + " packageId="
+                            + request.scenarioPackageId() + " recoveryAction=return_lookup_failure", started, failure);
+            throw failure;
+        }
     }
 
     @PostMapping("/internal/v1/adventures/scenario-elements/search")
@@ -101,5 +165,11 @@ public final class ScenarioElementLookupController {
     public record ScenarioElementSearchRequest(UUID ownerId, UUID sessionId, UUID scenarioPackageId, String query) { }
     public record ScenarioElementSearchResponse(String status, List<ScenarioElementResult> elements) { }
     public record ScenarioElementResult(String elementId, String type, java.util.Map<String, Object> attributes) { }
+    public record AvailableSituationRequest(UUID ownerId, UUID sessionId, UUID scenarioPackageId) { }
+    public record AvailableSituationResponse(String status, List<AvailableSituationCandidate> situations) { }
+    public record AvailableSituationCandidate(String situationId, List<com.dndmaster.adventure.domain.scenario.StageIntent> intents,
+            boolean required, List<String> prerequisiteSituationIds, List<String> revelationIds,
+            List<String> pressureIds, List<String> funnelIds, List<String> importantConsequenceIds, boolean mapNeeded,
+            String stageId, String title, String description, boolean isEnding) { }
     private record ScenarioElementMatch(ScenarioModelElement element, int score) { }
 }

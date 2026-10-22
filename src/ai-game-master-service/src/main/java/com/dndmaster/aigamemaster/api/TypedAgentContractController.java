@@ -122,6 +122,8 @@ public final class TypedAgentContractController {
         require(request);
         try {
             String prompt = "ROLE=SCENARIO_COMPILATION\nSTORYBOOK_CONTEXT=" + request.storybookContext()
+                        + (request.validationFeedback() == null || request.validationFeedback().isBlank()
+                                ? "" : "\nVALIDATION_FEEDBACK=" + request.validationFeedback())
                         + "\nTASK=Compile the source-backed hidden ScenarioModel from the supplied Storybook excerpts. "
                         + "Find essential combat encounters: named or identifiable hostile groups that the Storybook makes part of the objective, a required obstacle, or an explicit triggered fight. Do not include every passing mention of a creature, non-hostile NPCs, or invented encounters. "
                         + "For each encounter, preserve enemy identity, count, and location only when the Storybook states or clearly supports them. "
@@ -896,9 +898,14 @@ public final class TypedAgentContractController {
         if (runtimeDiagnosticsEnabled()) log.info("dev_gm_environment_phase outcome=started operationKey={} promptChars={} schemaChars={} model={}",
                 request.operationKey(), request.prompt().length(), EXPLORATION_ENVIRONMENT_OUTPUT_SCHEMA.toString().length(), effective.model());
         try {
-            ExplorationEnvironmentResponse response = adapter.completeWithResolution(request.soloPlayerId(),
-                    request.operationKey(), request.prompt(), json -> parseExplorationEnvironment(json), requested,
-                    resolution, null, EXPLORATION_ENVIRONMENT_OUTPUT_SCHEMA).response();
+            var prompt = new com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt(request.prompt(), request.imageDataUri());
+            if (runtimeDiagnosticsEnabled()) log.info("dev_gm_environment_image outcome=prepared operationKey={} promptChars={} imageAttached={} imageChars={}",
+                    request.operationKey(), prompt.text().length(), prompt.hasImage(), prompt.imageDataUri().length());
+            ExplorationEnvironmentResponse response = prompt.hasImage()
+                    ? adapter.completeWithImageAndResolution(request.soloPlayerId(), request.operationKey(), prompt,
+                            json -> parseExplorationEnvironment(json), requested, resolution, EXPLORATION_ENVIRONMENT_OUTPUT_SCHEMA).response()
+                    : adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(), request.prompt(),
+                            json -> parseExplorationEnvironment(json), requested, resolution, null, EXPLORATION_ENVIRONMENT_OUTPUT_SCHEMA).response();
             if (runtimeDiagnosticsEnabled()) log.info("dev_gm_environment_phase outcome=completed operationKey={} enemyMoveCount={} encounterRequested={} elapsedMs={}",
                     request.operationKey(), response.enemyMoves().size(), response.encounterRequested(),
                     java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
@@ -959,7 +966,15 @@ public final class TypedAgentContractController {
     public record ExplorationEnvironmentRequest(java.util.UUID soloPlayerId, String operationKey,
             java.util.UUID endpointId, String provider, String model, String reasoning,
             java.util.UUID effectiveEndpointId, String effectiveEndpointVersion, String effectiveProvider,
-            String effectiveModel, String prompt) { }
+            String effectiveModel, String prompt, String imageDataUri) {
+        public ExplorationEnvironmentRequest(java.util.UUID soloPlayerId, String operationKey,
+                java.util.UUID endpointId, String provider, String model, String reasoning,
+                java.util.UUID effectiveEndpointId, String effectiveEndpointVersion, String effectiveProvider,
+                String effectiveModel, String prompt) {
+            this(soloPlayerId, operationKey, endpointId, provider, model, reasoning, effectiveEndpointId,
+                    effectiveEndpointVersion, effectiveProvider, effectiveModel, prompt, "");
+        }
+    }
     public record ExplorationEnvironmentResponse(String narration, List<EnvironmentEnemyMove> enemyMoves,
             List<EnvironmentFeatureInteraction> featureInteractions, boolean encounterRequested) {
         public ExplorationEnvironmentResponse { enemyMoves = List.copyOf(enemyMoves); featureInteractions = List.copyOf(featureInteractions); }
@@ -1243,6 +1258,12 @@ public final class TypedAgentContractController {
             }
         }
         var schema = source.deepCopy();
+        if (enemySheetPreparation && !allowedEvidenceKeys.isEmpty()) {
+            var citation = (com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties").path("combatEnemies")
+                    .path("items").path("properties").path("전투수치").path("properties").path("근거키");
+            var allowed = citation.putArray("enum");
+            allowedEvidenceKeys.stream().distinct().forEach(allowed::add);
+        }
         var proposal = (com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties").path("판정제안");
         var branches = (com.fasterxml.jackson.databind.node.ArrayNode) proposal.path("anyOf");
         if (!allowedEvidenceKeys.isEmpty()) {
@@ -1701,10 +1722,10 @@ public final class TypedAgentContractController {
         List<CombatEnemyResponse> enemies = new java.util.ArrayList<>();
         for (JsonNode enemy : enemiesNode) {
             if (!enemy.isObject()) throw new IllegalArgumentException("combatEnemies entries must be objects");
-            if (!enemySheetPreparation && (enemy.has("abilities") || enemy.has("actions"))) {
+            if (!enemySheetPreparation && (enemy.has("abilities") || enemy.has("actions") || enemy.has("전투수치"))) {
                 throw new IllegalArgumentException("ordinary runtime combat proposals must not include enemy sheet details");
             }
-            requireOnlyFields(enemy, java.util.Set.of("mode", "scenarioId", "enemyKey", "name", "count", "abilities", "actions"),
+            requireOnlyFields(enemy, java.util.Set.of("mode", "scenarioId", "enemyKey", "name", "count", "abilities", "actions", "전투수치"),
                     java.util.Set.of("enemyKey", "name", "count"), "combat enemy");
             int count = enemy.path("count").asInt(0);
             if (count < 1) throw new IllegalArgumentException("combatEnemies count must be positive");
@@ -1736,7 +1757,7 @@ public final class TypedAgentContractController {
                         citationKeys(action.path("citationKeys"), "combat enemy action")));
             }
             enemies.add(new CombatEnemyResponse(mode, scenarioId, required(enemy, "enemyKey"), name, count,
-                    List.copyOf(abilities), List.copyOf(actions)));
+                    List.copyOf(abilities), List.copyOf(actions), enemySheetPreparation ? parseEnemyCombatNumbers(enemy) : null));
         }
         boolean combatStart = root.path("combatStart").booleanValue();
         if (combatStart && enemies.isEmpty()) {
@@ -1764,8 +1785,13 @@ public final class TypedAgentContractController {
         String threat = optional(situation, "threat");
         String goal = optional(situation, "goal");
         String selectedSituationId = optional(situation, "selectedSituationId");
+        if ("CONTINUE".equals(kind) && selectedSituationId != null
+                || "TRANSITION".equals(kind) && selectedSituationId == null) {
+            throw new IllegalArgumentException("transition must select exactly one prepared situation");
+        }
         SituationResponse response = new SituationResponse(kind, location, problem, threat, goal, basis,
-                situation.path("reference").asText(""), selectedSituationId, situation.path("required").booleanValue());
+                situation.path("reference").asText(""), selectedSituationId, null, null, false, null,
+                situation.path("required").booleanValue());
         List<RuntimeFactResponse> runtimeFacts = new java.util.ArrayList<>();
         JsonNode runtimeFactsNode = root.path("runtimeFacts");
         if (!runtimeFactsNode.isMissingNode() && !runtimeFactsNode.isNull()) {
@@ -1947,7 +1973,12 @@ public final class TypedAgentContractController {
         if (request == null) throw new IllegalArgumentException("typed agent request is required");
     }
 
-    public record ScenarioCompilationRequest(java.util.UUID soloPlayerId, String operationKey, String storybookContext) {
+    public record ScenarioCompilationRequest(java.util.UUID soloPlayerId, String operationKey, String storybookContext,
+            String validationFeedback) {
+        public ScenarioCompilationRequest(java.util.UUID soloPlayerId, String operationKey, String storybookContext) {
+            this(soloPlayerId, operationKey, storybookContext, "");
+        }
+
         public ScenarioCompilationRequest {
             soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             operationKey = required(operationKey, "operationKey");
@@ -2354,10 +2385,38 @@ public final class TypedAgentContractController {
             return new CheckProposalResponse(false, "", "", null, "", "", 0, null, List.of(), "", "");
         }
     }
+    private CombatNumbersResponse parseEnemyCombatNumbers(JsonNode enemy) {
+        if (!enemy.has("전투수치")) throw new IllegalArgumentException("적 시트 응답에 전투수치가 필요합니다");
+        JsonNode values = enemy.path("전투수치");
+        if (values.isNull()) return null;
+        var fields = java.util.Set.of("방어도", "최대HP", "공격보정치", "피해굴림식", "우선권보정치", "근거키");
+        requireOnlyFields(values, fields, fields, "적 전투수치");
+        for (String field : java.util.List.of("방어도", "최대HP", "공격보정치", "우선권보정치")) {
+            if (!values.path(field).isIntegralNumber() || !values.path(field).canConvertToInt()) {
+                throw new IllegalArgumentException("적 전투수치는 정수여야 합니다: " + field);
+            }
+        }
+        int armor = values.path("방어도").intValue(), hp = values.path("최대HP").intValue();
+        int attack = values.path("공격보정치").intValue(), initiative = values.path("우선권보정치").intValue();
+        if (armor < 1 || hp < 1 || attack < -30 || attack > 30 || initiative < -30 || initiative > 30) {
+            throw new IllegalArgumentException("적 전투수치가 허용 범위를 벗어났습니다");
+        }
+        return new CombatNumbersResponse(armor, hp, attack, required(values, "피해굴림식"), initiative,
+                required(values, "근거키"));
+    }
+
+    public record CombatNumbersResponse(
+            @com.fasterxml.jackson.annotation.JsonProperty("방어도") int armorClass,
+            @com.fasterxml.jackson.annotation.JsonProperty("최대HP") int hitPointMaximum,
+            @com.fasterxml.jackson.annotation.JsonProperty("공격보정치") int attackModifier,
+            @com.fasterxml.jackson.annotation.JsonProperty("피해굴림식") String damageDice,
+            @com.fasterxml.jackson.annotation.JsonProperty("우선권보정치") int initiativeModifier,
+            @com.fasterxml.jackson.annotation.JsonProperty("근거키") String citationKey) { }
     public record CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count,
-                                     List<CombatEnemyAbilityResponse> abilities, List<CombatEnemyActionResponse> actions) {
+                                     List<CombatEnemyAbilityResponse> abilities, List<CombatEnemyActionResponse> actions,
+                                     @com.fasterxml.jackson.annotation.JsonProperty("전투수치") CombatNumbersResponse combatNumbers) {
         public CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count) {
-            this(mode, scenarioId, enemyKey, name, count, List.of(), List.of());
+            this(mode, scenarioId, enemyKey, name, count, List.of(), List.of(), null);
         }
         public CombatEnemyResponse {
             abilities = abilities == null ? List.of() : List.copyOf(abilities);
@@ -2371,7 +2430,8 @@ public final class TypedAgentContractController {
         public CombatEnemyActionResponse { citationKeys = citationKeys == null ? List.of() : List.copyOf(citationKeys); }
     }
     public record SituationResponse(String kind, String location, String problem, String threat, String goal,
-                                    String basis, String reference, String selectedSituationId, boolean required) { }
+                                    String basis, String reference, String selectedSituationId, String title,
+                                    String description, boolean mapNeeded, java.util.UUID mapDefinitionId, boolean required) { }
     public record RuntimeFactResponse(String subject, String content) { }
     public record CompletionResponse(boolean complete, List<String> resolvedObjectiveIds,
             List<String> satisfiedResolutionCriteriaIds, String concludingScene) {

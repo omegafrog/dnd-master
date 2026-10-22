@@ -47,6 +47,25 @@ public final class HttpScenarioElementLookup {
         return mapper.readTree(response.body());
     }
 
+    public JsonNode availableSituations(UUID authenticatedOwner, JsonNode confirmedScope) throws Exception {
+        if (confirmedScope == null || !confirmedScope.isObject()
+                || !authenticatedOwner.toString().equals(confirmedScope.path("ownerId").asText()))
+            throw new SecurityException("situation lookup scope owner mismatch");
+        String sessionId = confirmedScope.path("sessionId").asText("");
+        String scenarioPackageId = confirmedScope.path("scenarioPackageId").asText("");
+        if (sessionId.isBlank() || scenarioPackageId.isBlank())
+            throw new IllegalArgumentException("situation lookup scope is incomplete");
+        var payload = mapper.createObjectNode().put("ownerId", authenticatedOwner.toString())
+                .put("sessionId", sessionId).put("scenarioPackageId", scenarioPackageId);
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/adventures/situations/available"))
+                .timeout(timeout).header("X-Internal-Token", token).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(mapper.writeValueAsBytes(payload))).build();
+        HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        if (response.statusCode() / 100 != 2) throw new IllegalStateException("situation lookup failed with status " + response.statusCode());
+        if (response.body().length > 1_000_000) throw new IllegalStateException("situation lookup response exceeds the size limit");
+        return mapper.readTree(response.body());
+    }
+
     public JsonNode lookupAbility(UUID authenticatedOwner, JsonNode confirmedScope, String abilityId) throws Exception {
         if (confirmedScope == null || !confirmedScope.isObject()
                 || !authenticatedOwner.toString().equals(confirmedScope.path("ownerId").asText()))

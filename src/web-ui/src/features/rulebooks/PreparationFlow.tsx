@@ -4,7 +4,7 @@ import { Button } from '../../components/ui/button'
 import { Progress } from '../../components/ui/progress'
 import { Select } from '../../components/ui/select'
 import { diagnosticEvent } from '../../shared/developmentDiagnostics'
-import type { AdventureSessionApi, AdventureSessionView } from '../adventure-session/AdventureSessionApi'
+import type { AdventureSessionApi, AdventureSessionView, StoryLength } from '../adventure-session/AdventureSessionApi'
 import type { PlayPreparationView, ScenarioBundleView, ScenarioCompilationView, ScenarioPackageView, SetupApi } from './SetupApi'
 
 const runningStatuses = new Set<ScenarioCompilationView['status']>(['REQUESTED', 'QUEUED', 'RUNNING', 'PROCESSING', 'WAITING_RETRY'])
@@ -63,6 +63,7 @@ export function PreparationFlow({
   const [playPreparation, setPlayPreparation] = useState<PlayPreparationView | null>(null)
   const [failure, setFailure] = useState('')
   const [partySize, setPartySize] = useState(1)
+  const [storyLength, setStoryLength] = useState<StoryLength>('NORMAL')
   const [retryNonce, setRetryNonce] = useState(0)
   const [creating, setCreating] = useState(false)
   const startRequests = useRef(new Map<string, Promise<ScenarioCompilationView>>())
@@ -212,7 +213,7 @@ export function PreparationFlow({
       return
     }
     setCreating(true)
-    diagnosticEvent('preparation', { stage: 'adventure_creation_requested', bundleId: bundle.bundleId, packageId: scenarioPackage.packageId, partySize })
+    diagnosticEvent('preparation', { stage: 'adventure_creation_requested', bundleId: bundle.bundleId, packageId: scenarioPackage.packageId, partySize, storyLength })
     try {
       const session = await sessionApi.create({
         scenarioPackageId: scenarioPackage.packageId,
@@ -220,6 +221,7 @@ export function PreparationFlow({
         blueprintRevision: blueprint.revision,
         partySize: Math.min(partySize, scenarioPackage.characterLimit.maximumCharacters),
         preparationId: playPreparation.preparationId ?? undefined,
+        storyLength,
       })
       diagnosticEvent('preparation', { stage: 'adventure_created', bundleId: bundle.bundleId, packageId: scenarioPackage.packageId, sessionId: session.sessionId })
       if (onAdventureCreated) onAdventureCreated(session)
@@ -255,7 +257,14 @@ export function PreparationFlow({
       <p className="eyebrow">PREPARATION READY</p>
       <h3>모험 자료 준비가 끝났습니다</h3>
       <p>{blueprintReady ? '파티 인원을 정하고 모험을 만들 수 있습니다.' : '마지막으로 캐릭터 생성 설정을 확인하면 모험을 시작할 수 있습니다.'}</p>
-      {blueprintReady ? <label className="setup-party-size">파티 인원<Select aria-label="파티 인원" value={partySize} onChange={event => setPartySize(Number(event.currentTarget.value))}>{Array.from({ length: maxParty }, (_, index) => index + 1).map(size => <option key={size} value={size}>{size}명</option>)}</Select></label> : null}
+      {blueprintReady ? <>
+        <label className="setup-party-size">파티 인원<Select aria-label="파티 인원" value={partySize} onChange={event => setPartySize(Number(event.currentTarget.value))}>{Array.from({ length: maxParty }, (_, index) => index + 1).map(size => <option key={size} value={size}>{size}명</option>)}</Select></label>
+        <label className="setup-party-size">모험 길이
+          <input aria-label="모험 길이" aria-valuetext={storyLength === 'SHORT' ? '짧게' : storyLength === 'NORMAL' ? '보통' : '길게'} type="range" min="0" max="2" step="1" value={storyLength === 'SHORT' ? 0 : storyLength === 'NORMAL' ? 1 : 2}
+            onChange={event => setStoryLength((['SHORT', 'NORMAL', 'LONG'] as const)[Number(event.currentTarget.value)])} />
+          <span>{storyLength === 'SHORT' ? '짧게' : storyLength === 'NORMAL' ? '보통' : '길게'}</span>
+        </label>
+      </> : null}
     </div>
     <div className="setup-preparation-actions">
       <Button onClick={() => void createAdventure()} disabled={!playPreparation || creating}>{creating ? '모험 만드는 중…' : blueprintReady ? '모험 만들기' : '캐릭터 설정 계속'}</Button>

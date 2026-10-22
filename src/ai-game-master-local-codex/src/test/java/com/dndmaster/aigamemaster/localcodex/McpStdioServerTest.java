@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
 
 class McpStdioServerTest {
     @Test
-    void listsOnlyTheReadOnlyRulesSearchToolUsingJsonRpcOnStdout() throws Exception {
+    void listsReadOnlyToolsAndRequiresSituationLookupBeforeNonOpeningDecisions() throws Exception {
         try (ServerSocket listener = new ServerSocket(0); var executor = Executors.newSingleThreadExecutor()) {
             var receivedToken = executor.submit(() -> {
                 try (Socket peer = listener.accept();
@@ -37,6 +37,39 @@ class McpStdioServerTest {
                 assertThat(tool.path("annotations").path("destructiveHint").asBoolean()).isFalse();
                 assertThat(tool.path("annotations").path("openWorldHint").asBoolean()).isFalse();
                 assertThat(tool.path("inputSchema").path("additionalProperties").asBoolean()).isFalse();
+                var tools = new ObjectMapper().readTree(stdOutBytes.toString(StandardCharsets.UTF_8)).path("result").path("tools");
+                assertThat(tools.findValuesAsText("name")).contains("find_available_situations");
+                assertThat(tools.findParents("name").stream()
+                        .filter(value -> "find_available_situations".equals(value.path("name").asText()))
+                        .findFirst().orElseThrow().path("description").asText())
+                        .contains("같은 단계의 선택 가능한 비필수 상황", "선행 조건이 열린 필수 그래프 상황", "stageId·제목·설명·종료 여부");
+            }
+        }
+    }
+
+    @Test
+    void availableSituationLookupNeedsNoModelGeneratedSearchText() throws Exception {
+        try (ServerSocket listener = new ServerSocket(0); var executor = Executors.newSingleThreadExecutor()) {
+            var received = executor.submit(() -> {
+                try (Socket peer = listener.accept();
+                     BufferedReader input = new BufferedReader(new java.io.InputStreamReader(peer.getInputStream(), StandardCharsets.UTF_8));
+                     BufferedWriter output = new BufferedWriter(new OutputStreamWriter(peer.getOutputStream(), StandardCharsets.UTF_8))) {
+                    input.readLine();
+                    var call = new ObjectMapper().readTree(input.readLine());
+                    assertThat(call.path("tool").asText()).isEqualTo("find_available_situations");
+                    assertThat(call.path("arguments").isEmpty()).isTrue();
+                    output.write("{\"success\":true,\"result\":{\"status\":\"FOUND\",\"situations\":[{\"situationId\":\"stored-situation-id\"}]}}\n");
+                    output.flush();
+                }
+                return null;
+            });
+            try (Socket client = new Socket("127.0.0.1", listener.getLocalPort());
+                 var stdIn = new BufferedReader(new StringReader("{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"find_available_situations\",\"arguments\":{}}}\n"));
+                 var stdOutBytes = new ByteArrayOutputStream();
+                 var stdOut = new BufferedWriter(new OutputStreamWriter(stdOutBytes, StandardCharsets.UTF_8))) {
+                McpStdioServer.serve(client, "run-token", stdIn, stdOut);
+                received.get();
+                assertThat(stdOutBytes.toString(StandardCharsets.UTF_8)).contains("stored-situation-id").doesNotContain("isError");
             }
         }
     }

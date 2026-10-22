@@ -124,6 +124,7 @@ public final class ScenarioPreparationApplicationService {
         List<ScenarioBundleDocumentSelection> revisionDocuments = currentRevision.documents();
         List<ScenarioBundleDocumentSelection> storybookDocuments = revisionDocuments.stream()
                 .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType()))
+                .filter(document -> document.role() != ScenarioBundleDocumentRole.MAP)
                 .toList();
         boolean hasHandout = revisionDocuments.stream().anyMatch(document ->
                 document.role() == ScenarioBundleDocumentRole.HANDOUT);
@@ -424,6 +425,7 @@ public final class ScenarioPreparationApplicationService {
         }
         List<ScenarioBundleDocumentSelection> storybooks = bundle.currentRevision().documents().stream()
                 .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType()))
+                .filter(document -> document.role() != ScenarioBundleDocumentRole.MAP)
                 .toList();
         List<ScenarioBundleDocumentSelection> rulebooks = bundle.currentRevision().documents().stream()
                 .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType()))
@@ -882,7 +884,8 @@ public final class ScenarioPreparationApplicationService {
                 .flatMap(field -> field.evidence().stream())
                 .map(reference -> reference.knowledgeDocumentId().value())
                 .distinct().count());
-        long storybooks = documents.stream().filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType())).count();
+        long storybooks = documents.stream().filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType())
+                && document.role() != ScenarioBundleDocumentRole.MAP).count();
         List<CharacterCreationBlueprintView.FieldView> fields = blueprint.fields().stream()
                 .map(field -> new CharacterCreationBlueprintView.FieldView(field.key(), field.options(), field.required(),
                         field.sourceType(), field.inputStatus(), field.diagnostics(), field.inputMode().name(), field.value(),
@@ -1014,6 +1017,7 @@ public final class ScenarioPreparationApplicationService {
             List<ScenarioBundleDocumentSelection> documents, List<CharacterCreationBlueprintView.StorybookProposalView> proposals) {
         java.util.Set<String> statuses = documents.stream()
                 .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType()))
+                .filter(document -> document.role() != ScenarioBundleDocumentRole.MAP)
                 .map(document -> document.status().name()).collect(java.util.stream.Collectors.toSet());
         boolean failed = statuses.contains("FAILED");
         if (failed) return CharacterCreationBlueprintView.StorybookExtractionState.EXTRACTION_FAILED;

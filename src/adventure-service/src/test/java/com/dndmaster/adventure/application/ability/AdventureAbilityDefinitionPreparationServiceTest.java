@@ -22,7 +22,12 @@ import com.dndmaster.adventure.application.scenario.preparation.InitialSituation
 import com.dndmaster.adventure.application.scenario.preparation.TransientInitialSituationGmFailureException;
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
+import com.dndmaster.adventure.domain.adventure.Adventure;
+import com.dndmaster.adventure.domain.adventure.AdventureContext;
+import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
+import com.dndmaster.adventure.domain.adventure.RuleSetId;
+import com.dndmaster.adventure.domain.adventure.ScenarioId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.dndmaster.adventure.domain.adventure.AdventureSession;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
@@ -43,6 +48,23 @@ import org.junit.jupiter.api.Test;
 
 class AdventureAbilityDefinitionPreparationServiceTest {
     private static final ObjectMapper JSON = new ObjectMapper();
+
+    @Test
+    void missing_learned_ability_ids_are_treated_as_an_empty_list_at_adventure_start() throws Exception {
+        UUID sheetId = UUID.randomUUID();
+        var sheets = mock(RuntimeCharacterSheetReadPort.class);
+        when(sheets.read(sheetId)).thenReturn("{\"characterState\":\"{}\"}");
+        var service = new AdventureAbilityDefinitionPreparationService(mock(AdventureAbilityDefinitionRepository.class),
+                mock(ScenarioPackageRepository.class), mock(SessionKnowledgeSetRepository.class),
+                mock(AdventureSessionRepository.class), sheets, mock(RuntimeEvidenceSearchPort.class),
+                mock(RuntimeEvidenceLocationLookupPort.class), mock(GmProviderBindingRepository.class),
+                mock(InitialSituationGmPort.class), JSON);
+        var adventure = Adventure.create(new AdventureId(UUID.randomUUID()), new SessionId(UUID.randomUUID()),
+                new OwnerPlayerId(UUID.randomUUID()), new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                new CharacterSheetId(sheetId), new AdventureContext("scene", null, null, null));
+
+        assertThat(service.prepareAtAdventureStart(adventure)).isEmpty();
+    }
 
     @Test
     void corrects_invalid_structured_output_and_saves_only_after_validation_can_succeed() throws Exception {

@@ -174,6 +174,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                     || previous.format() != command.format()) {
                 throw new RulebookPipelineException("conflict: same idempotency key with different request");
             }
+            restoreDuplicateSourceIfMissing(previous, command.fileContent());
             return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
         }
 
@@ -181,6 +182,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 command.ownerPlayerId(), contentHash);
         if (duplicate.isPresent()) {
             StoredRulebookRegistration previous = duplicate.get();
+            restoreDuplicateSourceIfMissing(previous, command.fileContent());
             return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
         }
 
@@ -222,6 +224,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                     command.ownerPlayerId(), contentHash);
             if (duplicateAfterRace.isPresent()) {
                 StoredRulebookRegistration previous = duplicateAfterRace.get();
+                    restoreDuplicateSourceIfMissing(previous, command.fileContent());
                 return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
             }
             throw new RulebookPipelineException("conflict: rulebook registration uniqueness violation", collision);
@@ -759,6 +762,46 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             return HexFormat.of().formatHex(digest.digest(command.fileContent()));
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is required", e);
+        }
+    }
+
+    private void restoreDuplicateSourceIfMissing(StoredRulebookRegistration registration, byte[] source) {
+        long started = System.nanoTime();
+        boolean available;
+        int actualBytes;
+        String readFailure = "none";
+        try {
+            byte[] stored = fileStorage.read(new StoredRulebookFile(registration.storageKey()));
+            actualBytes = stored == null ? 0 : stored.length;
+            available = Arrays.equals(stored, source);
+        } catch (RuntimeException exception) {
+            available = false;
+            actualBytes = -1;
+            readFailure = exception.getClass().getSimpleName();
+        }
+        if (available) return;
+
+        boolean diagnostics = Boolean.parseBoolean(System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED"));
+        if (diagnostics) {
+            LOGGER.info("dev_rulebook_duplicate_source_restore outcome=started documentId={} expectedBytes={} actualBytes={} readFailure={} next=restore",
+                    registration.rulebookId().value(), source.length, actualBytes, readFailure);
+        }
+        try {
+            StoredRulebookFile restored = fileStorage.store(registration.rulebookId(), Arrays.copyOf(source, source.length));
+            if (!restored.key().equals(registration.storageKey())) {
+                throw new IllegalStateException("restored source storage key does not match registration");
+            }
+        } catch (RuntimeException exception) {
+            if (diagnostics) {
+                LOGGER.info("dev_rulebook_duplicate_source_restore outcome=failed documentId={} expectedBytes={} actualBytes={} failureType={} elapsedMs={} next=propagate",
+                        registration.rulebookId().value(), source.length, actualBytes,
+                        exception.getClass().getSimpleName(), (System.nanoTime() - started) / 1_000_000);
+            }
+            throw exception;
+        }
+        if (diagnostics) {
+            LOGGER.info("dev_rulebook_duplicate_source_restore outcome=completed documentId={} expectedBytes={} actualBytes={} elapsedMs={} next=reuse_registration",
+                    registration.rulebookId().value(), source.length, actualBytes, (System.nanoTime() - started) / 1_000_000);
         }
     }
 

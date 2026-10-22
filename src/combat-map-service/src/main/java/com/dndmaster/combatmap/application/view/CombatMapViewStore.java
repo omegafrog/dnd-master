@@ -19,6 +19,16 @@ public interface CombatMapViewStore {
     default Optional<VersionedOwnedCombatMap> findPreparedByAdventureId(AdventureId adventureId, MapOwnerId owner) {
         return Optional.empty();
     }
+    default Optional<VersionedOwnedCombatMap> findByDefinition(AdventureId adventureId, MapOwnerId owner, UUID definitionId) {
+        return java.util.stream.Stream.concat(findByAdventureId(adventureId, owner).stream(),
+                findPreparedByAdventureId(adventureId, owner).stream())
+                .filter(state -> state.map().layers().stream().anyMatch(layer ->
+                        "MAP_DEFINITION_ID".equals(layer.type()) && definitionId.toString().equals(layer.value())))
+                .findFirst();
+    }
+
+    default boolean wasActivated(AdventureId adventureId, MapOwnerId owner, MapId mapId) { return false; }
+
     Optional<VersionedOwnedCombatMap> findByCommandId(UUID commandId);
 
     default void activate(AdventureId adventureId, MapOwnerId owner, MapId mapId, int stagePosition) {

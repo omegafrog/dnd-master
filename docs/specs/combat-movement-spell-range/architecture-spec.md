@@ -2,7 +2,7 @@
 
 - 범위 ID: `combat-movement-spell-range`
 - 문서 상태: **READY** — 적대적 리뷰와 다이어그램 게이트 통과; 애플리케이션 테스트는 수행하지 않음
-- 입력: [Product Spec](product-spec.md), [runtime decisions](runtime-decisions.md), `CONTEXT.md`, `CONTEXT-MAP.md`, ADR-001, ADR-003, ADR-012, ADR-013, ADR-018, ADR-019, code-research 결과
+- 입력: [Product Spec](product-spec.md), [runtime decisions](runtime-decisions.md), `CONTEXT.md`, `CONTEXT-MAP.md`, ADR-001, ADR-003, ADR-012, ADR-013, ADR-018, ADR-019, [ADR-024](../../adr/ADR-024-agent-driven-runtime-e2e.md), code-research 결과
 - Engineering Decision metadata: 승인된 ID 기반 decision workflow opt-in이 아니므로 decision ID, 승인 ID, Principle/Evidence ID를 만들지 않는다.
 
 # 1. Design Scope

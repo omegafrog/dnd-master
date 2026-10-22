@@ -84,13 +84,13 @@ spring:
 rule-knowledge:
   internal-token: ${INTERNAL_SERVICE_TOKEN:}
   storage:
-    root: ./data/rulebooks
+    root: ${RULE_KNOWLEDGE_STORAGE_ROOT:./data/rulebooks}
   embedding-model: qwen3-embedding:0.6b
   embedding-dimension: 1024
 
 local-ai:
   ollama:
-    base-url: http://127.0.0.1:11434
+    base-url: ${LOCAL_AI_OLLAMA_BASE_URL:http://127.0.0.1:11434}
     chat-model: exaone3.5:7.8b
     embedding-model: qwen3-embedding:0.6b
     allowed-models:

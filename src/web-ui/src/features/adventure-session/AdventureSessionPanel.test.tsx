@@ -2,12 +2,8 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { AdventureSessionPanel } from './AdventureSessionPanel'
-import { AdventureSessionRequestError, type AdventureSessionApi, type AdventureSessionView } from './AdventureSessionApi'
+import type { AdventureSessionApi, AdventureSessionView } from './AdventureSessionApi'
 import type { AdventurePlayApi } from '../saved-adventures/AdventurePlayApi'
-
-vi.mock('../combat-map/CombatMapView', () => ({
-  CombatMapView: ({ onPreparationComplete }: { onPreparationComplete: () => void }) => <button type="button" onClick={onPreparationComplete}>수동 시작 위치 저장</button>,
-}))
 
 describe('AdventureSessionPanel lifecycle', () => {
   it('allows a direct character to start before the party reaches its maximum size', async () => {
@@ -77,7 +73,7 @@ describe('AdventureSessionPanel lifecycle', () => {
     expect(screen.getByRole('button', { name: /시나리오 런타임 시작/ })).toBeTruthy()
   })
 
-  it('starts the runtime directly and ignores repeated starts while preparation runs', async () => {
+  it('shows runtime preparation progress and ignores repeated starts', async () => {
     let resolveStart!: (value: AdventureSessionView) => void
     const start = vi.fn<AdventureSessionApi['start']>((sessionId, version, adventureId, prepareMapOnly) => {
       void sessionId
@@ -97,30 +93,29 @@ describe('AdventureSessionPanel lifecycle', () => {
     await userEvent.click(button)
     expect(start).toHaveBeenCalledTimes(1)
     expect((screen.getByRole('button', { name: '시나리오 런타임 준비 중…' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByText('시나리오 상황에 필요한 지도를 준비하고 있습니다.')).toBeTruthy()
+    expect(screen.getByText('맵을 준비하는 동안 잠시만 기다려 주세요. 같은 요청을 다시 보내지 않습니다.')).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: '시나리오 런타임 준비 중…' }))
     expect(start).toHaveBeenCalledTimes(1)
-    resolveStart({ sessionId: 's', characterLimit: 1, version: 4, status: 'STARTED', adventureId: 'a', runtimeConfiguration: { scenarioId: 'scenario', ruleSetId: 'rules', rulebookIds: [], engineId: 'ollama', toolIds: [], initialScene: 'intro' }, party: [{ characterSheetId: 'sheet-1', controlMode: 'DIRECT', nameMutableAfterStart: false, raceMutableAfterStart: false, characterClassMutableAfterStart: false, backgroundMutableAfterStart: false, startingAbilitiesMutableAfterStart: false, levelMutableAfterStart: false }] })
+    resolveStart({ sessionId: 's', characterLimit: 1, version: 4, status: 'STARTING', adventureId: 'a', runtimeConfiguration: { scenarioId: 'scenario', ruleSetId: 'rules', rulebookIds: [], engineId: 'ollama', toolIds: [], initialScene: 'intro' }, party: [{ characterSheetId: 'sheet-1', controlMode: 'DIRECT', nameMutableAfterStart: false, raceMutableAfterStart: false, characterClassMutableAfterStart: false, backgroundMutableAfterStart: false, startingAbilitiesMutableAfterStart: false, levelMutableAfterStart: false }] })
     await waitFor(() => expect(screen.queryByRole('button', { name: '시나리오 런타임 준비 중…' })).toBeNull())
   })
 
-  it('offers manual placement and retries the same session start after unresolved inference', async () => {
-    const initial = { sessionId: 's', characterLimit: 1, version: 3, status: 'DRAFT', adventureId: null, runtimeConfiguration: { engineId: 'ollama' }, party: [{ characterSheetId: 'sheet-1', controlMode: 'DIRECT' }] } as AdventureSessionView
-    const awaitingPlacement = { ...initial, version: 4, status: 'STARTING', adventureId: 'adventure-1' } as AdventureSessionView
-    const started = { ...awaitingPlacement, version: 5, status: 'STARTED' } as AdventureSessionView
-    const start = vi.fn<AdventureSessionApi['start']>()
-      .mockRejectedValueOnce(new AdventureSessionRequestError('placement required', 409, 'MAP_PLACEMENT_REQUIRED'))
-      .mockResolvedValueOnce(started)
+  it('resumes map preparation from the same starting adventure when its draft is missing', async () => {
+    const starting: AdventureSessionView = { sessionId: 's', characterLimit: 1, version: 2, status: 'STARTING', adventureId: 'a', runtimeConfiguration: { scenarioId: 'scenario', ruleSetId: 'rules', rulebookIds: [], engineId: 'ollama', toolIds: [], initialScene: 'intro' }, party: [{ characterSheetId: 'sheet-1', controlMode: 'DIRECT', nameMutableAfterStart: false, raceMutableAfterStart: false, characterClassMutableAfterStart: false, backgroundMutableAfterStart: false, startingAbilitiesMutableAfterStart: false, levelMutableAfterStart: false }] }
     const api = {
-      read: vi.fn().mockResolvedValueOnce(initial).mockResolvedValueOnce(awaitingPlacement).mockResolvedValueOnce(awaitingPlacement),
-      listOwnedCharacters: vi.fn().mockResolvedValue([]), copyOwnedCharacter: vi.fn(), addMember: vi.fn(), removeMember: vi.fn(), start,
-      complete: vi.fn(), delete: vi.fn(),
+      read: vi.fn().mockResolvedValue(starting), listOwnedCharacters: vi.fn().mockResolvedValue([]), copyOwnedCharacter: vi.fn(),
+      addMember: vi.fn(), removeMember: vi.fn(), start: vi.fn(), prepareMap: vi.fn().mockResolvedValue(starting), delete: vi.fn(),
     }
-    render(<AdventureSessionPanel api={api} playApi={{} as AdventurePlayApi} ownerPlayerId="p" sessionId="s" />)
-    await userEvent.click(await screen.findByRole('button', { name: '시나리오 런타임 시작' }))
-    expect(await screen.findByRole('alert')).toBeTruthy()
-    await userEvent.click(screen.getByRole('button', { name: '수동 시작 위치 저장' }))
-    await waitFor(() => expect(start).toHaveBeenCalledTimes(2))
-    expect(start).toHaveBeenLastCalledWith('s', 4, 'adventure-1')
+    const getCombatMapPreparation = vi.fn().mockRejectedValueOnce(new Error('map draft is missing')).mockResolvedValue({
+      adventureId: 'a', status: 'authoritative-map', mapId: 'm1', version: 0, grid: { width: 2, height: 2 }, tokens: [],
+    })
+    const playApi = { getCombatMapPreparation, getMapGridAlignment: vi.fn().mockRejectedValue(new Error('not saved')) } as unknown as AdventurePlayApi
+    render(<AdventureSessionPanel api={api} ownerPlayerId="p" sessionId="s" playApi={playApi} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: '맵 준비 다시 불러오기' }))
+
+    expect(api.prepareMap).toHaveBeenCalledTimes(1)
+    expect(api.prepareMap).toHaveBeenCalledWith('s', 2, 'a')
+    await waitFor(() => expect(getCombatMapPreparation).toHaveBeenCalledTimes(2))
   })
 })

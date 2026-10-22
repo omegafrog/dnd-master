@@ -121,6 +121,7 @@ export function AdventureWorkspace({ adventureId, activeTab, playApi, setupApi, 
         blueprintId: scenarioPackageId,
         blueprintRevision: blueprint.revision,
         partySize: preparation.characterLimit.maximumCharacters,
+        storyLength: 'NORMAL',
       })
       setSessions(current => [session, ...current.filter(item => item.sessionId !== session.sessionId)])
       setStartOpen(false)

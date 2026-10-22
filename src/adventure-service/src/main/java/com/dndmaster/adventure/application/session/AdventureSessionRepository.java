@@ -9,6 +9,7 @@ import java.util.List;
 
 public interface AdventureSessionRepository {
     Optional<AdventureSession> findById(SessionId id);
+    default Optional<AdventureSession> findByStartedAdventureId(UUID adventureId, OwnerPlayerId ownerPlayerId) { return Optional.empty(); }
     default List<AdventureSession> findByScenarioPackageId(java.util.UUID scenarioPackageId) { return List.of(); }
     boolean tryAcquireAiRequest(SessionId sessionId, OwnerPlayerId ownerPlayerId, UUID requestId);
     boolean releaseAiRequest(SessionId sessionId, OwnerPlayerId ownerPlayerId, UUID requestId);

@@ -7,12 +7,26 @@ import java.util.UUID;
 
 /** Candidate validation result owned by Scenario Preparation. */
 public record ScenarioSpatialFeaturePreparationResult(boolean activationAllowed,
-        List<Placement> placements, List<String> warnings, List<String> failures, int attempts) {
+        List<Placement> placements, List<EnemyPlacement> enemies, List<String> warnings, List<String> failures, int attempts) {
+    public ScenarioSpatialFeaturePreparationResult(boolean activationAllowed, List<Placement> placements,
+            List<String> warnings, List<String> failures, int attempts) {
+        this(activationAllowed, placements, List.of(), warnings, failures, attempts);
+    }
     public ScenarioSpatialFeaturePreparationResult {
         placements = List.copyOf(Objects.requireNonNull(placements));
+        enemies = List.copyOf(Objects.requireNonNull(enemies));
         warnings = List.copyOf(Objects.requireNonNull(warnings));
         failures = List.copyOf(Objects.requireNonNull(failures));
         if (attempts < 0 || attempts > 3) throw new IllegalArgumentException("invalid preparation attempts");
+    }
+
+    public record EnemyPlacement(String scenarioId, String enemyKey, List<ScenarioSpatialFeaturePlacementModelPort.Position> positions) {
+        public EnemyPlacement {
+            scenarioId = required(scenarioId, "scenario id");
+            enemyKey = required(enemyKey, "enemy key");
+            positions = List.copyOf(Objects.requireNonNull(positions));
+            if (positions.isEmpty()) throw new IllegalArgumentException("enemy positions must not be empty");
+        }
     }
 
     public record Placement(UUID featureId, String type, boolean required, List<String> cells,

@@ -25,8 +25,8 @@ public record LocalOllamaProperties(
     }
 
     public void validate() {
-        if (baseUrl == null || baseUrl.getHost() == null || !isLoopback(baseUrl.getHost())) {
-            throw new IllegalStateException("Ollama base URL must use a loopback host");
+        if (baseUrl == null || baseUrl.getHost() == null || !isAllowedHost(baseUrl.getHost())) {
+            throw new IllegalStateException("Ollama base URL must use a loopback or Compose Ollama host");
         }
         if (!allowedModels.contains(chatModel) || !allowedModels.contains(embeddingModel)) {
             throw new IllegalStateException("Configured Ollama model is not allowlisted");
@@ -38,7 +38,8 @@ public record LocalOllamaProperties(
         }
     }
 
-    private static boolean isLoopback(String host) {
-        return "localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host) || "::1".equals(host);
+    private static boolean isAllowedHost(String host) {
+        return "localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host) || "::1".equals(host)
+                || "ollama".equalsIgnoreCase(host);
     }
 }

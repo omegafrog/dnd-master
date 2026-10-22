@@ -168,7 +168,8 @@ public record GmContextEnvelope(
     }
 
     public String operationKey() {
-        return adventureId.value() + ":" + scenarioPackageId + ":" + bindingVersion + ":" + turnId;
+        String key = adventureId.value() + ":" + scenarioPackageId + ":" + bindingVersion + ":" + turnId;
+        return action.startsWith("전투 진입 전 적 캐릭터 시트 후보를 작성한다.") ? key + ":enemy-sheet-preparation" : key;
     }
 
     private static String required(String value) {

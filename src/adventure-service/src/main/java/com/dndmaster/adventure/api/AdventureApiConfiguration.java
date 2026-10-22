@@ -239,6 +239,7 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService,
             com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService,
             com.dndmaster.adventure.application.ability.AdventureAbilityDefinitionPreparationService abilityDefinitionPreparationService,
+            com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService appliedRuleSetService,
             @org.springframework.beans.factory.annotation.Qualifier("adventureDicePorts")
             com.dndmaster.adventure.dice.AdventureDicePorts initiativeDicePorts) {
         AdventureSessionApplicationService service = new AdventureSessionApplicationService(repository, packageRepository, adventureRepository,
@@ -247,6 +248,7 @@ public class AdventureApiConfiguration {
                 combatMapPreparationPort, stagePreparation, runtimeTurnService, combatLifecycleService);
         service.setInitiativeDicePorts(initiativeDicePorts);
         service.setAbilityDefinitionPreparationService(abilityDefinitionPreparationService);
+        service.setAppliedRuleSetService(appliedRuleSetService);
         return service;
     }
 
@@ -946,10 +948,9 @@ public class AdventureApiConfiguration {
             ObjectMapper objectMapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.ai-game-master.timeout-seconds:180}") long timeoutSeconds,
-            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
-            @Value("${GM_RUNTIME_CONTEXT_LIMITS:}") String contextLimits) {
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new HttpTypedRuntimeGmAgentPort(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken, contextLimits);
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
     }
 
     @Bean
@@ -1084,7 +1085,9 @@ public class AdventureApiConfiguration {
             javax.sql.DataSource dataSource,
             com.dndmaster.adventure.application.runtime.AdventureCompletionCommitPort adventureCompletionCommitPort,
             com.dndmaster.adventure.application.combat.EnemyCharacterSheetRepository enemyCharacterSheetRepository,
-            com.dndmaster.adventure.domain.scenario.StageArtifactRepository stageArtifactRepository) {
+            com.dndmaster.adventure.domain.scenario.StageArtifactRepository stageArtifactRepository,
+            com.dndmaster.adventure.application.scenario.ScenarioBundleRepository scenarioBundleRepository,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort scenarioSourceExcerptPort) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, providerBindingRepository,
@@ -1095,7 +1098,8 @@ public class AdventureApiConfiguration {
         service.setTurnLockService(runtimeTurnLockService);
         service.setCommitOrchestrator(commitOrchestrator);
         service.setCommitGate(new com.dndmaster.adventure.application.combat.PreparedMapEntryCommitGate(
-                combatMapViewPort, combatMapPreparationPort, packageRepository, stageArtifactRepository));
+                combatMapViewPort, combatMapPreparationPort, packageRepository, stageArtifactRepository,
+                scenarioBundleRepository, scenarioSourceExcerptPort));
         service.setRuntimeFactLookupService(runtimeFactLookupService);
         service.setPlayerActionEvidenceAcquirer(new RuntimePlayerActionEvidenceAcquirer(
                 evidenceAcquisitionApplicationService, runtimeEvidenceLocationLookupPort));
@@ -1311,11 +1315,13 @@ public class AdventureApiConfiguration {
     com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePreparationService scenarioSpatialFeaturePreparationService(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String combatMapBaseUrl,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
             @Value("${adventure.integration.ai-game-master.map-generation-timeout:300s}") Duration timeout) {
         return new com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePreparationService(
                 new com.dndmaster.adventure.infrastructure.integration.HttpScenarioSpatialFeaturePlacementGateway(
-                        HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper, internalToken));
+                        HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper, internalToken,
+                        URI.create(combatMapBaseUrl)));
     }
 
     @Bean

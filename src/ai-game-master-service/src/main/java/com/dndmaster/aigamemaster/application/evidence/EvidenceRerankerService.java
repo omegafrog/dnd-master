@@ -2,7 +2,6 @@ package com.dndmaster.aigamemaster.application.evidence;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -48,9 +47,13 @@ public final class EvidenceRerankerService {
             }
             if (ids.size() > resultLimit) throw invalid(EvidenceModelOutputException.Category.INVALID_IDENTIFIER,
                     "ordered candidate ID count exceeds resultLimit; expectedAtMost=" + resultLimit + " actual=" + ids.size());
-            if (ids.size() != new HashSet<>(ids).size()) throw invalid(
-                    EvidenceModelOutputException.Category.INVALID_IDENTIFIER,
-                    "ordered candidate IDs contain duplicates; idCount=" + ids.size());
+            int actualIdCount = ids.size();
+            ids = new java.util.ArrayList<>(new java.util.LinkedHashSet<>(ids));
+            if (actualIdCount != ids.size() && runtimeDiagnosticsEnabled()) {
+                org.slf4j.LoggerFactory.getLogger(EvidenceRerankerService.class).warn(
+                        "dev_evidence_rerank_duplicates outcome=normalized expectedUnique=true actualIdCount={} uniqueIdCount={} recoveryAction=preserve_first_occurrence",
+                        actualIdCount, ids.size());
+            }
             ids.removeIf(id -> !candidateIds.contains(id));
             return new EvidenceRerankResponse(ids);
         } catch (EvidenceModelOutputException exception) {
@@ -63,6 +66,10 @@ public final class EvidenceRerankerService {
 
     private static EvidenceModelOutputException invalid(EvidenceModelOutputException.Category category, String message) {
         return new EvidenceModelOutputException(category, message);
+    }
+    private static boolean runtimeDiagnosticsEnabled() {
+        return "true".equalsIgnoreCase(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
     }
     private static String rerankInstruction(EvidenceRerankRequest request, EvidenceModelPrompt.Candidates candidates) {
         return "TASK=EVIDENCE_RERANK\nReturn JSON {\"orderedCandidateIds\":[...]}. "

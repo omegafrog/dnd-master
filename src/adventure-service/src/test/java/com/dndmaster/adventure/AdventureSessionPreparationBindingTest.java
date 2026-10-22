@@ -3,6 +3,9 @@ package com.dndmaster.adventure;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -37,6 +40,39 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class AdventureSessionPreparationBindingTest {
+    @Test
+    void restores_missing_applied_rule_set_from_the_owned_started_session_configuration() {
+        UUID packageId = UUID.randomUUID();
+        UUID adventureId = UUID.randomUUID();
+        UUID ruleSetId = UUID.randomUUID();
+        UUID rulebookId = UUID.randomUUID();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        var configuration = new com.dndmaster.adventure.domain.adventure.AdventureSessionRuntimeConfiguration(
+                new com.dndmaster.adventure.domain.adventure.ScenarioId(packageId),
+                new com.dndmaster.adventure.domain.adventure.RuleSetId(ruleSetId), List.of(rulebookId),
+                "engine", List.of("search"), "opening");
+        var session = com.dndmaster.adventure.domain.adventure.AdventureSession.rehydrate(
+                com.dndmaster.adventure.domain.adventure.SessionId.generate(), owner, packageId, 1,
+                packageId, 1, "DND_5E_2024", 1, List.of(), configuration,
+                com.dndmaster.adventure.domain.adventure.AdventureSession.Status.STARTED,
+                new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId), UUID.randomUUID(), 0);
+        var sessions = mock(com.dndmaster.adventure.application.session.AdventureSessionRepository.class);
+        when(sessions.findByStartedAdventureId(adventureId, owner)).thenReturn(Optional.of(session));
+        var appliedRules = mock(com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService.class);
+        var service = new AdventureSessionApplicationService(sessions, mock(ScenarioPackageRepository.class),
+                mock(AdventureRepository.class), mock(RuntimeBindingApplicationService.class),
+                mock(com.dndmaster.adventure.application.session.AdventureSessionStartCoordinator.class));
+        service.setAppliedRuleSetService(appliedRules);
+
+        assertTrue(service.restoreAppliedRuleSet(new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId), owner, ruleSetId));
+        assertFalse(service.restoreAppliedRuleSet(new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId), owner, UUID.randomUUID()));
+        verify(appliedRules).saveRuleSet(eq(new com.dndmaster.adventure.domain.ruleset.RuleSetId(ruleSetId)),
+                argThat(command -> command.adventureId().value().equals(adventureId)
+                        && command.ownerPlayerId().value().equals(owner.value())
+                        && command.edition().value().equals("DND_5E_2024")
+                        && command.rulebookIds().stream().map(id -> id.value()).toList().equals(List.of(rulebookId))));
+    }
+
     @Test
     void published_package_with_rulebook_action_definitions_can_create_session_without_package_review_gate() {
         UUID packageId = UUID.randomUUID();

@@ -21,7 +21,8 @@ public final class SituationProposalGroundingPolicy {
             }
             case RAG -> {
                 boolean found = rulesEvidence.stream().anyMatch(evidence -> situation.reference().equals(evidence.citationKey())
-                        || situation.reference().equals(evidence.locator()));
+                        || situation.reference().equals(evidence.locator())
+                        || situation.reference().equals(evidence.referenceKey()));
                 if (!found) throw new IllegalArgumentException("SITUATION_RAG_REFERENCE_REQUIRED");
             }
             case FALLBACK -> {

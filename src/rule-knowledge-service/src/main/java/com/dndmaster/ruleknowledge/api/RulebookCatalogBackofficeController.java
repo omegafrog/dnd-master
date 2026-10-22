@@ -44,11 +44,14 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @RestController
 @RequestMapping("/api/v1/backoffice/rulebook-catalog")
 public final class RulebookCatalogBackofficeController {
     private static final UUID CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
+    private static final Logger DEV_LOGGER = LoggerFactory.getLogger(RulebookCatalogBackofficeController.class);
     private final CatalogRulebookRepository repository;
     private final RulebookPipelineApplicationService pipeline;
     private final RulebookRegistrationRepository registrations;
@@ -68,9 +71,36 @@ public final class RulebookCatalogBackofficeController {
     java.util.List<BackofficeCatalogRulebookView> list(
             @RequestHeader(value = "Authorization", required = false) String authorization) {
         requireAdmin(authorization);
-        return repository.findAll().stream()
-                .map(BackofficeCatalogRulebookView::from)
-                .toList();
+        List<CatalogRulebookRevision> revisions = repository.findAll();
+        devLog("dev_rulebook_catalog_list stage=started revisionCount={} outcome=started", revisions.size());
+        try {
+            List<BackofficeCatalogRulebookView> result = revisions.stream().map(this::backofficeView).toList();
+            long updatedStatuses = java.util.stream.IntStream.range(0, revisions.size())
+                    .filter(index -> !result.get(index).status().equals(revisions.get(index).status().name())).count();
+            devLog("dev_rulebook_catalog_list stage=completed expectedRevisionCount={} actualRevisionCount={} updatedStatusCount={} outcome=completed",
+                    revisions.size(), result.size(), updatedStatuses);
+            return result;
+        } catch (RuntimeException exception) {
+            devLog("dev_rulebook_catalog_list stage=failed revisionCount={} failureClass={} recoveryAction=retry_after_catalog_or_registration_store_recovers outcome=failed",
+                    revisions.size(), exception.getClass().getSimpleName());
+            throw exception;
+        }
+    }
+
+    private BackofficeCatalogRulebookView backofficeView(CatalogRulebookRevision revision) {
+        String catalogStatus = revision.status().name();
+        String status = catalogStatus;
+        if (revision.rulebookId() != null) {
+            status = registrations.findById(new RulebookId(revision.rulebookId()))
+                    .filter(item -> item.documentType() == DocumentType.RULEBOOK
+                            && item.ownerPlayerId().value().equals(CATALOG_OWNER))
+                    .map(item -> item.processingStatus().isSearchable() ? CatalogRevisionStatus.READY.name()
+                            : item.processingStatus() == ProcessingStatus.FAILED ? CatalogRevisionStatus.FAILED.name()
+                            : item.processingStatus() == ProcessingStatus.PROCESSING ? CatalogRevisionStatus.PROCESSING.name()
+                            : catalogStatus)
+                    .orElse(catalogStatus);
+        }
+        return BackofficeCatalogRulebookView.from(revision, status);
     }
 
     public RulebookCatalogBackofficeController(CatalogRulebookRepository repository,
@@ -263,14 +293,21 @@ public final class RulebookCatalogBackofficeController {
         return playerId;
     }
 
+    private static void devLog(String pattern, Object... args) {
+        if (Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")))) {
+            DEV_LOGGER.warn(pattern, args);
+        }
+    }
+
     public record BackofficeCatalogRulebookView(
             String catalogRevisionId, String edition, String displayName, String rulebookId,
             long revisionNumber, String status, boolean published) {
-        static BackofficeCatalogRulebookView from(CatalogRulebookRevision revision) {
+        static BackofficeCatalogRulebookView from(CatalogRulebookRevision revision, String status) {
             return new BackofficeCatalogRulebookView(
                     revision.id().toString(), revision.edition().name(), revision.displayName(),
                     revision.rulebookId() == null ? null : revision.rulebookId().toString(),
-                    revision.revisionNumber(), revision.status().name(), revision.published());
+                    revision.revisionNumber(), status, revision.published());
         }
     }
 }

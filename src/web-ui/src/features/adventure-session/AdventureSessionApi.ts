@@ -2,6 +2,7 @@ import { diagnosticFetch } from '../../shared/developmentDiagnostics'
 
 export type SessionControlMode = 'DIRECT' | 'AGENT'
 export type AdventureSessionStatus = 'DRAFT' | 'STARTING' | 'STARTED' | 'COMPLETED' | 'DELETED'
+export type StoryLength = 'SHORT' | 'NORMAL' | 'LONG'
 
 export type SessionPartyMember = {
   characterSheetId: string
@@ -50,6 +51,7 @@ export type AdventureSessionView = {
     toolIds: string[]
     initialScene: string
   } | null
+  storyLength: StoryLength
   party: SessionPartyMember[]
 }
 
@@ -60,6 +62,7 @@ export type CreateAdventureSessionRequest = {
   runtimeConfiguration?: AdventureSessionView['runtimeConfiguration']
   partySize?: number
   preparationId?: string
+  storyLength: StoryLength
 }
 
 export type GmProviderView = {

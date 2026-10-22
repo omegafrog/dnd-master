@@ -333,7 +333,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
         onError('캐릭터 생성 설정을 먼저 검토하고 게시해 주세요.')
         return
       }
-      const session = await sessionApi.create({ scenarioPackageId: scenarioPackage.packageId, blueprintId: scenarioPackage.packageId, blueprintRevision: preparation.characterCreationBlueprint.revision ?? 0, partySize: Math.min(partySize, scenarioPackage.characterLimit.maximumCharacters), preparationId: preparation.preparationId ?? undefined })
+      const session = await sessionApi.create({ scenarioPackageId: scenarioPackage.packageId, blueprintId: scenarioPackage.packageId, blueprintRevision: preparation.characterCreationBlueprint.revision ?? 0, partySize: Math.min(partySize, scenarioPackage.characterLimit.maximumCharacters), preparationId: preparation.preparationId ?? undefined, storyLength: 'NORMAL' })
       window.localStorage.removeItem(`play-preparation-request:${scenarioPackage.packageId}`)
       window.location.hash = `#/sessions/${session.sessionId}/party`
     } catch (error) {

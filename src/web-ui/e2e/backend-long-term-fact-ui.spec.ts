@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { assertPotentBrewStorybooks, bootstrapStartedAdventure, hasRuntimeEnvironment, readPersistedCompactionJobs, readPersistedConversationSummaries, readPersistedLongTermFacts, readPersistedRuntimeTurns } from './support/runtime-adventure'
+import { assertPotentBrewStorybooks, bootstrapStartedAdventure, createDirectApi, hasRuntimeEnvironment, readPersistedCompactionJobs, readPersistedConversationSummaries, readPersistedLongTermFacts, readPersistedRuntimeTurns } from './support/runtime-adventure'
 
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
@@ -17,12 +17,12 @@ test('새 모험 검증은 Linux 자료 경로와 세 가지 자료 역할을 �
     .toThrow(/Linux docs\/assets path/)
 })
 
-test('플레이어 행동은 저장되고 턴 응답과 대화 압축의 자료 구조를 유지한다', async ({ page, request }) => {
+test('플레이어 행동은 저장되고 턴 응답과 대화 압축의 자료 구조를 유지한다', async ({ page }) => {
   test.skip(!hasRuntimeEnvironment(), 'src/start-dev.sh가 제공하는 실제 백엔드와 Potent Brew 자료가 필요합니다')
   assertPotentBrewStorybooks()
-  test.setTimeout(0)
+  test.setTimeout(75 * 60_000)
 
-  const adventure = await bootstrapStartedAdventure(request)
+  const adventure = await bootstrapStartedAdventure(createDirectApi())
   const initialRuntimeTurnCount = (await readPersistedRuntimeTurns(adventure.adventureId)).length
   const turnResponses: Array<{ status: number, body: unknown }> = []
 

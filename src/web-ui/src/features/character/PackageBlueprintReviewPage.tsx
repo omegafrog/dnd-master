@@ -196,6 +196,7 @@ export function PackageBlueprintReviewPage({
         blueprintRevision: blueprint.revision,
         partySize: selectedPartySize,
         preparationId: preparation?.preparationId ?? undefined,
+        storyLength: 'NORMAL',
       })
       window.localStorage.removeItem(`play-preparation-request:${packageId}`)
       onSessionCreated(session.sessionId)

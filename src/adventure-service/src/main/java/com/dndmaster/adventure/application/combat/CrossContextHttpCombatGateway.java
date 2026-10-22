@@ -408,6 +408,15 @@ public final class CrossContextHttpCombatGateway
                 throw new CrossContextCallException("combat map movement preview failed with status " + response.statusCode());
             }
             PreviewResponse result = objectMapper.readValue(response.body(), PreviewResponse.class);
+            if (!previewCommand.mapId().equals(result.mapId())) {
+                if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) log.warn(
+                        "dev_map_movement_preview_response outcome=rejected expectedMapId={} actualMapId={} failure=MAP_ID_MISMATCH recoveryAction=reject_preview",
+                        previewCommand.mapId(), result.mapId());
+                throw new CrossContextCallException("combat map movement preview map id mismatch");
+            }
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) log.info(
+                    "dev_map_movement_preview_response outcome=accepted mapId={} pathCells={} distance={} baseMapVersion={}",
+                    result.mapId(), result.orderedPositions().size(), result.distance(), result.baseMapVersion());
             return new CombatMapPreviewResult(previewCommand.mapId(), result.orderedPositions().stream()
                     .map(position -> new CombatMapPreviewPosition(position.x(), position.y())).toList(),
                     result.distance(), result.baseMapVersion(), result.fingerprint());
@@ -838,7 +847,7 @@ public final class CrossContextHttpCombatGateway
             String previewFingerprint, List<PositionRequest> waypoints) {}
     private record PreviewRequest(java.util.UUID playerId, java.util.UUID tokenId, PositionRequest destination,
             List<PositionRequest> waypoints, String appliedEdition, long expectedVersion) {}
-    private record PreviewResponse(List<PositionRequest> orderedPositions, int distance, long baseMapVersion, String fingerprint) {}
+    private record PreviewResponse(java.util.UUID mapId, List<PositionRequest> orderedPositions, int distance, long baseMapVersion, String fingerprint) {}
     private record PositionRequest(int x, int y) {}
     private record EnvironmentEnemyMovementRequest(java.util.UUID ownerId, java.util.UUID tokenId,
             List<CombatMapEnemyMovementCommand.Position> positions, int distance, String appliedEdition,

@@ -15,6 +15,33 @@ import org.junit.jupiter.api.Test;
 
 class RuntimeGmPromptComposerTest {
     @Test
+    void enemy_sheet_preparation_uses_a_distinct_server_assigned_operation_key() {
+        var adventure = AdventureId.generate();
+        var owner = new OwnerPlayerId(UUID.randomUUID());
+        UUID turn = UUID.randomUUID();
+        var evidence = new EvidencePack(List.of(), List.of(), List.of());
+        var context = new AdventureContext("저장고", "", "", "");
+        var regular = new GmContextEnvelope(adventure, owner, turn, 1, context, null, "살펴본다", evidence, List.of());
+        var preparation = new GmContextEnvelope(adventure, owner, turn, 1, context, null,
+                "전투 진입 전 적 캐릭터 시트 후보를 작성한다.", evidence, List.of());
+        org.junit.jupiter.api.Assertions.assertNotEquals(regular.operationKey(), preparation.operationKey());
+        assertTrue(preparation.operationKey().endsWith(":enemy-sheet-preparation"));
+    }
+
+    @Test
+    void 현재_상태_기록_ID를_시츄에이션_선택_ID와_구분한다() {
+        UUID id = UUID.randomUUID();
+        var state = new com.dndmaster.adventure.domain.runtime.CurrentSituation(id, 1, "양조장", "문", "쥐", "조사");
+        assertTrue(state.promptContext().contains("currentStateRecordId=" + id));
+        assertTrue(!state.promptContext().contains("situationId="));
+        String prompt = new GmContextEnvelope(AdventureId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(),
+                1, new AdventureContext("양조장", "", "문을 연다", ""), null, "문을 연다",
+                new EvidencePack(List.of(), List.of(), List.of()), List.of()).composePrompt(272_000);
+        assertTrue(prompt.contains("currentSituationState"));
+        assertTrue(prompt.contains("selectedSituationId에 복사하지 마세요"));
+    }
+
+    @Test
     void does_not_force_every_narration_to_offer_choices_or_end_with_a_question() {
         String prompt = new GmContextEnvelope(AdventureId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(),
                 1, new AdventureContext("양조장", "", "해치를 연다", ""), null,
@@ -90,6 +117,9 @@ class RuntimeGmPromptComposerTest {
                 new EvidencePack(List.of(), List.of(), List.of()), List.of()).composePrompt(272_000);
 
         assertTrue(prompt.contains("SITUATION_PROGRESS_RULE"));
+        assertTrue(prompt.contains("find_available_situations 결과의 전체 후보"));
+        assertTrue(prompt.contains("모험 준비에서 정한 허용 개수"));
+        assertTrue(prompt.contains("준비되지 않은 상황을 제안하거나 ID를 만들지 마세요"));
         assertTrue(prompt.contains("Source-authored hidden traps and placements are private GM facts until the party discovers them"));
         assertTrue(prompt.contains("TRANSITION"));
         assertTrue(prompt.contains("판정제안"));
