@@ -2281,7 +2281,7 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-f8553596-a456-414d-8bf2-b670ded9f271/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#AC-35",
@@ -2341,7 +2341,7 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-f8553596-a456-414d-8bf2-b670ded9f271/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#AC-41",
@@ -2401,7 +2401,7 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-f8553596-a456-414d-8bf2-b670ded9f271/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-41",
@@ -2461,7 +2461,7 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-f8553596-a456-414d-8bf2-b670ded9f271/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-42",
@@ -2521,7 +2521,7 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-f8553596-a456-414d-8bf2-b670ded9f271/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-43",
@@ -2581,7 +2581,7 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-f8553596-a456-414d-8bf2-b670ded9f271/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-49",
@@ -2641,7 +2641,7 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-f8553596-a456-414d-8bf2-b670ded9f271/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#G-09",
@@ -2701,7 +2701,7 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-f8553596-a456-414d-8bf2-b670ded9f271/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#G-10",
@@ -2761,7 +2761,7 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-f8553596-a456-414d-8bf2-b670ded9f271/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#UC-005",
@@ -2821,7 +2821,7 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-f8553596-a456-414d-8bf2-b670ded9f271/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
         }
       ]
     }

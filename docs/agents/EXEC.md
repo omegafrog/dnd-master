@@ -10,7 +10,7 @@ Run the #367 movement-coordinator, map-image source, exploration-cycle rules and
 
 The matching Harness profile is `adventure-focused-unit` in `docs/agents/execution.json`.
 
-The plan-scoped Harness profile `adventure-exploration-cycle-unit` runs only the #367 movement coordinator, exploration cycle, and exploration environment controller tests. Use this profile for plan-367 verification; its behavior is covered by focused unit and policy tests, while the integrated agent-driven journey is reserved for #375.
+The plan-scoped Harness profile `adventure-exploration-cycle-unit` runs `MapMovementCoordinatorTest`, `ExplorationCycleTest`, `CombatEncounterPolicyTest`, `ExplorationEnvironmentControllerTest`, `HttpTypedRuntimeGmAgentPortTest`, and `TypedAgentContractControllerTest`. Use this profile for plan-367 verification; these unit, policy, controller, agent-contract, and typed-response checks cover its behavior, while the integrated agent-driven journey is reserved for #375.
 
 ## 에이전트 응답 기반 모험 E2E
 
