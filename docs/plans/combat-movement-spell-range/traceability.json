@@ -2228,15 +2228,15 @@
           "files": [
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java",
-              "sha256": "1db8df520ea0f06a4a64511ca9a464a1a814e2835c1fc2b77ee8677fc666d7de"
+              "sha256": "18863e8e1e030005ef5d003313924070ab3cb9b5fc3632d6561f5bb2af8db309"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
-              "sha256": "b6a34109f2406a0fce5b2d197435367d44734038ba2957df8d084f37e9b5fbdc"
+              "sha256": "5419cd8a948a6cfe2a33a40b3c985c43b7ee3d50e2adca205f09edb62b3e1e18"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java",
-              "sha256": "07638a3508d522f78bc60f847579c33c18b27fa36b483d083b4aa5f258fb2305"
+              "sha256": "b3268db4ceea1fd56ef78052a7d19b192d040adf3b9d0aef27f798a34647eecb"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatEncounter.java",
@@ -2248,7 +2248,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java",
-              "sha256": "b705e6d55247dbd96b858acc3a03a8fdd1a26442141820ac77ce41b77a1dd0a0"
+              "sha256": "4619d59631231fb37fb19851e8d90623edad0a8ddee2edf990d82f6f5e7ee206"
             },
             {
               "path": "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
@@ -2262,15 +2262,15 @@
           "verification": [
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
-              "sha256": "5a8557aaf0091309ef814ebd389af8adc004c87f0195fe0acbdb022a12d163bf"
+              "sha256": "3046d0342490e2fb86e6d71e39a909c6ec316b85acc12d3b48937f5b7574d9a3"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
-              "sha256": "ecaf9e5f7ee1c79178c01d58661f0763b5ad4bf2a299d8376be54642862dc751"
+              "sha256": "dbe48a9ef98cb7367760ffc18eebe6940e9ea0df70bc2c77f60c885784900976"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java",
-              "sha256": "5e6363a36dc9cd6b10b8a608980521cb31164532a6ef0c0eddc8ac05965fe184"
+              "sha256": "809b35436175d2940b62de6036455a69631f1dfea359012191a9f3a17ee579d6"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
@@ -2281,22 +2281,22 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1499418d-d79e-4ed1-97b6-778e743d7be0/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#AC-35",
           "files": [
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java",
-              "sha256": "1db8df520ea0f06a4a64511ca9a464a1a814e2835c1fc2b77ee8677fc666d7de"
+              "sha256": "18863e8e1e030005ef5d003313924070ab3cb9b5fc3632d6561f5bb2af8db309"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
-              "sha256": "b6a34109f2406a0fce5b2d197435367d44734038ba2957df8d084f37e9b5fbdc"
+              "sha256": "5419cd8a948a6cfe2a33a40b3c985c43b7ee3d50e2adca205f09edb62b3e1e18"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java",
-              "sha256": "07638a3508d522f78bc60f847579c33c18b27fa36b483d083b4aa5f258fb2305"
+              "sha256": "b3268db4ceea1fd56ef78052a7d19b192d040adf3b9d0aef27f798a34647eecb"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatEncounter.java",
@@ -2308,7 +2308,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java",
-              "sha256": "b705e6d55247dbd96b858acc3a03a8fdd1a26442141820ac77ce41b77a1dd0a0"
+              "sha256": "4619d59631231fb37fb19851e8d90623edad0a8ddee2edf990d82f6f5e7ee206"
             },
             {
               "path": "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
@@ -2322,15 +2322,15 @@
           "verification": [
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
-              "sha256": "5a8557aaf0091309ef814ebd389af8adc004c87f0195fe0acbdb022a12d163bf"
+              "sha256": "3046d0342490e2fb86e6d71e39a909c6ec316b85acc12d3b48937f5b7574d9a3"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
-              "sha256": "ecaf9e5f7ee1c79178c01d58661f0763b5ad4bf2a299d8376be54642862dc751"
+              "sha256": "dbe48a9ef98cb7367760ffc18eebe6940e9ea0df70bc2c77f60c885784900976"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java",
-              "sha256": "5e6363a36dc9cd6b10b8a608980521cb31164532a6ef0c0eddc8ac05965fe184"
+              "sha256": "809b35436175d2940b62de6036455a69631f1dfea359012191a9f3a17ee579d6"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
@@ -2341,22 +2341,22 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1499418d-d79e-4ed1-97b6-778e743d7be0/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#AC-41",
           "files": [
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java",
-              "sha256": "1db8df520ea0f06a4a64511ca9a464a1a814e2835c1fc2b77ee8677fc666d7de"
+              "sha256": "18863e8e1e030005ef5d003313924070ab3cb9b5fc3632d6561f5bb2af8db309"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
-              "sha256": "b6a34109f2406a0fce5b2d197435367d44734038ba2957df8d084f37e9b5fbdc"
+              "sha256": "5419cd8a948a6cfe2a33a40b3c985c43b7ee3d50e2adca205f09edb62b3e1e18"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java",
-              "sha256": "07638a3508d522f78bc60f847579c33c18b27fa36b483d083b4aa5f258fb2305"
+              "sha256": "b3268db4ceea1fd56ef78052a7d19b192d040adf3b9d0aef27f798a34647eecb"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatEncounter.java",
@@ -2368,7 +2368,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java",
-              "sha256": "b705e6d55247dbd96b858acc3a03a8fdd1a26442141820ac77ce41b77a1dd0a0"
+              "sha256": "4619d59631231fb37fb19851e8d90623edad0a8ddee2edf990d82f6f5e7ee206"
             },
             {
               "path": "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
@@ -2382,15 +2382,15 @@
           "verification": [
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
-              "sha256": "5a8557aaf0091309ef814ebd389af8adc004c87f0195fe0acbdb022a12d163bf"
+              "sha256": "3046d0342490e2fb86e6d71e39a909c6ec316b85acc12d3b48937f5b7574d9a3"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
-              "sha256": "ecaf9e5f7ee1c79178c01d58661f0763b5ad4bf2a299d8376be54642862dc751"
+              "sha256": "dbe48a9ef98cb7367760ffc18eebe6940e9ea0df70bc2c77f60c885784900976"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java",
-              "sha256": "5e6363a36dc9cd6b10b8a608980521cb31164532a6ef0c0eddc8ac05965fe184"
+              "sha256": "809b35436175d2940b62de6036455a69631f1dfea359012191a9f3a17ee579d6"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
@@ -2401,22 +2401,22 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1499418d-d79e-4ed1-97b6-778e743d7be0/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-41",
           "files": [
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java",
-              "sha256": "1db8df520ea0f06a4a64511ca9a464a1a814e2835c1fc2b77ee8677fc666d7de"
+              "sha256": "18863e8e1e030005ef5d003313924070ab3cb9b5fc3632d6561f5bb2af8db309"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
-              "sha256": "b6a34109f2406a0fce5b2d197435367d44734038ba2957df8d084f37e9b5fbdc"
+              "sha256": "5419cd8a948a6cfe2a33a40b3c985c43b7ee3d50e2adca205f09edb62b3e1e18"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java",
-              "sha256": "07638a3508d522f78bc60f847579c33c18b27fa36b483d083b4aa5f258fb2305"
+              "sha256": "b3268db4ceea1fd56ef78052a7d19b192d040adf3b9d0aef27f798a34647eecb"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatEncounter.java",
@@ -2428,7 +2428,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java",
-              "sha256": "b705e6d55247dbd96b858acc3a03a8fdd1a26442141820ac77ce41b77a1dd0a0"
+              "sha256": "4619d59631231fb37fb19851e8d90623edad0a8ddee2edf990d82f6f5e7ee206"
             },
             {
               "path": "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
@@ -2442,15 +2442,15 @@
           "verification": [
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
-              "sha256": "5a8557aaf0091309ef814ebd389af8adc004c87f0195fe0acbdb022a12d163bf"
+              "sha256": "3046d0342490e2fb86e6d71e39a909c6ec316b85acc12d3b48937f5b7574d9a3"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
-              "sha256": "ecaf9e5f7ee1c79178c01d58661f0763b5ad4bf2a299d8376be54642862dc751"
+              "sha256": "dbe48a9ef98cb7367760ffc18eebe6940e9ea0df70bc2c77f60c885784900976"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java",
-              "sha256": "5e6363a36dc9cd6b10b8a608980521cb31164532a6ef0c0eddc8ac05965fe184"
+              "sha256": "809b35436175d2940b62de6036455a69631f1dfea359012191a9f3a17ee579d6"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
@@ -2461,22 +2461,22 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1499418d-d79e-4ed1-97b6-778e743d7be0/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-42",
           "files": [
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java",
-              "sha256": "1db8df520ea0f06a4a64511ca9a464a1a814e2835c1fc2b77ee8677fc666d7de"
+              "sha256": "18863e8e1e030005ef5d003313924070ab3cb9b5fc3632d6561f5bb2af8db309"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
-              "sha256": "b6a34109f2406a0fce5b2d197435367d44734038ba2957df8d084f37e9b5fbdc"
+              "sha256": "5419cd8a948a6cfe2a33a40b3c985c43b7ee3d50e2adca205f09edb62b3e1e18"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java",
-              "sha256": "07638a3508d522f78bc60f847579c33c18b27fa36b483d083b4aa5f258fb2305"
+              "sha256": "b3268db4ceea1fd56ef78052a7d19b192d040adf3b9d0aef27f798a34647eecb"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatEncounter.java",
@@ -2488,7 +2488,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java",
-              "sha256": "b705e6d55247dbd96b858acc3a03a8fdd1a26442141820ac77ce41b77a1dd0a0"
+              "sha256": "4619d59631231fb37fb19851e8d90623edad0a8ddee2edf990d82f6f5e7ee206"
             },
             {
               "path": "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
@@ -2502,15 +2502,15 @@
           "verification": [
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
-              "sha256": "5a8557aaf0091309ef814ebd389af8adc004c87f0195fe0acbdb022a12d163bf"
+              "sha256": "3046d0342490e2fb86e6d71e39a909c6ec316b85acc12d3b48937f5b7574d9a3"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
-              "sha256": "ecaf9e5f7ee1c79178c01d58661f0763b5ad4bf2a299d8376be54642862dc751"
+              "sha256": "dbe48a9ef98cb7367760ffc18eebe6940e9ea0df70bc2c77f60c885784900976"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java",
-              "sha256": "5e6363a36dc9cd6b10b8a608980521cb31164532a6ef0c0eddc8ac05965fe184"
+              "sha256": "809b35436175d2940b62de6036455a69631f1dfea359012191a9f3a17ee579d6"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
@@ -2521,22 +2521,22 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1499418d-d79e-4ed1-97b6-778e743d7be0/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-43",
           "files": [
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java",
-              "sha256": "1db8df520ea0f06a4a64511ca9a464a1a814e2835c1fc2b77ee8677fc666d7de"
+              "sha256": "18863e8e1e030005ef5d003313924070ab3cb9b5fc3632d6561f5bb2af8db309"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
-              "sha256": "b6a34109f2406a0fce5b2d197435367d44734038ba2957df8d084f37e9b5fbdc"
+              "sha256": "5419cd8a948a6cfe2a33a40b3c985c43b7ee3d50e2adca205f09edb62b3e1e18"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java",
-              "sha256": "07638a3508d522f78bc60f847579c33c18b27fa36b483d083b4aa5f258fb2305"
+              "sha256": "b3268db4ceea1fd56ef78052a7d19b192d040adf3b9d0aef27f798a34647eecb"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatEncounter.java",
@@ -2548,7 +2548,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java",
-              "sha256": "b705e6d55247dbd96b858acc3a03a8fdd1a26442141820ac77ce41b77a1dd0a0"
+              "sha256": "4619d59631231fb37fb19851e8d90623edad0a8ddee2edf990d82f6f5e7ee206"
             },
             {
               "path": "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
@@ -2562,15 +2562,15 @@
           "verification": [
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
-              "sha256": "5a8557aaf0091309ef814ebd389af8adc004c87f0195fe0acbdb022a12d163bf"
+              "sha256": "3046d0342490e2fb86e6d71e39a909c6ec316b85acc12d3b48937f5b7574d9a3"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
-              "sha256": "ecaf9e5f7ee1c79178c01d58661f0763b5ad4bf2a299d8376be54642862dc751"
+              "sha256": "dbe48a9ef98cb7367760ffc18eebe6940e9ea0df70bc2c77f60c885784900976"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java",
-              "sha256": "5e6363a36dc9cd6b10b8a608980521cb31164532a6ef0c0eddc8ac05965fe184"
+              "sha256": "809b35436175d2940b62de6036455a69631f1dfea359012191a9f3a17ee579d6"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
@@ -2581,22 +2581,22 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1499418d-d79e-4ed1-97b6-778e743d7be0/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-49",
           "files": [
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java",
-              "sha256": "1db8df520ea0f06a4a64511ca9a464a1a814e2835c1fc2b77ee8677fc666d7de"
+              "sha256": "18863e8e1e030005ef5d003313924070ab3cb9b5fc3632d6561f5bb2af8db309"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
-              "sha256": "b6a34109f2406a0fce5b2d197435367d44734038ba2957df8d084f37e9b5fbdc"
+              "sha256": "5419cd8a948a6cfe2a33a40b3c985c43b7ee3d50e2adca205f09edb62b3e1e18"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java",
-              "sha256": "07638a3508d522f78bc60f847579c33c18b27fa36b483d083b4aa5f258fb2305"
+              "sha256": "b3268db4ceea1fd56ef78052a7d19b192d040adf3b9d0aef27f798a34647eecb"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatEncounter.java",
@@ -2608,7 +2608,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java",
-              "sha256": "b705e6d55247dbd96b858acc3a03a8fdd1a26442141820ac77ce41b77a1dd0a0"
+              "sha256": "4619d59631231fb37fb19851e8d90623edad0a8ddee2edf990d82f6f5e7ee206"
             },
             {
               "path": "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
@@ -2622,15 +2622,15 @@
           "verification": [
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
-              "sha256": "5a8557aaf0091309ef814ebd389af8adc004c87f0195fe0acbdb022a12d163bf"
+              "sha256": "3046d0342490e2fb86e6d71e39a909c6ec316b85acc12d3b48937f5b7574d9a3"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
-              "sha256": "ecaf9e5f7ee1c79178c01d58661f0763b5ad4bf2a299d8376be54642862dc751"
+              "sha256": "dbe48a9ef98cb7367760ffc18eebe6940e9ea0df70bc2c77f60c885784900976"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java",
-              "sha256": "5e6363a36dc9cd6b10b8a608980521cb31164532a6ef0c0eddc8ac05965fe184"
+              "sha256": "809b35436175d2940b62de6036455a69631f1dfea359012191a9f3a17ee579d6"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
@@ -2641,22 +2641,22 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1499418d-d79e-4ed1-97b6-778e743d7be0/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#G-09",
           "files": [
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java",
-              "sha256": "1db8df520ea0f06a4a64511ca9a464a1a814e2835c1fc2b77ee8677fc666d7de"
+              "sha256": "18863e8e1e030005ef5d003313924070ab3cb9b5fc3632d6561f5bb2af8db309"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
-              "sha256": "b6a34109f2406a0fce5b2d197435367d44734038ba2957df8d084f37e9b5fbdc"
+              "sha256": "5419cd8a948a6cfe2a33a40b3c985c43b7ee3d50e2adca205f09edb62b3e1e18"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java",
-              "sha256": "07638a3508d522f78bc60f847579c33c18b27fa36b483d083b4aa5f258fb2305"
+              "sha256": "b3268db4ceea1fd56ef78052a7d19b192d040adf3b9d0aef27f798a34647eecb"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatEncounter.java",
@@ -2668,7 +2668,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java",
-              "sha256": "b705e6d55247dbd96b858acc3a03a8fdd1a26442141820ac77ce41b77a1dd0a0"
+              "sha256": "4619d59631231fb37fb19851e8d90623edad0a8ddee2edf990d82f6f5e7ee206"
             },
             {
               "path": "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
@@ -2682,15 +2682,15 @@
           "verification": [
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
-              "sha256": "5a8557aaf0091309ef814ebd389af8adc004c87f0195fe0acbdb022a12d163bf"
+              "sha256": "3046d0342490e2fb86e6d71e39a909c6ec316b85acc12d3b48937f5b7574d9a3"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
-              "sha256": "ecaf9e5f7ee1c79178c01d58661f0763b5ad4bf2a299d8376be54642862dc751"
+              "sha256": "dbe48a9ef98cb7367760ffc18eebe6940e9ea0df70bc2c77f60c885784900976"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java",
-              "sha256": "5e6363a36dc9cd6b10b8a608980521cb31164532a6ef0c0eddc8ac05965fe184"
+              "sha256": "809b35436175d2940b62de6036455a69631f1dfea359012191a9f3a17ee579d6"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
@@ -2701,22 +2701,22 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1499418d-d79e-4ed1-97b6-778e743d7be0/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#G-10",
           "files": [
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java",
-              "sha256": "1db8df520ea0f06a4a64511ca9a464a1a814e2835c1fc2b77ee8677fc666d7de"
+              "sha256": "18863e8e1e030005ef5d003313924070ab3cb9b5fc3632d6561f5bb2af8db309"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
-              "sha256": "b6a34109f2406a0fce5b2d197435367d44734038ba2957df8d084f37e9b5fbdc"
+              "sha256": "5419cd8a948a6cfe2a33a40b3c985c43b7ee3d50e2adca205f09edb62b3e1e18"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java",
-              "sha256": "07638a3508d522f78bc60f847579c33c18b27fa36b483d083b4aa5f258fb2305"
+              "sha256": "b3268db4ceea1fd56ef78052a7d19b192d040adf3b9d0aef27f798a34647eecb"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatEncounter.java",
@@ -2728,7 +2728,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java",
-              "sha256": "b705e6d55247dbd96b858acc3a03a8fdd1a26442141820ac77ce41b77a1dd0a0"
+              "sha256": "4619d59631231fb37fb19851e8d90623edad0a8ddee2edf990d82f6f5e7ee206"
             },
             {
               "path": "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
@@ -2742,15 +2742,15 @@
           "verification": [
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
-              "sha256": "5a8557aaf0091309ef814ebd389af8adc004c87f0195fe0acbdb022a12d163bf"
+              "sha256": "3046d0342490e2fb86e6d71e39a909c6ec316b85acc12d3b48937f5b7574d9a3"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
-              "sha256": "ecaf9e5f7ee1c79178c01d58661f0763b5ad4bf2a299d8376be54642862dc751"
+              "sha256": "dbe48a9ef98cb7367760ffc18eebe6940e9ea0df70bc2c77f60c885784900976"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java",
-              "sha256": "5e6363a36dc9cd6b10b8a608980521cb31164532a6ef0c0eddc8ac05965fe184"
+              "sha256": "809b35436175d2940b62de6036455a69631f1dfea359012191a9f3a17ee579d6"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
@@ -2761,22 +2761,22 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1499418d-d79e-4ed1-97b6-778e743d7be0/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#UC-005",
           "files": [
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java",
-              "sha256": "1db8df520ea0f06a4a64511ca9a464a1a814e2835c1fc2b77ee8677fc666d7de"
+              "sha256": "18863e8e1e030005ef5d003313924070ab3cb9b5fc3632d6561f5bb2af8db309"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
-              "sha256": "b6a34109f2406a0fce5b2d197435367d44734038ba2957df8d084f37e9b5fbdc"
+              "sha256": "5419cd8a948a6cfe2a33a40b3c985c43b7ee3d50e2adca205f09edb62b3e1e18"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java",
-              "sha256": "07638a3508d522f78bc60f847579c33c18b27fa36b483d083b4aa5f258fb2305"
+              "sha256": "b3268db4ceea1fd56ef78052a7d19b192d040adf3b9d0aef27f798a34647eecb"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatEncounter.java",
@@ -2788,7 +2788,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java",
-              "sha256": "b705e6d55247dbd96b858acc3a03a8fdd1a26442141820ac77ce41b77a1dd0a0"
+              "sha256": "4619d59631231fb37fb19851e8d90623edad0a8ddee2edf990d82f6f5e7ee206"
             },
             {
               "path": "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
@@ -2802,15 +2802,15 @@
           "verification": [
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
-              "sha256": "5a8557aaf0091309ef814ebd389af8adc004c87f0195fe0acbdb022a12d163bf"
+              "sha256": "3046d0342490e2fb86e6d71e39a909c6ec316b85acc12d3b48937f5b7574d9a3"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
-              "sha256": "ecaf9e5f7ee1c79178c01d58661f0763b5ad4bf2a299d8376be54642862dc751"
+              "sha256": "dbe48a9ef98cb7367760ffc18eebe6940e9ea0df70bc2c77f60c885784900976"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java",
-              "sha256": "5e6363a36dc9cd6b10b8a608980521cb31164532a6ef0c0eddc8ac05965fe184"
+              "sha256": "809b35436175d2940b62de6036455a69631f1dfea359012191a9f3a17ee579d6"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
@@ -2821,7 +2821,7 @@
               "sha256": "d76f761cb4658625c9a3e5adcea30ca53ac48443a7a00a019e838bb36a419150"
             }
           ],
-          "receipt": "runtime/execution/adventure-exploration-cycle-unit-d83a6a1e-3504-4450-96fd-166b5490df7b/receipt.json"
+          "receipt": "runtime/execution/adventure-exploration-cycle-unit-1499418d-d79e-4ed1-97b6-778e743d7be0/receipt.json"
         }
       ]
     }
