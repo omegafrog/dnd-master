@@ -2,10 +2,9 @@
 status: in-progress
 source_issue: https://github.com/omegafrog/dnd-master/issues/365
 ---
-
 ## 상태
 
-In Progress
+Planned
 
 ## 의존성
 
@@ -17,11 +16,14 @@ In Progress
 
 ## 범위
 
+- 계획 식별자: plan-365.
 - 해당 제품·구조 명세의 수용 기준에 필요한 기존 화면, API, 정책, 저장소 경계만 수정한다.
 - 상세 구현 계획: `docs/plans/combat-movement-spell-range/map-entry-flow.md`
 
 ## 수용 기준
 
+- 요구사항 추적: AC-33, BR-40, UC-005.
+- 소유 경계: Scenario Preparation의 Situation map-needed 속성과 Combat Map; 시행 지점: 시츄에이션 활성화 전에 지도·위치·비공개 배치 준비 완료를 확인.
 - 지도 필요 여부는 시츄에이션 저장 속성으로 판정한다.
 - 맵이 필요 없는 opening은 지도 준비나 시작 위치 추론 없이 시작하고 플레이어 입력을 받을 수 있다.
 - opening을 포함해 맵이 필요한 시츄에이션에 진입할 때 대상 시츄에이션의 지도와 진입 서술을 시작 위치 제안에 함께 사용한다.
@@ -30,34 +32,22 @@ In Progress
 - 새 시츄에이션의 `mapNeeded`와 지도 식별자를 사용한다. 장면 이름 변경이나 GM의 지도 진입 표시만으로 이전 준비 지도를 활성화하지 않는다.
 - 지도가 필요한 경우 적·함정·문·잠금 상태를 근거와 장면에 맞게 준비하고, 비공개 배치는 플레이어 응답에 포함하지 않는다.
 - BR-40 → Scenario Preparation의 지도 진입 준비 → Combat Map의 검증된 초기 배치 저장·활성화 경계: 전투 시작 여부와 무관하게 적 토큰의 종류·수량·위치와 발견 상태를 먼저 저장한다. 필수 배치가 누락되면 지도 활성화와 진입 서술 공개를 보류한다. 재방문은 저장 상태를 재사용하고 적을 중복 생성하지 않는다.
-
 - 같은 명령 ID·같은 전체 배치 지문은 기존 결과를 재생한다. 같은 명령 ID·다른 배치 지문과 지도 버전 불일치는 충돌로 거부하고, 저장된 필수 배치 차단 상태를 준비 완료로 재사용하지 않는다. (ADR-019)
-
 - 시작 위치 후보가 없거나 제공자 요청이 실패하면 최초 요청을 포함해 최대 6회 시도하고 후보가 나오면 즉시 멈춘다. 모두 소진하면 사용자 수동 위치 선택으로 이어간다. 같은 지도 ID 전환·재방문에서는 시작 위치 제안기를 다시 호출하지 않고 저장 위치·격자·벽·문·안개·배치·발견 상태를 보존한다.
+- 금지 사례: mapNeeded가 false여도 지도를 준비하거나 검증되지 않은 시작 위치로 진입한다.
 
 ## 테스트 계약
 
-- 단위/정책: 맵 필요 속성, opening과 후속 진입의 동일 절차, 준비 완료 조건, 비공개 배치 투영.
-- 통합: 진입 서술·지도 자산 전달, 유효 시작 위치 검증, 위치 미확정 재시도 및 사용자 지도 선택.
-- BR-40 회귀: 저장고에 적 8개가 필요한 상황에서 전투 시작 없이도 지도 정본에 8개 토큰을 저장하고, 플레이어 응답에는 발견·시야 조건을 통과한 토큰만 제공한다. 필수 배치 누락은 활성화를 막고, 같은 요청·재방문은 기존 토큰을 보존한다. 실제 명령과 검증 결과는 구현 뒤 기록한다.
-- `ui ~ entity` E2E: 맵 없는 opening → 플레이어 행동 → 맵 필요 시츄에이션 진입 → 지도와 진입 서술로 시작 위치 확정.
+- 개발용 진단 검증 (Architecture Spec §9.1·INV-01): 이 계획이 바꾸는 각 시작·완료·대체 경로·재시도·실패 분기에서 기존 `DevelopmentDiagnostics`(개발 진단 기능)와 `dev_` 개발 로그 형식을 확인한다. `ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED`(개발용 상세 진단 로그 설정)가 꺼졌을 때 상세 로그가 없고, 켜졌을 때 식별자·입력 크기/개수·기대/실제 값·선택 분기·소요 시간·실패 종류와 다음 복구 동작이 드러나며, 프롬프트·응답·인증 정보·불필요한 플레이어 입력·비공개 지도 정보를 기록하지 않고 실제 동작도 바꾸지 않는지 검사한다.
 
-- 통합: 같은 명령·같은 지문 재생, 다른 배치 지문·낡은 지도 버전 충돌, 저장된 BLOCKED 결과의 재사용·활성화 금지를 확인한다.
-
-- 위치 제안: 후보 없음·제공자 실패의 최대 6회, 후보 즉시 종료, 소진 뒤 수동 선택, 같은 지도 ID 전환·재방문의 시작 위치 제안기 호출 0회 및 저장 상태 보존을 확인한다.
+- 단위/정책: 맵 필요 속성, opening과 후속 진입의 동일 절차, 준비 완료 조건, 비공개 배치 투영. 통합: 진입 서술·지도 자산 전달, 유효 시작 위치 검증, 위치 미확정 재시도 및 사용자 지도 선택. BR-40 회귀: 저장고에 적 8개가 필요한 상황에서 전투 시작 없이도 지도 정본에 8개 토큰을 저장하고, 플레이어 응답에는 발견·시야 조건을 통과한 토큰만 제공한다. 필수 배치 누락은 활성화를 막고, 같은 요청·재방문은 기존 토큰을 보존한다. 실제 명령과 검증 결과는 구현 뒤 기록한다. 통합: 같은 명령·같은 지문 재생, 다른 배치 지문·낡은 지도 버전 충돌, 저장된 BLOCKED 결과의 재사용·활성화 금지를 확인한다. 위치 제안: 후보 없음·제공자 실패의 최대 6회, 후보 즉시 종료, 소진 뒤 수동 선택, 같은 지도 ID 전환·재방문의 시작 위치 제안기 호출 0회 및 저장 상태 보존을 확인한다. 요구사항 식별자: AC-33, BR-40, UC-005. 소유 경계와 실행 진입점: Scenario Preparation의 Situation map-needed 속성과 Combat Map; 시츄에이션 활성화 전에 지도·위치·비공개 배치 준비 완료를 확인. 추적 수용 조건: 지도 필요 여부는 시츄에이션 저장 속성으로 판정한다. 반례: mapNeeded가 false여도 지도를 준비하거나 검증되지 않은 시작 위치로 진입한다. 검증 사례: 단위/정책: 맵 필요 속성, opening과 후속 진입의 동일 절차, 준비 완료 조건, 비공개 배치 투영.
+- `ui ~ entity` E2E: 해당 없음 — 지도 준비 경계는 저비용 정책·통합 검사로 확인한다. 실제 원본 PDF 연결, Potent Brew 22열×23행 자르기·격자 저장과 지도 진입은 #375의 단일 브라우저 E2E에서 확인한다. 이 E2E는 지도·이동·자연어 계획이 모두 구현된 뒤 실행한다.
 
 ## 관련 명세
 
-- Product Spec: `docs/specs/combat-movement-spell-range/product-spec.md`
-- Architecture Spec: `docs/specs/combat-movement-spell-range/architecture-spec.md`
+- Product Spec: docs/specs/combat-movement-spell-range/product-spec.md
+- Architecture Spec: docs/specs/combat-movement-spell-range/architecture-spec.md
 
 ## 다이어그램
 
-- 제품: UC-005 탐험 이동 흐름 — ![UC-005 탐험 이동 흐름](https://github.com/omegafrog/dnd-master/blob/spec/combat-movement-spell-range/docs/specs/combat-movement-spell-range/diagrams/product/UC-005.activity.svg?raw=true)
-
-## 추적 정보
-
-- 요구사항 식별자: AC-33, BR-40, UC-005.
-- 수용 기준: 지도 필요 여부는 시츄에이션 저장 속성으로 판정한다.
-- 반례: mapNeeded가 false여도 지도를 준비하거나 검증되지 않은 시작 위치로 진입한다.
-- 검증 사례: 단위/정책: 맵 필요 속성, opening과 후속 진입의 동일 절차, 준비 완료 조건, 비공개 배치 투영.
+- 제품: UC-005 탐험 이동 흐름 — ![UC-005 탐험 이동 흐름](https://github.com/omegafrog/dnd-master/blob/harness/spec-me/cff78917-af41-4451-87e5-df5ba5376d49/docs/specs/combat-movement-spell-range/diagrams/product/UC-005.activity.svg?raw=true)

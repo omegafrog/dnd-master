@@ -285,7 +285,7 @@
         ]
       ],
       "dependencies": [],
-      "timeout_ms": 5700000,
+      "timeout_ms": null,
       "readiness_timeout_ms": 5000,
       "poll_interval_ms": 1000
     },

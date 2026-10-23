@@ -1,5 +1,5 @@
 @startuml
- title 지도에서 이동과 조우 해결 (spatial-movement, #367)
+ title 지도에서 이동과 조우 해결 (spatial-movement, #367·#368)
  actor "플레이어" as Player
  participant "지도 화면" as UI
  participant "모험 런타임" as Runtime
@@ -50,12 +50,13 @@
          opt 발견한 캐릭터가 동료에게 알림
            Player -> UI : 동료에게 발견 사실 알림
            UI -> Runtime : 알림 방식·대상 제출
+           Runtime -> Runtime : 동료에게 알린 사실을 그룹 인지 상태에 반영
            Runtime -> GM : 알리는 방식이 적에게 들리는지 판정 요청
            GM --> Runtime : 적의 청취 여부 판정
            alt 적에게 들림
-             Runtime -> Runtime : 그룹 인지 상태로 갱신
+             Runtime -> Runtime : 들은 적의 인지 상태 갱신
            else 적에게 들리지 않음
-             Runtime -> Runtime : 발견자에게만 인지 상태 유지
+             Runtime -> Runtime : 적의 기존 인지 상태 유지
            end
          end
        end
@@ -77,6 +78,32 @@
      end
    end
    alt 검증된 hostileActionStarted가 참이며 적대 행동으로 전투 시작
+     Runtime -> Runtime : 전투 진입 수명주기·전투 전 그룹 구성과 대열 저장
+     Runtime -> Map : 그룹 토큰 기준 전체 캐릭터 배치 검증 요청
+     Map -> Map : 가장 가까운 적 방향을 전방으로 배치 계산
+     note right of Map
+       적이 없으면 북쪽, 같은 거리의 적은 서버 식별자 순으로 정한다.
+       FRONT(전열)·MIDDLE(중열)·REAR(후열)는 서로 다른 유효 칸이다.
+     end note
+     Map --> Runtime : 전체 배치 또는 배치 불가
+     loop 전체 유효 배치를 확보하지 못한 동안
+       Runtime -> Runtime : 배치 보류 상태 저장·새로고침 뒤 복원
+       note over Runtime,Map : 보류 중에는 지도를 변경하지 않고 전투 진행을 기다린다.
+       Runtime -> GM : 전체 캐릭터의 유효 배치 지정 요청
+       GM --> Runtime : 전체 배치
+       Runtime -> Map : GM 전체 배치 검증
+       Map --> Runtime : 검증 결과
+     end
+     Runtime -> Map : 단일 작업으로 그룹 토큰을 캐릭터 토큰으로 전환
+     Map -> Map : 전체 전환을 원자적으로 반영·완료 결과 저장
+     Map --> Runtime : 전환 결과 또는 같은 작업의 기존 완료 결과
+     note over Runtime,Map
+       지도는 토큰 전환과 복원의 단일 작업을 소유한다.
+       중단·응답 유실 뒤 같은 작업을 재시도해 복구한다.
+       중복 토큰과 일부만 전환된 상태를 남기지 않는다.
+       기존 적 토큰과 참가자 대응·개체별 인지·기습 판정을 유지한다.
+       런타임은 전투 진입·종료 수명주기를 소유한다.
+     end note
      Runtime -> Encounter : 각 참가자의 인지 상태와 기습 판정으로 전투 시작
      Encounter -> Encounter : 미인지 CombatParticipant.surprised 설정
      note right of Encounter
@@ -100,6 +127,15 @@
  end
  alt 전투로 전환
    note over Runtime : 전술 이동 순서를 끝내고 전투 차례로 전환한다.
+   Encounter --> Runtime : 전투 종료
+   Runtime -> Map : 단일 작업으로 전투 전 그룹 구성·대열의 그룹 토큰 복원
+   Map -> Map : 전열 구성원의 현재 칸에 복원·개인 토큰 제거를 원자적으로 반영
+   Map --> Runtime : 복원 결과 또는 같은 작업의 기존 완료 결과
+   note over Runtime,Map
+     별도 그룹은 합치지 않는다.
+     중단 뒤 같은 복원 작업을 재시도해 중복·일부 복원 없이 복구한다.
+   end note
+   Runtime -> Runtime : 복원 완료 확인 뒤 보류된 탐험·환경 단계 재개
  else 모든 그룹 차례 완료
    Runtime -> Encounter : 그룹 차례 뒤 환경을 6초 진행
    loop 환경 진행이 끝날 때까지
