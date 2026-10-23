@@ -3574,7 +3574,7 @@
     }
   },
   "review": {
-    "reviewer_id": "/root/implement_367_br49/plan_review_367_after_amendment",
+    "reviewer_id": "/root/handoff_pair_final_review_v2",
     "author_ids": [
       "/root"
     ],
@@ -3583,8 +3583,8 @@
     "inputs": {
       "CONTEXT-MAP.md": "38ad518112129eedbbd581013513cee47f81bc2d98a5637d674f40d6a3bdc273",
       "CONTEXT.md": "2b16537ddd8358011cbbdc72379526b8fe19645f871ce9fde1bcd9f5018e6185",
-      "docs/contracts/architecture.md": "56e73f6c12e2f4b119ffc884f022c3d63e260a6d48255247b09798504bd4407e",
-      "docs/contracts/product.md": "0eaf9434b78bd6e56d632d8be8d0dd65acd14b6290a0b0d29dc34f3aa9e77b49",
+      "docs/contracts/architecture.md": "f8153d8e755eeebb112de7b3616bc9bd0c3be030fce06f91ebc10d2a7e6a800a",
+      "docs/contracts/product.md": "4cf42ce70b54e34eb403844e28b8c2c2707ca3211e4064a895a584984af35c59",
       "docs/specs/combat-movement-spell-range/architecture-spec.md": "449f14356bdfc85df5c821922f899d0ec84ebde40a3f033780e4e6baccaaa737",
       "docs/specs/combat-movement-spell-range/diagrams/architecture/combat-movement-interruption.state.puml": "904d1cab676fbe96938b09447aa0f04d6b22c50c977c850ac995c592609ad933",
       "docs/specs/combat-movement-spell-range/diagrams/architecture/combat-movement-interruption.state.svg": "41561afba6de1b3085b3291f72beb06545ea8c0bc17107d467cb8d9f109cf310",
@@ -3616,13 +3616,13 @@
       "docs/specs/combat-movement-spell-range/request.md": "916d4ecef835ec1d88cb4c813034aa85634eb074c64ae32a6e507f616649289c",
       "docs/specs/combat-movement-spell-range/runtime-decisions.md": "2588795a9d7beb8c136ed0904df8a75c45a8a30518ac791a438d5ad1e29cc5d1",
       "docs/specs/combat-movement-spell-range/system-targets.yaml": "16d722fd17d998aa7ad96d64f2c00dfb79d1176a8aee48d08c9b66ff3e39a42e",
-      "docs/plans/combat-movement-spell-range/traceability.json#planning": "0e4e7a608965b880c805613a38462464d3f7f5caa115f671f78638e174cd5b78",
+      "docs/plans/combat-movement-spell-range/traceability.json#planning": "4967e897465c510b64c8a6544063e0e89caafd973dce49d80f8fd641df2cc654",
       "docs/plans/combat-movement-spell-range/plans/plan-363#canonical": "4e2e7b23dcfcda77248a84be8780ddadc371da3cadb226e3729d3de71826fb2f",
       "docs/plans/combat-movement-spell-range/plans/plan-364#canonical": "97b4d9b560fe48f942c9a1c16ef172ef200c5c55aad25f899161ce8be690db86",
       "docs/plans/combat-movement-spell-range/plans/plan-365#canonical": "de775db23b423c6bc7a1ac9065fb85a276284d2b3337a2ead186ae362fc37f0b",
       "docs/plans/combat-movement-spell-range/plans/plan-366#canonical": "3a2ed4b9da4726265c308138b61a9e9c1fa13f4936bf3c762886aa6c38c4950e",
-      "docs/plans/combat-movement-spell-range/plans/plan-367#canonical": "a3a559701af1ea0114a8c5c3d64d680d91653a07f4e91430479add5816cb2683",
-      "docs/plans/combat-movement-spell-range/plans/plan-368#canonical": "57ca0aea0b3a725dc4eeb6f1a0fbf8699e161628176f4e40aa46a0f7c69e1fdf",
+      "docs/plans/combat-movement-spell-range/plans/plan-367#canonical": "f79688380bf563281861fe2a015db10afaa1b905ea67bddc4c4021d79c54e776",
+      "docs/plans/combat-movement-spell-range/plans/plan-368#canonical": "f0e6b0d9f0787b32d6c446e234e8d48e413794851a036a7e4e5a38bf18b81d30",
       "docs/plans/combat-movement-spell-range/plans/plan-369#canonical": "4a21a11f8823d995901b229b5e7ba40fd96087ca5e317055686c7207c5488861",
       "docs/plans/combat-movement-spell-range/plans/plan-370#canonical": "bfb200637b5f24e4a4523e1b098c6f39809e7ec04f2006b5ef822751e2589852",
       "docs/plans/combat-movement-spell-range/plans/plan-371#canonical": "b8bab412cc0312bfb526b9315b280a4ab087a2eb3bdac9909a7faf8f4134d513",
