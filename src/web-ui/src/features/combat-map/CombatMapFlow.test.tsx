@@ -127,7 +127,7 @@ it('starts an exploration cycle and advances group then environment through the 
   expect(await screen.findByText(/지난 시간 6초 · 그룹 이동/)).toBeInTheDocument()
 })
 
-it('lets the adventure owner choose every party position and submit the saved pending transition', async () => {
+it('lets the Solo Player choose every party position and submit the saved pending transition', async () => {
   const api = fakeApi()
   const groups: ExplorationGroup[] = [{ id: 'g1', mapTokenId: 'p1', speed: 20, members: [
     { characterSheetId: 'sheet-1', formation: 'FRONT', speed: 20 },

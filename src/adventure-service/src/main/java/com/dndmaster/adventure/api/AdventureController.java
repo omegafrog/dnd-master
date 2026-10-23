@@ -668,8 +668,19 @@ public class AdventureController {
         UUID owner = playerResolver.playerId();
         if (!adventure.ownerPlayerId().value().equals(owner))
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
-        if (adventure.version() != request.expectedVersion())
-            throw new ApiRequestGuard.ApiContractException(409, "STALE_EXPLORATION_CYCLE");
+        if (adventure.version() != request.expectedVersion()) {
+            long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                    "combat_token_manual_placement_version_check", "adventureId=" + adventureId
+                            + " expectedAdventureVersion=" + request.expectedVersion()
+                            + " actualAdventureVersion=" + adventure.version());
+            var failure = new ApiRequestGuard.ApiContractException(409, "STALE_EXPLORATION_CYCLE");
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "combat_token_manual_placement_version_check", "adventureId=" + adventureId
+                            + " expectedAdventureVersion=" + request.expectedVersion()
+                            + " actualAdventureVersion=" + adventure.version()
+                            + " recoveryAction=reload_adventure_and_retry_same_pending_transition", started, failure);
+            throw failure;
+        }
         if (request.placements().stream().anyMatch(placement -> placement == null || placement.targetId() == null
                 || placement.x() < 0 || placement.y() < 0)
                 || request.placements().stream().map(com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Placement::targetId)

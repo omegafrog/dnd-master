@@ -92,10 +92,21 @@
        note over Runtime,Map : 보류 중에는 지도를 변경하지 않고 전투 진행을 기다린다.
        Runtime --> UI : 전원 위치를 공개 칸에서 선택하도록 표시
        Player -> UI : 각 파티 캐릭터의 칸 지정
-       UI -> Runtime : 모험 소유자 인증과 함께 전원 배치 제출
+       UI -> Runtime : 화면의 모험·지도 버전과 함께 전원 배치 제출
+       Runtime -> Runtime : 인증된 모험 소유자와 최신 모험 버전 검증
+       alt 모험 버전이 오래됨
+         Runtime --> UI : 대기 상태를 유지하고 현재 모험 다시 불러오기 요청
+       else 모험 버전이 최신
+       Runtime -> Map : 현재 지도 버전 조회
+       Runtime -> Runtime : 화면의 지도 버전이 최신인지 검증
+       alt 지도 버전이 오래됨
+         Runtime --> UI : 대기 상태를 유지하고 현재 지도 다시 불러오기 요청
+       else 지도 버전이 최신
        Runtime -> Runtime : 같은 전환 작업에 전체 배치 제출·요청 저장
-       Runtime -> Map : 같은 작업 식별자·최신 지도 버전으로 전체 배치 검증
+       Runtime -> Map : 같은 작업 식별자·화면의 지도 버전으로 전체 배치 검증
        Map --> Runtime : 전체 배치 검증 결과·같은 작업의 기존 완료 결과
+       end
+       end
      end
      Runtime -> Map : 단일 작업으로 그룹 토큰을 캐릭터 토큰으로 전환
      Map -> Map : 전체 전환을 원자적으로 반영·완료 결과 저장
