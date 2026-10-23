@@ -3574,7 +3574,7 @@
     }
   },
   "review": {
-    "reviewer_id": "/root/handoff_pair_final_review_v2",
+    "reviewer_id": "/root/plan_review_exact_inputs",
     "author_ids": [
       "/root"
     ],
@@ -3633,6 +3633,7 @@
       "docs/plans/combat-movement-spell-range/plans/plan-392#canonical": "d2f8acc0b7b8aff999b56ebd2e37fa157a2d04690fa6da64666fad9ecdd80bf8",
       "docs/plans/combat-movement-spell-range/plans/enemy-ability-preparation#canonical": "c4f5f3e1594e34cdc59abf3efe6bd3b7b03a682ca4889762cf702c84baf7f182"
     },
-    "findings": []
+    "findings": [],
+    "evidence_path": "runtime/reviews/plan-set-combat-movement-spell-range-367-368-independent.json"
   }
 }

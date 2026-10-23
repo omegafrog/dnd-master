@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "revision": 71,
+  "revision": 73,
   "updated_at": "2026-10-23",
-  "change_summary": "Record the passing independent plan review for the #367/#368 handoff",
+  "change_summary": "Record the current independent plan review after preserving empty-awareness combat-start behavior.",
   "source_roots": [
     "src",
     ".github",
@@ -301,7 +301,7 @@
       "reason": "폐기된 검색 설계에는 현행 상태와 전이가 없다."
     }
   ],
-  "no_contract_change": "Only review evidence metadata changed; contract wording and diagrams are unchanged",
+  "no_contract_change": "Only traceability review evidence changed; no API, architecture contract, or persisted schema changed.",
   "hashes": {
     "@model": "54537ebc81dcd515399470ca544adf583339dd963d8c0c6890e8c5ff69d8de80",
     ".github/pull_request_template.md": "4a773c8b13e402f6e7b2c5fe02d78f74cf2dc094045b7952f45b3021eb62f552",
@@ -371,7 +371,7 @@
     "docs/plans/combat-movement-spell-range/map-entry-flow.md": "82a867389d52f4c1019ce279b9dd9fa97e537491792c65b26d4637e2bd872906",
     "docs/plans/combat-movement-spell-range/plans.md": "d53289cf573c6c53a8fc0ea74a8e8a0d0239f9112dca1fe181c81292020b6826",
     "docs/plans/combat-movement-spell-range/rulebook-action-extraction.md": "821e856fe9f70233dcf4fa234d74cbd08efcfe7fae4ab74a8fc5a6b19c0d0cc4",
-    "docs/plans/combat-movement-spell-range/traceability.json": "e1098e41be7d77f322b83b18056a26be5f19db5bd420e5ba18ad6c69d3c172e0",
+    "docs/plans/combat-movement-spell-range/traceability.json": "efc156ee2fd6e7ed0a11688e775e89ce28b8527185e357f09110803342635707",
     "docs/plans/document-preprocessing-pivot.md": "98788bbd0ad536b93250561d667945e6012365c277f3b426822b5fd5e6acc4c6",
     "docs/plans/gm-context-compaction/plans.md": "f03a210e67086da62ed8c2641ca36dce9cf30d87490a96fa969702a8fd3ed538",
     "docs/plans/hybrid-rag-evidence-selection/plans.md": "d04bfc0f239d5dcaa44ecbd942b43a63838f9f22deaf3b756a4bb83cd69844d5",
@@ -726,7 +726,7 @@
     "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatRangedAttackValidator.java": "bf94aa80d8c1c4ffe48711723f76dd62b620898cf109413ac75e8e32973a3e5a",
     "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatReactionApplicationService.java": "7f0f9ca3134be84267948e0f48d964446d9a6010b9d969628244d7b60b64f9e1",
     "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatResult.java": "d8cfabb0b19c2f00e7880431f35dafa7d696ddf7d68b4ad1fdc28ed89e9d5bcd",
-    "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java": "acd1040af7256e1566668e8d697e159352a7cc2740dde6fb47b5e5f5ab34b274",
+    "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java": "5507ce552ba6bc24315208e336c4a0c5dc9df2b2dc8f1416727c9a8765f7ce6b",
     "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartTransitionPolicy.java": "e40ee76ff821fe6a2845e0f62ec7d80ec11a28da892ca0a160dd10e07214dcf9",
     "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatTransientFailureException.java": "10fffdf9b70bfca08600e98aa58660c64539e52f4ae8eeaffaa2e18753669d6c",
     "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatWorkItem.java": "db356b7a3c018c6623740e3a2aaf68d81449bf59242a2e482ae5e00c49f4a887",
@@ -1750,7 +1750,7 @@
     "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ScenarioExceptionHandlerTest.java": "2f05fe64574b2a9e8f4c48bf51819112863b1012f11f3d5a1150431afab9defd",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ScenarioPreparationControllerTest.java": "2da6aac0ae65222f6a0c011d3b6ee4ccea3970877b9dc501b243b1ac7bdb5977",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/application/ability/AdventureAbilityDefinitionPreparationServiceTest.java": "0aed23c2a68ac422999e3e5d000ba24aac1960b84112376c4b6b1096a690cbfb",
-    "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java": "848ba60b9fe2fd303093a360d0a68ab52c90bd1f11cb483de2e350f4ee9c6eeb",
+    "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java": "d3c08d3bb716952412bf0d1d015e9f3c1d8633c949ff3bf2b902a7e6720546fe",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/HttpCombatMapViewGatewayTest.java": "40557aafc1630f181cc8d69837f432e5420f926fede56db41a8269060d45d172",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/MovementPlacementModelPortTest.java": "b9e0d87590ccc3b1f803b9b73b122bb2a4a6006cc712584d57bc157409f581d0",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/PendingMapMovementConfirmationTest.java": "11583478ef7d49810842db4c0499c1a0f90d612d369d70d0ae6996d7e9628224",
@@ -1784,7 +1784,7 @@
     "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionPolicyTest.java": "0aa755a275ceed243260fac7478094c2f7c0b07252bde59c7eb45582c3bd014b",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatAimPreviewPolicyTest.java": "ad2e6d535911b5d044b0ff4cf953f664f82a74cdef18488d04a240b50f819c03",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatAutoProgressionWorkerTest.java": "4b418f690e4ac745f86cbe8ef57bda024314fd6c6ab94b50cb959a3df343ad22",
-    "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java": "e591e00e68a44e3e2059fcffb3ff8bb8081a722d11df58e9b0973712d668ded4",
+    "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java": "a93c3f881ea6ab361a01b1bc836a5beb66020bb170d7fd59e2619de5c0434ebc",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEndCommitWiringTest.java": "29a9ecc41594ac21e75618a50428745d39218bbd816b53ed3d16ddff8ac52881",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEndGuardTest.java": "2dcfc53376da45a9960a1625bc8611695084a926aad9464da27f5fad7f46035a",
     "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEndProposalPolicyTest.java": "bce7ebccc04e8509672fd65d489195e5642100c8a94a20d4094d5d48635fb641",
