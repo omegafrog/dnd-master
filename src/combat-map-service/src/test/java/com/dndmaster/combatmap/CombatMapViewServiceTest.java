@@ -88,6 +88,13 @@ class CombatMapViewServiceTest {
                 () -> service.transitionCombatTokens(mapId, owner, 4, operationId,
                         CombatMapViewService.TokenTransitionDirection.ENTER, conflictingGroups));
         assertThat(conflict).hasMessageContaining("command id reused with different payload");
+        var differentVersionConflict = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> service.transitionCombatTokens(mapId, owner, 5, operationId,
+                        CombatMapViewService.TokenTransitionDirection.ENTER, groups));
+        assertThat(differentVersionConflict).hasMessageContaining("command id reused with different payload");
+        verify(store, org.mockito.Mockito.times(1)).update(org.mockito.ArgumentMatchers.eq(owner),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(4L), org.mockito.ArgumentMatchers.eq(5L),
+                org.mockito.ArgumentMatchers.eq(operationId), org.mockito.ArgumentMatchers.anyString());
         assertThat(output).contains("dev_combat_token_transition outcome=started", "operationId=" + operationId,
                 "groupCount=1", "memberCount=1", "placementCount=0", "outcome=completed", "outcome=replayed",
                 "actualVersion=5");

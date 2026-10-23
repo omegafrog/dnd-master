@@ -273,7 +273,8 @@ public final class CombatMapViewService {
             actualVersion = state.version();
             List<TokenTransitionPlacement> stablePlacements = placements == null ? List.of() : placements.stream()
                     .sorted(java.util.Comparator.comparing(TokenTransitionPlacement::targetId)).toList();
-            String fingerprint = id + "|" + owner + "|COMBAT_TOKEN_TRANSITION|" + direction + "|" + groups + "|" + stablePlacements;
+            String fingerprint = id + "|" + owner + "|COMBAT_TOKEN_TRANSITION|expectedVersion=" + expectedVersion
+                    + "|" + direction + "|" + groups + "|" + stablePlacements;
             CombatMap replay = replay(id, owner, operationId, fingerprint);
             if (replay != null) {
                 if (diagnostics) LOGGER.info("dev_combat_token_transition outcome=replayed {} actualVersion={} elapsedMs={}", context,
