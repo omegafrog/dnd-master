@@ -133,6 +133,51 @@ public class CombatMapController {
     public record ExplorationToken(UUID id, int x, int y) { }
     public record ExplorationTokensResponse(UUID mapId, long version, List<ExplorationToken> tokens) { }
 
+    @PostMapping("/internal/v1/combat-maps/{mapId}/combat-token-transition")
+    public CombatTokenTransitionResponse transitionCombatTokens(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) CombatTokenTransitionRequest request) {
+        requestGuard.internal(token);
+        requireRequest(request, "combat token transition request is required");
+        if (request.ownerId() == null || request.operationId() == null || request.direction() == null
+                || request.expectedVersion() == null || request.groups() == null || request.groups().isEmpty())
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "owner, operation, direction, version and groups are required");
+        if (java.util.Arrays.stream(CombatMapViewService.TokenTransitionDirection.values())
+                .noneMatch(value -> value.name().equals(request.direction()))
+                || request.placements() != null && request.placements().stream().filter(java.util.Objects::nonNull)
+                        .map(CombatTokenTransitionPlacement::targetId).filter(java.util.Objects::nonNull).distinct().count()
+                                != request.placements().size())
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "combat token transition direction or placement targets are invalid");
+        if (request.groups().stream().anyMatch(group -> group == null || group.groupId() == null || group.tokenId() == null
+                || group.members() == null || group.members().isEmpty() || group.members().stream().anyMatch(member ->
+                        member == null || member.characterId() == null || member.formation() == null
+                                || !java.util.Arrays.stream(CombatMap.Formation.values()).anyMatch(value -> value.name().equals(member.formation()))))
+                || request.placements() != null && request.placements().stream().anyMatch(placement -> placement == null
+                        || placement.targetId() == null || placement.x() == null || placement.y() == null
+                        || placement.x() < 0 || placement.y() < 0))
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "combat token transition groups or placements are invalid");
+        var groups = request.groups().stream().map(group -> new CombatMap.CombatGroup(group.groupId(), group.tokenId(),
+                group.members().stream().map(member -> new CombatMap.CombatMember(member.characterId(),
+                        CombatMap.Formation.valueOf(member.formation()))).toList())).toList();
+        var placements = request.placements() == null ? List.<CombatMapViewService.TokenTransitionPlacement>of()
+                : request.placements().stream().map(value -> new CombatMapViewService.TokenTransitionPlacement(
+                        value.targetId(), value.x(), value.y())).toList();
+        var result = mapViewService.transitionCombatTokens(new MapId(mapId), new MapOwnerId(request.ownerId()),
+                request.expectedVersion(), request.operationId(),
+                com.dndmaster.combatmap.application.view.CombatMapViewService.TokenTransitionDirection.valueOf(request.direction()), groups, placements);
+        return new CombatTokenTransitionResponse(result.status(), result.version(), result.tokens().stream()
+                .map(value -> new ExplorationToken(value.id().value(), value.position().x(), value.position().y())).toList());
+    }
+    public record CombatTokenTransitionRequest(UUID ownerId, UUID operationId, String direction, Long expectedVersion,
+            List<CombatTokenTransitionGroup> groups, List<CombatTokenTransitionPlacement> placements) { }
+    public record CombatTokenTransitionGroup(UUID groupId, UUID tokenId, List<CombatTokenTransitionMember> members) { }
+    public record CombatTokenTransitionMember(UUID characterId, String formation) { }
+    public record CombatTokenTransitionPlacement(UUID targetId, Integer x, Integer y) { }
+    public record CombatTokenTransitionResponse(String status, long version, List<ExplorationToken> tokens) { }
+
     @PostMapping("/internal/v1/combat-maps/{mapId}/environment/enemy-movements")
     public EnvironmentEnemyMovementResponse moveEnemyForEnvironment(@PathVariable UUID mapId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,

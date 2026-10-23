@@ -127,6 +127,68 @@ it('starts an exploration cycle and advances group then environment through the 
   expect(await screen.findByText(/지난 시간 6초 · 그룹 이동/)).toBeInTheDocument()
 })
 
+it('lets the Solo Player choose every party position and submit the saved pending transition', async () => {
+  const api = fakeApi()
+  const groups: ExplorationGroup[] = [{ id: 'g1', mapTokenId: 'p1', speed: 20, members: [
+    { characterSheetId: 'sheet-1', formation: 'FRONT', speed: 20 },
+    { characterSheetId: 'sheet-2', formation: 'REAR', speed: 20 },
+  ] }]
+  const transition = { direction: 'ENTER' as const, status: 'PLACEMENT_REQUIRED' as const, placements: [] }
+  api.getCombatMap = vi.fn(async () => ({ adventureId: 'a1', status: 'map', mapId: 'm1', version: 4,
+    grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }],
+    current: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+    explored: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }] }))
+  api.getExplorationGroups = vi.fn(async () => ({ version: 8, groups, tokenTransition: transition }))
+  api.submitCombatTokenPlacement = vi.fn(async (_adventureId, _version, _mapVersion, placements) => ({ version: 9, groups,
+    tokenTransition: { direction: 'ENTER', status: 'APPLIED', placements } }))
+
+  render(<CombatMapView adventureId="a1" api={api} />)
+  await userEvent.click(await screen.findByRole('button', { name: '캐릭터 sheet-1 위치 선택' }))
+  await userEvent.click(screen.getByRole('button', { name: '배치 2,1' }))
+  await userEvent.click(screen.getByRole('button', { name: '캐릭터 sheet-2 위치 선택' }))
+  await userEvent.click(screen.getByRole('button', { name: '배치 0,0' }))
+  await userEvent.click(screen.getByRole('button', { name: '전체 배치 제출' }))
+
+  await waitFor(() => expect(api.submitCombatTokenPlacement).toHaveBeenCalledWith('a1', 8, 4, [
+    { targetId: 'sheet-1', x: 2, y: 1 }, { targetId: 'sheet-2', x: 0, y: 0 },
+  ]))
+  expect(await screen.findByText('전체 배치를 저장했습니다.')).toBeInTheDocument()
+})
+
+it('shows enemy-first narration and keeps environment progression pending until a player turn is committed', async () => {
+  const api = fakeApi()
+  const group = { id: 'g1', mapTokenId: 'p1', speed: 20, members: [
+    { characterSheetId: 'sheet-1', formation: 'FRONT' as const, speed: 20 },
+  ] }
+  let version = 4
+  let cycle: ExplorationCycle = { id: 'cycle-1', cycleNumber: 1, currentPhaseCommandId: 'phase-1', groupOrder: ['g1'],
+    completedGroups: ['g1'], phase: 'ENVIRONMENT', environmentPhase: 'ENEMIES_PATROLS_AND_DETECTION', elapsedSeconds: 0,
+    pendingEnvironmentProposal: { narration: '적이 먼저 다가와 당신들을 발견합니다.', encounterRequested: false,
+      combatLinked: false, playerResponseRequired: false }, combatLinked: false }
+  api.getExplorationGroups = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.saveExplorationGroups = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.startExplorationCycle = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.finishExplorationGroupTurn = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.resolveExplorationMovementEvent = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.advanceExplorationEnvironment = vi.fn(async () => {
+    version++
+    cycle = { ...cycle, pendingEnvironmentProposal: { ...cycle.pendingEnvironmentProposal!, playerResponseRequired: true } }
+    return { version, groups: [group], cycle }
+  })
+  const user = userEvent.setup()
+  const { rerender } = render(<CombatMapView adventureId="a1" api={api} refreshToken={0} />)
+
+  await user.click(await screen.findByRole('button', { name: '환경 단계 진행' }))
+  expect(await screen.findByText('적이 먼저 다가와 당신들을 발견합니다.')).toBeInTheDocument()
+  expect(await screen.findByRole('alert')).toHaveTextContent('모험 대화에 응답해주세요')
+  expect(screen.queryByRole('button', { name: '환경 단계 진행' })).not.toBeInTheDocument()
+
+  version++
+  cycle = { ...cycle, pendingEnvironmentProposal: { ...cycle.pendingEnvironmentProposal!, playerResponseRequired: false } }
+  rerender(<CombatMapView adventureId="a1" api={api} refreshToken={1} />)
+  expect(await screen.findByRole('button', { name: '환경 단계 진행' })).toBeEnabled()
+})
+
 it('waits for the committed map turn and refreshes the adventure version before finishing the group turn', async () => {
   const diagnostic = vi.spyOn(diagnostics, 'diagnosticEvent')
   const api = fakeApi()
@@ -1436,6 +1498,24 @@ it('saves only an alignment draft through the dedicated endpoint', async () => {
   try {
     await new HttpAdventurePlayApi(() => 'player-token').applyMapGridAlignment('a1', { mapId: 'm1', commandId: 'c1', expectedVersion: 1, imageRevision: 'r1', originX: 12.25, originY: 8.5, cellSize: 31.75 })
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/adventures/a1/combat-map/alignment', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ mapId: 'm1', commandId: 'c1', expectedVersion: 1, imageRevision: 'r1', originX: 12.25, originY: 8.5, cellSize: 31.75 }) }))
+  } finally { vi.unstubAllGlobals() }
+})
+
+it('submits the complete combat placement through the authenticated adventure route', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ version: 9, groups: [], tokenTransition: null }), {
+    status: 200, headers: { 'Content-Type': 'application/json' },
+  }))
+  vi.stubGlobal('fetch', fetchMock)
+  try {
+    await new HttpAdventurePlayApi(() => 'player-token').submitCombatTokenPlacement!('a1', 8, 4, [
+      { targetId: 'sheet-1', x: 2, y: 1 }, { targetId: 'sheet-2', x: 0, y: 0 },
+    ])
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/adventures/a1/exploration/combat-token-placement', expect.objectContaining({
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer player-token' },
+      body: JSON.stringify({ expectedVersion: 8, expectedMapVersion: 4, placements: [
+        { targetId: 'sheet-1', x: 2, y: 1 }, { targetId: 'sheet-2', x: 0, y: 0 },
+      ] }),
+    }))
   } finally { vi.unstubAllGlobals() }
 })
 

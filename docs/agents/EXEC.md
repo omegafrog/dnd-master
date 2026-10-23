@@ -10,6 +10,8 @@ Run the #367 movement-coordinator, map-image source, exploration-cycle rules and
 
 The matching Harness profile is `adventure-focused-unit` in `docs/agents/execution.json`.
 
+The plan-scoped Harness profile `adventure-exploration-cycle-unit` runs `MapMovementCoordinatorTest`, `ExplorationCycleTest`, `CombatEncounterPolicyTest`, `CombatStartParticipantFactoryDiagnosticsTest`, `ExplorationEnvironmentControllerTest`, `HttpTypedRuntimeGmAgentPortTest`, `TypedAgentContractControllerTest`, and `SpatialFeatureApplicationServiceTest`, followed by `CombatMapFlow.test.tsx` for the enemy-first player-response wait. Use this profile for plan-367 verification; these unit, policy, diagnostics, controller, agent-contract, typed-response, cross-service identity, and focused UI checks cover its behavior, while the integrated agent-driven journey is reserved for #375.
+
 ## 에이전트 응답 기반 모험 E2E
 
 실제 브라우저 실행 전 [브라우저 실행·연결 절차](BROWSER.md)를 읽는다. 수동 모험 E2E는 headed Chromium에서 실제 화면을 캡처하고 한 단계씩 조작한다. 이 절차에서는 CUA Driver를 사용하지 않는다.
@@ -20,7 +22,11 @@ The matching Harness profile is `adventure-focused-unit` in `docs/agents/executi
 
 로그인 세션이 바뀌어 사용자 PC 에이전트만 다시 연결해야 할 때는 `user-pc-agent-only` 프로필을 사용한다. `RELAY_WEBSOCKET_URL`, `RELAY_HEALTH_URL`, `AGENT_ACCESS_TOKEN`, 새 `AGENT_CONNECTION_ID`, `CODEX_EXECUTABLE`, `CODEX_CLIENT_DIRECTORY`를 전달한다. 연결 식별자는 `node -p 'require("node:crypto").randomUUID()'`로 만든다. 이 프로필은 앱·중계기·브라우저를 재시작하지 않고 에이전트만 실행한다. 인증 토큰은 명령 인자나 로그에 넣지 않는다.
 
-#367은 `adventure-runtime-server`로 전체 서버의 준비 상태를 확인한다. `adventure-exploration-groups-cua` 프로필은 이전 브라우저 준비 기록이며 현재 실행 지침으로 사용하지 않는다. 실행 에이전트는 #367 로컬 티켓과 Product Spec의 UC-005를 기준으로 headed Chromium의 실제 화면을 한 단계씩 확인하고, 실제 그룹 차례·지도 이동·사건 해결·환경 진행 및 저장 상태를 확인한다. 브라우저 준비만 된 것은 E2E 통과가 아니다. 기존 모험을 재사용하거나 데이터베이스를 초기화하지 않는다.
+#367·#368·#369는 각 계획의 정책·계약·통합 검사로 검증한다. 모든 선행 구현 뒤 실행하는 최종 통합 브라우저 검증의 기준은 #375의 필수 상세 E2E이며, headed Chromium의 실제 화면과 사용자 PC 에이전트 응답을 한 단계씩 확인한다. `adventure-exploration-groups-cua`는 이전 브라우저 준비 기록이므로 현재 실행 지침으로 사용하지 않는다.
+
+#375의 단위·계약 검사와 현재 소스·테스트 해시에 연결된 실행 기록은 기존 `adventure-focused-unit`을 사용한다. `adventure-runtime-server`는 필요한 서버 준비 전용이며 브라우저 E2E 실행이나 통과 증거가 아니다. 이미 실행 중인 서비스는 위 재사용 절차를 따르고 테스트 후에도 유지한다. 실제 브라우저 검증은 Playwright 런타임 테스트 스크립트 없이 위 EXEC·ADR-024 원칙을 따른다. 기존 모험을 재사용하거나 데이터베이스를 초기화하지 않는다.
+
+#375는 단위·계약 검사 기록과 별개로 세션 출력 디렉터리에 실제 E2E 결과를 남긴다. 화면·다시 조회한 서버 상태·저장 결과, 네 원본 자료 연결, 사용자 격자 조정 뒤 재개, 저장된 22열×23행과 사건 후 실제 도달 칸·이동량·같은 플레이어 차례·다음 입력 대기를 확인한다. `adventure-focused-unit` 통과와 이 필수 실제 E2E 통과 증거가 모두 있어야 `tests.status=passed` 및 `required_outcome=achieved`로 완료할 수 있다. E2E 미실행·실패는 Done을 막으며 서버 준비 기록만으로 완료하지 않는다. 전체 실행은 시간 제한 없이 사용자가 중단할 때까지 진행하며 전체 시도는 2회(최초 1회+진단 후 재시도 1회)다. 실패 시 재전송하지 않고 멈춰 사용자에게 묻고 서비스를 유지한다.
 
 모험 시작 전 지도 준비 복원과 격자 정렬 복구처럼 에이전트 진행을 포함하지 않는 검사는 `adventure-map-preparation-check` 프로필을 사용할 수 있다.
 

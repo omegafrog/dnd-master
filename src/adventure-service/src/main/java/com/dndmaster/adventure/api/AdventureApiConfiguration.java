@@ -1432,11 +1432,13 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService aiRequestService,
             com.dndmaster.adventure.application.combat.EnemyCharacterSheetRepository enemyCharacterSheetRepository,
             com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService,
+            com.dndmaster.adventure.application.saved.AdventureRepository adventureRepository,
+            ObjectMapper objectMapper,
             @Value("${adventure.combat.auto-progression.max-steps:10}") int maxSteps) {
         return new com.dndmaster.adventure.application.combat.CombatAutoProgressionWorker(
                 "adventure-service", workItems, encounters, decisions, actionService::submitAi,
                 actionService::endTurnAi, maxSteps, scheduler, aiRequestService, enemyCharacterSheetRepository,
-                runtimeTurnService);
+                runtimeTurnService, adventureRepository, objectMapper);
     }
 
     @Bean

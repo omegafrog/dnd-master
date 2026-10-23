@@ -14,7 +14,151 @@ import java.util.UUID;
 
 /** Builds the encounter roster from the committed party and GM-confirmed enemy identities. */
 public final class CombatStartParticipantFactory {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(CombatStartParticipantFactory.class);
     private CombatStartParticipantFactory() {}
+
+    public static List<CombatParticipant> applyExplorationAwareness(List<CombatParticipant> participants,
+            com.dndmaster.adventure.domain.runtime.ExplorationCycle cycle,
+            java.util.Map<UUID, UUID> hostileMapTokenToParticipantId) {
+        long startedAt = System.nanoTime();
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) LOGGER.info(
+                "dev_exploration_awareness_transfer_begin participantCount={} cyclePresent={} crosswalkCount={}",
+                participants == null ? 0 : participants.size(), cycle != null,
+                hostileMapTokenToParticipantId == null ? 0 : hostileMapTokenToParticipantId.size());
+        if (cycle == null) {
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) LOGGER.info(
+                    "dev_exploration_awareness_transfer_alternate branch=no_cycle result=unchanged durationMs={}",
+                    elapsedMs(startedAt));
+            return participants;
+        }
+        try {
+            return resolveExplorationAwareness(participants, cycle, hostileMapTokenToParticipantId, startedAt);
+        } catch (RuntimeException failure) {
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) LOGGER.error(
+                    "dev_exploration_awareness_transfer_failure participantCount={} crosswalkCount={} failureType={} durationMs={} recovery=reject_combat_start",
+                    participants == null ? 0 : participants.size(),
+                    hostileMapTokenToParticipantId == null ? 0 : hostileMapTokenToParticipantId.size(),
+                    failure.getClass().getSimpleName(), elapsedMs(startedAt));
+            throw failure;
+        }
+    }
+
+    private static List<CombatParticipant> resolveExplorationAwareness(List<CombatParticipant> participants,
+            com.dndmaster.adventure.domain.runtime.ExplorationCycle cycle,
+            java.util.Map<UUID, UUID> hostileMapTokenToParticipantId, long startedAt) {
+        Objects.requireNonNull(participants, "combat participants must not be null");
+        Objects.requireNonNull(hostileMapTokenToParticipantId, "hostile map token crosswalk must not be null");
+        if (!hasExplorationAwarenessEvidence(cycle)) {
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) LOGGER.info(
+                    "dev_exploration_awareness_transfer_alternate branch=no_awareness_evidence participantCount={} crosswalkCount={} durationMs={} result=unchanged",
+                    participants.size(), hostileMapTokenToParticipantId.size(), elapsedMs(startedAt));
+            return participants;
+        }
+        var currentHostileParticipantIds = participants.stream()
+                .filter(participant -> participant.enemyKind() != null || participant.statBlock() != null)
+                .map(CombatParticipant::participantId).collect(java.util.stream.Collectors.toSet());
+        var currentMapTokenToParticipantId = new java.util.HashMap<UUID, UUID>();
+        hostileMapTokenToParticipantId.forEach((tokenId, participantId) -> {
+            if (tokenId != null && participantId != null && currentHostileParticipantIds.contains(participantId))
+                currentMapTokenToParticipantId.put(tokenId, participantId);
+        });
+        var currentHostileTokenByParticipantId = new java.util.HashMap<UUID, UUID>();
+        currentMapTokenToParticipantId.forEach((tokenId, participantId) ->
+                currentHostileTokenByParticipantId.put(participantId, tokenId));
+        int unmatchedCrosswalkCount = hostileMapTokenToParticipantId.size() - currentMapTokenToParticipantId.size();
+        var durable = cycle.threatAwareness();
+        var awareCharactersByParticipantId = new java.util.HashMap<UUID, java.util.Set<UUID>>();
+        durable.awareCharactersByHostileTokenId().forEach((hostileId, characters) -> {
+            UUID participantId = currentMapTokenToParticipantId.get(hostileId);
+            if (participantId != null) awareCharactersByParticipantId.put(participantId, characters);
+        });
+        var awareHostileParticipantIds = durable.awareHostileTokenIds().stream()
+                .map(currentMapTokenToParticipantId::get).filter(Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        var event = cycle.pendingMovementEvent();
+        if (event != null && !event.discoveredByCharacterSheetIds().isEmpty()) {
+            for (UUID hostileId : event.threatHostileTokenIds()) {
+                UUID participantId = currentMapTokenToParticipantId.get(hostileId);
+                if (participantId != null) awareCharactersByParticipantId.merge(participantId,
+                        event.awareCharactersByHostileTokenId().getOrDefault(hostileId, java.util.Set.of()),
+                        (left, right) -> { var merged = new java.util.HashSet<>(left); merged.addAll(right); return java.util.Set.copyOf(merged); });
+            }
+            event.awareEnemyTokenIds().stream().map(currentMapTokenToParticipantId::get).filter(Objects::nonNull)
+                    .forEach(awareHostileParticipantIds::add);
+        }
+        var proposal = cycle.pendingEnvironmentProposal();
+        if (proposal != null && proposal.threatDiscovery() != null) {
+            for (UUID hostileId : proposal.threatDiscovery().threatHostileTokenIds()) {
+                UUID participantId = currentMapTokenToParticipantId.get(hostileId);
+                if (participantId != null) awareCharactersByParticipantId.merge(participantId,
+                        proposal.threatDiscovery().awareCharactersByHostileTokenId().getOrDefault(hostileId, java.util.Set.of()),
+                        (left, right) -> { var merged = new java.util.HashSet<>(left); merged.addAll(right); return java.util.Set.copyOf(merged); });
+            }
+            proposal.threatDiscovery().awareEnemyTokenIds().stream().map(currentMapTokenToParticipantId::get)
+                    .filter(Objects::nonNull).forEach(awareHostileParticipantIds::add);
+        }
+        List<CombatParticipant> result = participants.stream().map(participant -> {
+            boolean hostile = participant.enemyKind() != null || participant.statBlock() != null;
+            boolean isAware;
+            if (hostile) {
+                isAware = awareHostileParticipantIds.contains(participant.participantId());
+            } else {
+                isAware = !currentHostileParticipantIds.isEmpty() && currentHostileParticipantIds.stream()
+                        .allMatch(hostileParticipantId -> {
+                            UUID tokenId = currentHostileTokenByParticipantId.get(hostileParticipantId);
+                            return tokenId != null && awareCharactersByParticipantId
+                                    .getOrDefault(hostileParticipantId, java.util.Set.of()).contains(participant.participantId());
+                        });
+            }
+            return participant.withSurprised(!isAware);
+        }).toList();
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) LOGGER.info(
+                "dev_exploration_awareness_transfer_success participantCount={} hostileCount={} crosswalkCount={} unmatchedCrosswalkCount={} awareRelationshipCount={} awareParticipantCount={} surprisedParticipantCount={} durationMs={} result=applied",
+                participants.size(), currentHostileParticipantIds.size(), currentMapTokenToParticipantId.size(),
+                unmatchedCrosswalkCount, awareCharactersByParticipantId.values().stream().mapToInt(java.util.Set::size).sum()
+                        + awareHostileParticipantIds.size(),
+                result.size() - result.stream().filter(CombatParticipant::surprised).count(),
+                result.stream().filter(CombatParticipant::surprised).count(), elapsedMs(startedAt));
+        return result;
+    }
+
+    private static boolean hasExplorationAwarenessEvidence(
+            com.dndmaster.adventure.domain.runtime.ExplorationCycle cycle) {
+        var durable = cycle.threatAwareness();
+        if (!durable.awareCharactersByHostileTokenId().isEmpty() || !durable.awareHostileTokenIds().isEmpty()) return true;
+        var event = cycle.pendingMovementEvent();
+        if (event != null && (!event.discoveredByCharacterSheetIds().isEmpty()
+                || !event.awareCharacterSheetIds().isEmpty() || !event.awareEnemyTokenIds().isEmpty()
+                || !event.awareCharactersByHostileTokenId().isEmpty() || event.enemiesAware())) return true;
+        var proposal = cycle.pendingEnvironmentProposal();
+        if (proposal == null) return false;
+        if (!proposal.awareCharacterSheetIds().isEmpty()) return true;
+        if (proposal.threatDiscovery() == null) return false;
+        var discovery = proposal.threatDiscovery();
+        return !discovery.discovererCharacterSheetIds().isEmpty() || !discovery.awareEnemyTokenIds().isEmpty()
+                || !discovery.awareCharactersByHostileTokenId().isEmpty() || discovery.enemyDiscoveredFirst()
+                || discovery.enemyHeardNotification() || discovery.bothSidesNotHidden();
+    }
+
+    private static long elapsedMs(long startedAt) { return (System.nanoTime() - startedAt) / 1_000_000; }
+
+    /** Builds the server-owned map-token to combat-participant crosswalk for the current scenario enemies. */
+    public static java.util.Map<UUID, UUID> hostileMapTokenToParticipantId(UUID adventureId,
+            List<CombatEnemyProposal> enemies) {
+        Objects.requireNonNull(adventureId, "adventure id must not be null");
+        if (enemies == null) return java.util.Map.of();
+        var result = new java.util.HashMap<UUID, UUID>();
+        for (CombatEnemyProposal enemy : enemies) {
+            if (enemy == null || enemy.mode() == com.dndmaster.adventure.application.runtime.CombatStartMode.INSTANT
+                    || enemy.scenarioId().isBlank()) continue;
+            for (int instance = 1; instance <= enemy.count(); instance++) {
+                UUID participantId = combatEnemyId(adventureId, enemy.scenarioId(), instance);
+                // Scenario map tokens and combat participants share this server-derived identity.
+                result.put(participantId, participantId);
+            }
+        }
+        return java.util.Map.copyOf(result);
+    }
 
     public static List<CombatParticipant> fromPartyAndGmProposal(UUID adventureId,
             List<AdventurePartyMember> party, List<CombatEnemyProposal> enemies) {

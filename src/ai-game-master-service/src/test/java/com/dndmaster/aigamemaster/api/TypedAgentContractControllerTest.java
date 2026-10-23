@@ -1715,7 +1715,7 @@ class TypedAgentContractControllerTest {
                     RequestedGmProviderSelection requested, com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionResolver.EndpointResolution resolution, JsonNode schema) {
                 sent.set(prompt);
                 org.junit.jupiter.api.Assertions.assertTrue(schema.path("properties").has("enemyMoves"));
-                return new GmCompletionResult<>(parser.parse("{\"narration\":\"복도는 조용합니다.\",\"enemyMoves\":[],\"featureInteractions\":[],\"encounterRequested\":false}"), resolution.effectiveSelection());
+                return new GmCompletionResult<>(parser.parse("{\"narration\":\"복도는 조용합니다.\",\"enemyMoves\":[],\"featureInteractions\":[],\"encounterRequested\":false,\"hostileActionStarted\":false,\"threatDiscovery\":null}"), resolution.effectiveSelection());
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
@@ -1730,7 +1730,8 @@ class TypedAgentContractControllerTest {
     @Test
     void exploration_environment_requires_typed_enemy_routes_and_rejects_duplicate_tokens() {
         UUID featureId = UUID.randomUUID();
-        String valid = "{\"narration\":\"순찰병이 복도를 따라 이동합니다.\",\"encounterRequested\":false,\"featureInteractions\":[{\"featureId\":\""
+        String valid = "{\"narration\":\"순찰병이 복도를 따라 이동합니다.\",\"encounterRequested\":false,\"hostileActionStarted\":false,\"threatDiscovery\":{\"discovererCharacterSheetIds\":[\""
+                + SOLO_PLAYER_ID + "\"],\"enemyDiscoveredFirst\":false,\"enemyHeardNotification\":false,\"bothSidesNotHidden\":false,\"awareEnemyTokenIds\":[],\"awareCharactersByHostileTokenId\":{}},\"featureInteractions\":[{\"featureId\":\""
                 + featureId + "\"}],\"enemyMoves\":[{\"tokenId\":\"" + UUID.randomUUID()
                 + "\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}]}";
         TypedAgentContractController controller = new TypedAgentContractController(
@@ -1743,12 +1744,13 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertEquals(featureId, result.featureInteractions().getFirst().featureId());
         org.junit.jupiter.api.Assertions.assertEquals(2, result.enemyMoves().getFirst().path().size());
         org.junit.jupiter.api.Assertions.assertFalse(result.encounterRequested());
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(SOLO_PLAYER_ID), result.threatDiscovery().discovererCharacterSheetIds());
         TypedAgentContractController encounterController = new TypedAgentContractController(
-                selectedAdapter((operation, prompt, requested) -> "{\"narration\":\"적이 기습해 전투가 필요합니다.\",\"enemyMoves\":[],\"featureInteractions\":[],\"encounterRequested\":true}"),
+                selectedAdapter((operation, prompt, requested) -> "{\"narration\":\"적이 기습해 전투가 필요합니다.\",\"enemyMoves\":[],\"featureInteractions\":[],\"encounterRequested\":true,\"hostileActionStarted\":true,\"threatDiscovery\":null}"),
                 new ObjectMapper(), new ApiRequestGuard("service-secret"));
         org.junit.jupiter.api.Assertions.assertTrue(encounterController.explorationEnvironment("service-secret", request).encounterRequested());
 
-        String duplicate = "{\"narration\":\"순찰병이 이동합니다.\",\"encounterRequested\":false,\"featureInteractions\":[],\"enemyMoves\":["
+        String duplicate = "{\"narration\":\"순찰병이 이동합니다.\",\"encounterRequested\":false,\"hostileActionStarted\":false,\"threatDiscovery\":null,\"featureInteractions\":[],\"enemyMoves\":["
                 + "{\"tokenId\":\"00000000-0000-0000-0000-000000000001\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]},"
                 + "{\"tokenId\":\"00000000-0000-0000-0000-000000000001\",\"path\":[{\"x\":1,\"y\":1},{\"x\":1,\"y\":2}]}]}";
         TypedAgentContractController invalid = new TypedAgentContractController(

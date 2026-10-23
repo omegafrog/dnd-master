@@ -3,6 +3,7 @@ package com.dndmaster.adventure.combat;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.dndmaster.adventure.domain.combat.*;
+import com.dndmaster.adventure.application.combat.CombatStartParticipantFactory;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -137,5 +138,145 @@ class CombatEncounterPolicyTest {
         assertEquals(7, CombatResumePolicy.resume(ADVENTURE, snapshot).eventCursor());
         assertThrows(CombatResumeRejectedException.class,
                 () -> CombatResumePolicy.resume(UUID.randomUUID(), snapshot));
+    }
+
+    @Test
+    void combat_skips_only_the_first_turn_of_unaware_participants() {
+        var encounter = CombatStartPolicy.startFromCommittedGmTurn(true, ADVENTURE, List.of(
+                new CombatParticipant(HERO, "Hero", CombatParticipant.Controller.PLAYER, 20, null)
+                        .withSurprised(true),
+                new CombatParticipant(GOBLIN, "Goblin", CombatParticipant.Controller.AI, 15, "enemy",
+                        TurnResources.initial(), GOBLIN_STATS),
+                new CombatParticipant(SECOND_GOBLIN, "Aware scout", CombatParticipant.Controller.AI, 10, "enemy",
+                        TurnResources.initial(), GOBLIN_STATS)));
+
+        assertEquals(GOBLIN, encounter.currentParticipantId());
+        var afterGoblin = encounter.endCurrentTurn(encounter.version());
+        assertEquals(SECOND_GOBLIN, afterGoblin.currentParticipantId());
+        assertEquals(1, afterGoblin.round());
+
+        var afterScout = afterGoblin.endCurrentTurn(afterGoblin.version());
+        assertEquals(GOBLIN, afterScout.currentParticipantId());
+        assertEquals(2, afterScout.round());
+        assertFalse(afterScout.participants().stream().filter(p -> p.participantId().equals(HERO)).findFirst().orElseThrow().surprised());
+    }
+
+    @Test
+    void exploration_awareness_marks_only_unaware_combat_participants_surprised() {
+        UUID groupId = UUID.randomUUID(), unawareHero = UUID.randomUUID();
+        var proposal = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal("", List.of())
+                .withDiscovery(new com.dndmaster.adventure.domain.runtime.ExplorationCycle.ThreatDiscovery(
+                        java.util.Set.of(HERO), false, true, false, java.util.Set.of(GOBLIN), java.util.Set.of(GOBLIN),
+                        java.util.Map.of(GOBLIN, java.util.Set.of(HERO))),
+                        java.util.Set.of(HERO));
+        var cycle = com.dndmaster.adventure.domain.runtime.ExplorationCycle.start(UUID.randomUUID(),
+                java.util.Map.of(groupId, 10)).finishGroupTurn(groupId, false).withEnvironmentProposal(proposal);
+        var roster = List.of(
+                new CombatParticipant(HERO, "Aware hero", CombatParticipant.Controller.PLAYER, 10, null),
+                new CombatParticipant(unawareHero, "Unaware hero", CombatParticipant.Controller.PLAYER, 20, null),
+                new CombatParticipant(GOBLIN, "Aware enemy", CombatParticipant.Controller.AI, 15, "enemy",
+                        TurnResources.initial(), GOBLIN_STATS));
+
+        var participants = CombatStartParticipantFactory.applyExplorationAwareness(roster, cycle,
+                java.util.Map.of(GOBLIN, GOBLIN));
+        var encounter = CombatStartPolicy.startFromCommittedGmTurn(true, ADVENTURE, participants);
+
+        assertEquals(GOBLIN, encounter.currentParticipantId());
+        assertTrue(encounter.participants().stream().filter(p -> p.participantId().equals(unawareHero)).findFirst().orElseThrow().surprised());
+        var next = encounter.endCurrentTurn(encounter.version());
+        assertEquals(HERO, next.currentParticipantId());
+        var afterHero = next.endCurrentTurn(next.version());
+        assertEquals(GOBLIN, afterHero.currentParticipantId());
+        assertFalse(afterHero.participants().stream().filter(p -> p.participantId().equals(unawareHero)).findFirst().orElseThrow().surprised());
+    }
+
+    @Test
+    void legacy_exploration_cycle_without_awareness_preserves_participant_defaults_and_starts_combat() {
+        UUID groupId = UUID.randomUUID();
+        var cycle = com.dndmaster.adventure.domain.runtime.ExplorationCycle.start(UUID.randomUUID(),
+                java.util.Map.of(groupId, 10));
+        var roster = List.of(
+                new CombatParticipant(HERO, "Hero", CombatParticipant.Controller.PLAYER, 10, null),
+                new CombatParticipant(GOBLIN, "Goblin", CombatParticipant.Controller.AI, 15, "enemy",
+                        TurnResources.initial(), GOBLIN_STATS));
+
+        var participants = CombatStartParticipantFactory.applyExplorationAwareness(roster, cycle,
+                java.util.Map.of(GOBLIN, GOBLIN));
+        var encounter = CombatStartPolicy.startFromCommittedGmTurn(true, ADVENTURE, participants);
+
+        assertEquals(CombatEncounter.Status.ACTIVE, encounter.status());
+        assertFalse(encounter.participants().stream().anyMatch(CombatParticipant::surprised));
+    }
+
+    @Test
+    void hostileAwarenessIsAppliedPerMapTokenWithinTheSameSide() {
+        UUID groupId = UUID.randomUUID(), partialHero = UUID.randomUUID();
+        UUID awareEnemy = UUID.randomUUID(), unawareEnemy = UUID.randomUUID();
+        UUID awareToken = UUID.randomUUID(), unawareToken = UUID.randomUUID();
+        var proposal = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal("", List.of())
+                .withDiscovery(new com.dndmaster.adventure.domain.runtime.ExplorationCycle.ThreatDiscovery(
+                        java.util.Set.of(HERO), false, false, false, java.util.Set.of(awareToken),
+                        java.util.Set.of(awareToken, unawareToken), java.util.Map.of(
+                                awareToken, java.util.Set.of(HERO, partialHero),
+                                unawareToken, java.util.Set.of(HERO))), java.util.Set.of(HERO, partialHero));
+        var cycle = com.dndmaster.adventure.domain.runtime.ExplorationCycle.start(UUID.randomUUID(),
+                java.util.Map.of(groupId, 10)).finishGroupTurn(groupId, false).withEnvironmentProposal(proposal);
+        var stateWithTokenHandoff = new com.dndmaster.adventure.domain.runtime.ExplorationState(List.of(), cycle)
+                .withTokenTransition(new com.dndmaster.adventure.domain.runtime.CombatTokenTransition(UUID.randomUUID(),
+                        UUID.randomUUID(), UUID.randomUUID(),
+                        com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Direction.ENTER, 0,
+                        com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status.REQUESTED));
+        var roster = List.of(
+                new CombatParticipant(HERO, "Aware of both threats", CombatParticipant.Controller.PLAYER, 10, null),
+                new CombatParticipant(partialHero, "Aware of one threat", CombatParticipant.Controller.PLAYER, 8, null),
+                new CombatParticipant(awareEnemy, "Aware enemy", CombatParticipant.Controller.AI, 15, "enemy",
+                        TurnResources.initial(), GOBLIN_STATS),
+                new CombatParticipant(unawareEnemy, "Unaware enemy", CombatParticipant.Controller.AI, 12, "enemy",
+                        TurnResources.initial(), GOBLIN_STATS));
+
+        assertEquals(cycle, stateWithTokenHandoff.cycle());
+        var participants = CombatStartParticipantFactory.applyExplorationAwareness(roster, stateWithTokenHandoff.cycle(),
+                java.util.Map.of(awareToken, awareEnemy, unawareToken, unawareEnemy));
+
+        assertFalse(participants.stream().filter(p -> p.participantId().equals(HERO)).findFirst().orElseThrow().surprised());
+        assertTrue(participants.stream().filter(p -> p.participantId().equals(partialHero)).findFirst().orElseThrow().surprised());
+        assertFalse(participants.stream().filter(p -> p.participantId().equals(awareEnemy)).findFirst().orElseThrow().surprised());
+        assertTrue(participants.stream().filter(p -> p.participantId().equals(unawareEnemy)).findFirst().orElseThrow().surprised());
+    }
+
+    @Test
+    void environmentAwarenessSurvivesPhaseCompletionAndIsScopedToThreatTokensUntilCombatStarts() {
+        UUID groupId = UUID.randomUUID(), unawareHero = UUID.randomUUID();
+        UUID awareEnemy = UUID.randomUUID(), secondEnemy = UUID.randomUUID();
+        var threatTokens = java.util.Set.of(awareEnemy, secondEnemy);
+        var proposal = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal("", List.of())
+                .withDiscovery(new com.dndmaster.adventure.domain.runtime.ExplorationCycle.ThreatDiscovery(
+                        java.util.Set.of(HERO), false, false, false, java.util.Set.of(awareEnemy), threatTokens,
+                        java.util.Map.of(awareEnemy, java.util.Set.of(HERO), secondEnemy, java.util.Set.of(HERO))), java.util.Set.of(HERO));
+        var cycle = com.dndmaster.adventure.domain.runtime.ExplorationCycle.start(UUID.randomUUID(),
+                java.util.Map.of(groupId, 10)).finishGroupTurn(groupId, false).withEnvironmentProposal(proposal);
+
+        var completed = cycle.completeEnvironmentPhase(cycle.currentPhaseCommandId());
+
+        assertNull(completed.pendingEnvironmentProposal());
+        assertEquals(java.util.Set.of(HERO), completed.threatAwareness().awareCharactersByHostileTokenId().get(awareEnemy));
+        var roster = List.of(
+                new CombatParticipant(HERO, "Aware hero", CombatParticipant.Controller.PLAYER, 10, null),
+                new CombatParticipant(unawareHero, "Unaware hero", CombatParticipant.Controller.PLAYER, 8, null),
+                new CombatParticipant(awareEnemy, "Aware enemy", CombatParticipant.Controller.AI, 15, "enemy",
+                        TurnResources.initial(), GOBLIN_STATS),
+                new CombatParticipant(secondEnemy, "Unaware enemy", CombatParticipant.Controller.AI, 12, "enemy",
+                        TurnResources.initial(), GOBLIN_STATS));
+
+        var encounter = CombatStartPolicy.startFromCommittedGmTurn(true, ADVENTURE,
+                CombatStartParticipantFactory.applyExplorationAwareness(roster, completed,
+                        java.util.Map.of(awareEnemy, awareEnemy, secondEnemy, secondEnemy)));
+
+        assertFalse(encounter.participants().stream().filter(p -> p.participantId().equals(HERO)).findFirst().orElseThrow().surprised());
+        assertTrue(encounter.participants().stream().filter(p -> p.participantId().equals(unawareHero)).findFirst().orElseThrow().surprised());
+        assertFalse(encounter.participants().stream().filter(p -> p.participantId().equals(awareEnemy)).findFirst().orElseThrow().surprised());
+        assertTrue(encounter.participants().stream().filter(p -> p.participantId().equals(secondEnemy)).findFirst().orElseThrow().surprised());
+        assertEquals(awareEnemy, encounter.currentParticipantId());
+        assertEquals(HERO, encounter.endCurrentTurn(encounter.version()).currentParticipantId());
     }
 }

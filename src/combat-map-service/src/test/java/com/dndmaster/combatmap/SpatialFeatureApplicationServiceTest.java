@@ -24,9 +24,40 @@ import com.dndmaster.combatmap.domain.SpatialTrigger;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 
 class SpatialFeatureApplicationServiceTest {
+    @Test
+    void enemy_map_tokens_use_the_server_combat_participant_identity_for_each_scenario_instance() {
+        MapId mapId = new MapId(UUID.randomUUID());
+        MapOwnerId owner = new MapOwnerId(UUID.randomUUID());
+        UUID adventureId = UUID.randomUUID();
+        String scenarioId = "scenario:forest-ambush";
+        CombatMap draft = new CombatMap(mapId, new AdventureId(adventureId), new RuleSetId(UUID.randomUUID()),
+                new GridSpec(5, 5, 50, 5), new com.dndmaster.combatmap.domain.PlayerId(owner.value()),
+                List.of(), java.util.Set.of(), List.of(), 0, null);
+        InMemoryStore store = new InMemoryStore(owner, draft);
+        SpatialFeatureApplicationService application = new SpatialFeatureApplicationService(store);
+        var batch = new SpatialFeaturePlacementBatch("scenario-package:1", false, List.of(), List.of(
+                new SpatialFeaturePlacementBatch.EnemyPlacement(scenarioId, "goblin",
+                        List.of(new SpatialFeaturePlacementBatch.Position(0.2, 0.2),
+                                new SpatialFeaturePlacementBatch.Position(0.8, 0.8)))), List.of(), List.of());
+
+        application.prepare(mapId, owner, batch, 1,
+                new SpatialPreparationCommand(UUID.randomUUID(), "scenario-enemy-identities", 0));
+
+        var expectedIds = java.util.stream.IntStream.rangeClosed(1, 2)
+                .mapToObj(instance -> UUID.nameUUIDFromBytes((adventureId + "|combat-enemy|" + scenarioId + "|" + instance)
+                        .getBytes(StandardCharsets.UTF_8)))
+                .toList();
+        var actualIds = store.map.tokens().stream()
+                .filter(token -> token.type() == com.dndmaster.combatmap.domain.TokenType.ENEMY)
+                .map(token -> token.id().value()).toList();
+
+        assertEquals(expectedIds, actualIds);
+    }
+
     @Test
     void replays_the_same_command_and_rejects_fingerprint_or_version_conflicts() {
         MapId mapId = new MapId(UUID.randomUUID());

@@ -13,7 +13,7 @@ public final class CombatStartPolicy {
                 .sorted(java.util.Comparator.comparingInt(CombatParticipant::initiative).reversed()
                         .thenComparing(p -> p.participantId().toString())).toList();
         return new CombatEncounter(UUID.randomUUID(), adventureId, CombatEncounter.Status.ACTIVE, 1,
-                order.participantIds().get(0), orderedParticipants, 1, 0);
+                firstUnsurprised(orderedParticipants), orderedParticipants, 1, 0);
     }
     public static CombatEncounter prepareFromCommittedGmTurn(boolean gmTurnCommitted, UUID adventureId,
                                                               List<CombatParticipant> participants) {
@@ -26,12 +26,18 @@ public final class CombatStartPolicy {
                 .sorted(java.util.Comparator.comparingInt(CombatParticipant::initiative).reversed()
                         .thenComparing(p -> p.participantId().toString())).toList();
         return new CombatEncounter(UUID.randomUUID(), adventureId, CombatEncounter.Status.PREPARING, 1,
-                order.participantIds().get(0), orderedParticipants, 1, 0);
+                firstUnsurprised(orderedParticipants), orderedParticipants, 1, 0);
     }
     public static void requireNoActiveEncounter(UUID adventureId, List<CombatEncounter> activeEncounters) {
         if (activeEncounters.stream().anyMatch(e -> e.adventureId().equals(adventureId)
                 && e.status() != CombatEncounter.Status.ENDED)) {
             throw new ActiveCombatEncounterException("adventure already has an active combat encounter");
         }
+    }
+
+    private static UUID firstUnsurprised(List<CombatParticipant> participants) {
+        return participants.stream().filter(p -> !p.surprised() && !p.isDefeated())
+                .map(CombatParticipant::participantId).findFirst()
+                .orElseThrow(() -> new IllegalStateException("COMBAT_HAS_NO_AWARE_PARTICIPANT"));
     }
 }

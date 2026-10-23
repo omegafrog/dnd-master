@@ -48,7 +48,8 @@ public record CombatEncounter(UUID encounterId, UUID adventureId, Status status,
         if (activated.stream().noneMatch(participant -> participant.enemyKind() != null)) {
             throw new IllegalArgumentException("ENEMY_SHEET_IDENTITY_REQUIRED");
         }
-        return new CombatEncounter(encounterId, adventureId, Status.ACTIVE, 1, currentParticipantId,
+        UUID first = firstNonSurprised(activated, currentParticipantId);
+        return new CombatEncounter(encounterId, adventureId, Status.ACTIVE, 1, first,
                 activated, version + 1, eventCursor + 1, narrativePositions, null);
     }
 
@@ -122,13 +123,22 @@ public record CombatEncounter(UUID encounterId, UUID adventureId, Status status,
                         ? p.withPublicCondition(currentActorCondition) : p).toList();
         int currentIndex = participants.indexOf(currentParticipant());
         int nextIndex = currentIndex;
+        int previousIndex = currentIndex;
+        int nextRound = round;
         do {
             nextIndex = (nextIndex + 1) % participants.size();
-            if (nextIndex == currentIndex && currentParticipants.get(nextIndex).isDefeated()) {
-                throw new IllegalStateException("NO_ACTIVE_COMBAT_PARTICIPANTS");
+            if (nextIndex <= previousIndex) nextRound++;
+            previousIndex = nextIndex;
+            CombatParticipant candidate = currentParticipants.get(nextIndex);
+            if (candidate.isDefeated()) continue;
+            if (candidate.surprised()) {
+                currentParticipants = currentParticipants.stream().map(p -> p.participantId().equals(candidate.participantId())
+                        ? p.withSurprised(false) : p).toList();
+                continue;
             }
-        } while (currentParticipants.get(nextIndex).isDefeated());
-        int nextRound = nextIndex <= currentIndex ? round + 1 : round;
+            break;
+        } while (nextIndex != currentIndex);
+        if (currentParticipants.get(nextIndex).isDefeated()) throw new IllegalStateException("NO_ACTIVE_COMBAT_PARTICIPANTS");
         UUID nextParticipantId = currentParticipants.get(nextIndex).participantId();
         List<CombatParticipant> resetParticipants = currentParticipants.stream()
                 .map(p -> p.participantId().equals(nextParticipantId)
@@ -180,5 +190,16 @@ public record CombatEncounter(UUID encounterId, UUID adventureId, Status status,
 
     private void requireVersion(long expectedVersion) {
         if (version != expectedVersion) throw new IllegalStateException("COMBAT_VERSION_CONFLICT");
+    }
+
+    private static UUID firstNonSurprised(List<CombatParticipant> participants, UUID preferred) {
+        int start = -1;
+        for (int i = 0; i < participants.size(); i++) if (participants.get(i).participantId().equals(preferred)) start = i;
+        if (start < 0) throw new IllegalStateException("CURRENT_COMBAT_PARTICIPANT_MISSING");
+        for (int offset = 0; offset < participants.size(); offset++) {
+            CombatParticipant candidate = participants.get((start + offset) % participants.size());
+            if (!candidate.surprised() && !candidate.isDefeated()) return candidate.participantId();
+        }
+        throw new IllegalStateException("COMBAT_HAS_NO_AWARE_PARTICIPANT");
     }
 }

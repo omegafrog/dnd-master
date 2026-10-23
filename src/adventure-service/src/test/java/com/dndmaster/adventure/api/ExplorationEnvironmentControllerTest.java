@@ -117,15 +117,17 @@ class ExplorationEnvironmentControllerTest {
         UUID groupId = UUID.randomUUID(), playerTokenId = UUID.randomUUID(), enemyTokenId = UUID.randomUUID();
         UUID featureId = UUID.randomUUID(), hostileTokenId = UUID.randomUUID(), movementOperationId = UUID.randomUUID();
         UUID combatId = UUID.randomUUID();
+        UUID characterSheetId = UUID.randomUUID();
         var group = new ExplorationGroup(groupId, playerTokenId, List.of(
-                new ExplorationGroup.Member(UUID.randomUUID(), ExplorationGroup.Formation.FRONT, 30)));
+                new ExplorationGroup.Member(characterSheetId, ExplorationGroup.Formation.FRONT, 30)));
         var cycle = new ExplorationCycle(UUID.randomUUID(), 1, Map.of(groupId, 13), List.of(groupId), Set.of(groupId),
                 ExplorationCycle.Phase.ENVIRONMENT, ExplorationCycle.EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION,
                 Set.of(), 6, new ExplorationCycle.EnvironmentProposal("안전한 상황 서술", List.of(
                         new ExplorationCycle.EnemyMove(enemyTokenId, List.of(new ExplorationCycle.Position(3, 4)))),
                         List.of(new ExplorationCycle.FeatureInteraction(featureId)), 27, false, null), Set.of(),
                 new ExplorationCycle.MovementStopEvent(UUID.randomUUID(), groupId, movementOperationId,
-                        "HOSTILE_OBSERVED", List.of("HOSTILE_OBSERVED"), new ExplorationCycle.Position(2, 1), hostileTokenId),
+                        "HOSTILE_OBSERVED", List.of("HOSTILE_OBSERVED"), new ExplorationCycle.Position(2, 1), hostileTokenId,
+                        Set.of(characterSheetId), Set.of(characterSheetId), false),
                 Set.of(), combatId);
 
         String json = new ObjectMapper().writeValueAsString(
@@ -138,7 +140,8 @@ class ExplorationEnvironmentControllerTest {
         assertTrue(json.contains("currentPhaseCommandId"));
         for (String privateField : List.of("initiativeByGroup", "completedEnvironmentCommands", "enemyMoves", "path",
                 "tokenId", "featureInteractions", "featureId", "expectedMapVersion", "movementOperationId",
-                "hostileTokenId", "linkedCombatEncounterId", "resolvedMovementEventIds")) {
+                "hostileTokenId", "linkedCombatEncounterId", "resolvedMovementEventIds", "discoveredByCharacterSheetIds",
+                "awareCharacterSheetIds", "enemiesAware", "threatDiscovery")) {
             assertFalse(json.contains("\"" + privateField + "\""), privateField);
             assertFalse(environmentJson.contains("\"" + privateField + "\""), privateField);
         }
@@ -165,6 +168,150 @@ class ExplorationEnvironmentControllerTest {
         assertFalse(json.contains("hidden-enemy-token-identifier"));
         assertFalse(json.contains("private-map-feature-identifier"));
         assertFalse(json.contains(event.hostileTokenId().toString()));
+    }
+
+    @Test void notificationSharesPrivateAwarenessAndRetriesWithoutExposingDiscovererIds() throws Exception {
+        UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), groupId = UUID.randomUUID();
+        UUID discoverer = UUID.randomUUID(), companion = UUID.randomUUID(), commandId = UUID.randomUUID(), hostileTokenId = UUID.randomUUID();
+        var party = List.of(
+                new AdventurePartyMember(new CharacterSheetId(discoverer), ControlMode.DIRECT, true, true, true, true, true, true),
+                new AdventurePartyMember(new CharacterSheetId(companion), ControlMode.DIRECT, true, true, true, true, true, true));
+        Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), party, new AdventureContext("복도", "", "", ""));
+        var group = new ExplorationGroup(groupId, UUID.randomUUID(), List.of(
+                new ExplorationGroup.Member(discoverer, ExplorationGroup.Formation.FRONT, 30),
+                new ExplorationGroup.Member(companion, ExplorationGroup.Formation.REAR, 25)));
+        var event = new ExplorationCycle.MovementStopEvent(UUID.randomUUID(), groupId, UUID.randomUUID(), "HOSTILE_OBSERVED",
+                List.of("HOSTILE_OBSERVED"), new ExplorationCycle.Position(1, 1), null,
+                Set.of(discoverer), Set.of(discoverer), false);
+        var cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(groupId, 10)).interruptGroupTurn(groupId, event);
+        adventure.updateExplorationState(new OwnerPlayerId(owner), adventure.version(), new ExplorationState(List.of(group), cycle));
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findByIdForUpdate(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        when(players.playerId()).thenReturn(owner);
+        RuntimeTurnApplicationService runtime = mock(RuntimeTurnApplicationService.class);
+        when(runtime.planExplorationEnvironmentPhase(any(), any(), any(), any(), any())).thenReturn(
+                new ExplorationCycle.EnvironmentProposal("알림", List.of(), List.of(), -1, false, null,
+                        new ExplorationCycle.ThreatDiscovery(Set.of(), false, true, false, Set.of(hostileTokenId)), Set.of()));
+        CombatMapViewPort views = mock(CombatMapViewPort.class);
+        when(views.playerView(eq(adventureId), eq(owner))).thenReturn(Optional.of(new CombatMapViewPort.View(
+                UUID.randomUUID(), new CombatMapViewPort.Grid(10, 10, 70, 5), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), 0)));
+        when(views.gmEnvironmentView(any(), eq(owner))).thenReturn("{} GM_MAP_STATE={\"tokens\":[{\"id\":\"" + hostileTokenId + "\",\"type\":\"ENEMY\"}]}");
+        AdventureController controller = controller(adventures, runtime,
+                mock(CombatMapPort.class), views, players,
+                mock(AppliedRuleSetApplicationService.class));
+        var request = new AdventureController.ExplorationThreatNotificationRequest(adventure.version(), commandId, groupId, discoverer);
+        String previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        Logger logger = (Logger) LoggerFactory.getLogger(AdventureController.class);
+        var appender = new ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            var response = controller.notifyExplorationThreat(adventureId, request);
+            assertEquals(Set.of(discoverer, companion), storedCycle(adventure).pendingMovementEvent().awareCharacterSheetIds());
+            assertTrue(storedCycle(adventure).pendingMovementEvent().enemiesAware());
+            String publicJson = new ObjectMapper().writeValueAsString(response);
+            assertFalse(publicJson.contains("discoveredByCharacterSheetIds"));
+            assertFalse(publicJson.contains("awareCharacterSheetIds"));
+            var retry = controller.notifyExplorationThreat(adventureId, request);
+            assertEquals(response.version(), retry.version());
+            verify(adventures, times(1)).save(adventure);
+        } finally {
+            logger.detachAppender(appender);
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
+        String logs = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                .reduce("", (left, right) -> left + "\n" + right);
+        assertTrue(logs.contains("commandId=" + commandId));
+        assertTrue(logs.contains("memberCount=2"));
+        assertTrue(logs.contains("result=shared"));
+        assertTrue(logs.contains("result=already_shared"));
+            assertTrue(logs.contains("enemiesHeard=true"));
+    }
+
+    @Test void movementHostileObservationUsesTypedDiscoverersAndCanBeSharedPrivately() throws Exception {
+        UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), mapId = UUID.randomUUID();
+        UUID discoverer = UUID.randomUUID(), companion = UUID.randomUUID(), groupId = UUID.randomUUID();
+        UUID hostileId = UUID.randomUUID(), operationId = UUID.randomUUID(), commandId = UUID.randomUUID();
+        var party = List.of(
+                new AdventurePartyMember(new CharacterSheetId(discoverer), ControlMode.DIRECT, true, true, true, true, true, true),
+                new AdventurePartyMember(new CharacterSheetId(companion), ControlMode.DIRECT, true, true, true, true, true, true));
+        Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), party, new AdventureContext("복도", "", "", ""));
+        var group = new ExplorationGroup(groupId, UUID.randomUUID(), List.of(
+                new ExplorationGroup.Member(discoverer, ExplorationGroup.Formation.FRONT, 30),
+                new ExplorationGroup.Member(companion, ExplorationGroup.Formation.REAR, 25)));
+        var initialCycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(groupId, 10));
+        var state = new ExplorationState(List.of(group), initialCycle);
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findByIdForUpdate(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        when(players.playerId()).thenReturn(owner);
+        RuntimeTurnApplicationService runtime = mock(RuntimeTurnApplicationService.class);
+        when(runtime.planExplorationEnvironmentPhase(any(), any(), any(), any(), any())).thenReturn(
+                new ExplorationCycle.EnvironmentProposal("발견", List.of(), List.of(), -1, false, null,
+                        new ExplorationCycle.ThreatDiscovery(Set.of(discoverer), false, false, false, Set.of(), Set.of(hostileId),
+                                Map.of(hostileId, Set.of(discoverer))),
+                        Set.of(discoverer)),
+                new ExplorationCycle.EnvironmentProposal("알림", List.of(), List.of(), -1, false, null,
+                        new ExplorationCycle.ThreatDiscovery(Set.of(), false, true, false, Set.of(hostileId)), Set.of()));
+        CombatMapViewPort views = mock(CombatMapViewPort.class);
+        when(views.playerView(eq(adventureId), eq(owner))).thenReturn(Optional.of(new CombatMapViewPort.View(
+                mapId, new CombatMapViewPort.Grid(10, 10, 70, 5), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), 0)));
+        when(views.gmEnvironmentView(eq(mapId), eq(owner))).thenReturn("{} GM_MAP_STATE={\"tokens\":[{\"id\":\"" + hostileId + "\",\"type\":\"ENEMY\"}]}");
+        AdventureController controller = controller(adventures, runtime, mock(CombatMapPort.class), views, players,
+                mock(AppliedRuleSetApplicationService.class));
+        var result = new CombatMapMoveResult(0, operationId, com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED,
+                List.of(), List.of(), new CombatMapPreviewPosition(1, 2), List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED")
+                .withHostileTokenId(hostileId);
+        Logger controllerLogger = (Logger) LoggerFactory.getLogger(AdventureController.class);
+        var diagnostics = new ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        diagnostics.start();
+        controllerLogger.addAppender(diagnostics);
+        String previousDiagnostics = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        com.dndmaster.adventure.domain.runtime.ExplorationCycle.MovementStopEvent event;
+        try {
+            event = controller.adjudicateMovementThreatDiscovery(adventure, mapId, state, group, result, UUID.randomUUID());
+            var unknownHostile = result.withHostileTokenId(UUID.randomUUID());
+            assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.adjudicateMovementThreatDiscovery(
+                    adventure, mapId, state, group, unknownHostile, UUID.randomUUID()));
+        } finally {
+            controllerLogger.detachAppender(diagnostics);
+            if (previousDiagnostics == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previousDiagnostics);
+        }
+        String diagnosticLogs = diagnostics.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                .reduce("", (left, right) -> left + "\n" + right);
+        assertTrue(diagnosticLogs.contains("operation=exploration_movement_threat_discovery outcome=started"));
+        assertTrue(diagnosticLogs.contains("eligibleHostileCount=1"));
+        assertTrue(diagnosticLogs.contains("result=private_discovery_saved"));
+        assertTrue(diagnosticLogs.contains("recoveryAction=retry_same_movement_operation"));
+        assertTrue(diagnosticLogs.contains("failureClass=ApiContractException"));
+        assertEquals(Set.of(discoverer), event.discoveredByCharacterSheetIds());
+        assertEquals(Set.of(hostileId), event.threatHostileTokenIds());
+        assertFalse(event.awareCharacterSheetIds().contains(companion));
+        verify(runtime).planExplorationEnvironmentPhase(any(), any(), any(), any(), argThat(input ->
+                input.contains("MOVEMENT_THREAT_DISCOVERY=true") && input.contains("ELIGIBLE_HOSTILE_TOKEN_IDS")
+                        && input.contains(groupId.toString()) && input.contains("FRONT") && input.contains("REAR")));
+
+        var interrupted = initialCycle.interruptGroupTurn(groupId, event);
+        adventure.updateExplorationState(new OwnerPlayerId(owner), adventure.version(), state.withCycle(interrupted));
+        var request = new AdventureController.ExplorationThreatNotificationRequest(adventure.version(), commandId, groupId, discoverer);
+        var response = controller.notifyExplorationThreat(adventureId, request);
+        assertEquals(Set.of(discoverer, companion), storedCycle(adventure).pendingMovementEvent().awareCharacterSheetIds());
+        assertTrue(storedCycle(adventure).pendingMovementEvent().enemiesAware());
+        String publicJson = new ObjectMapper().writeValueAsString(response);
+        assertFalse(publicJson.contains("discoveredByCharacterSheetIds"));
+        var retry = controller.notifyExplorationThreat(adventureId, request);
+        assertEquals(response.version(), retry.version());
+        verify(runtime, times(2)).planExplorationEnvironmentPhase(any(), any(), any(), any(), any());
+        verify(adventures, times(1)).save(adventure);
     }
 
     @Test void hiddenMapFactInEnvironmentNarrationIsRejectedBeforeProposalPersistence() {
@@ -218,7 +365,7 @@ class ExplorationEnvironmentControllerTest {
         var model = new com.dndmaster.adventure.domain.scenario.ScenarioModel(1, List.of(), List.of(), List.of(),
                 List.of(), List.of(enemy), List.of(), List.of(), "");
         var fixture = narrationSafetyFixture("고블린 정찰병이 3,4에 숨어 있습니다.",
-                "{\"tokens\":[{\"id\":\"hidden-enemy-token-id\",\"type\":\"ENEMY\",\"x\":3,\"y\":4,\"discovery\":\"HIDDEN\"}]}",
+                "{\"tokens\":[{\"id\":\"00000000-0000-0000-0000-000000000099\",\"type\":\"ENEMY\",\"x\":3,\"y\":4,\"discovery\":\"HIDDEN\"}]}",
                 model);
 
         assertThrows(IllegalStateException.class, () -> fixture.controller().advanceExplorationEnvironmentPhase(
@@ -313,6 +460,8 @@ class ExplorationEnvironmentControllerTest {
         when(views.playerView(eq(adventureId), eq(owner))).thenReturn(Optional.of(new CombatMapViewPort.View(
                 mapId, new CombatMapViewPort.Grid(10, 10, 70, 5), List.of(), List.of(), List.of(), List.of(),
                 List.of(), List.of(), 0)));
+        when(views.gmEnvironmentView(eq(mapId), eq(owner))).thenReturn("{\"tokens\":[]}\n GM_MAP_STATE={\"tokens\":[]}");
+        when(views.gmEnvironmentView(eq(mapId), eq(owner))).thenReturn("{\"tokens\":[]}\n GM_MAP_STATE={\"tokens\":[]}");
         CombatMapPort mapPort = mock(CombatMapPort.class);
         AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
         when(players.playerId()).thenReturn(owner);
@@ -354,8 +503,13 @@ class ExplorationEnvironmentControllerTest {
         when(adventures.findByIdForUpdate(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
         AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
         when(players.playerId()).thenReturn(owner);
+        CombatMapViewPort views = mock(CombatMapViewPort.class);
+        when(views.playerView(eq(adventureId), eq(owner))).thenReturn(Optional.of(new CombatMapViewPort.View(
+                UUID.randomUUID(), new CombatMapViewPort.Grid(10, 10, 70, 5), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), 0)));
+        when(views.transitionCombatTokens(any())).thenReturn(new CombatMapViewPort.TokenTransitionResult("APPLIED", 1, List.of()));
         AdventureController controller = controller(adventures, mock(RuntimeTurnApplicationService.class),
-                mock(CombatMapPort.class), mock(CombatMapViewPort.class), players,
+                mock(CombatMapPort.class), views, players,
                 mock(AppliedRuleSetApplicationService.class));
 
         controller.linkExplorationCycleToCombat(adventureId, encounterId);
@@ -432,9 +586,15 @@ class ExplorationEnvironmentControllerTest {
         when(adventures.findByIdForUpdate(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
         AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
         when(players.playerId()).thenReturn(owner);
+        UUID mapId = UUID.randomUUID();
+        CombatMapViewPort views = mock(CombatMapViewPort.class);
+        when(views.playerView(eq(adventureId), eq(owner))).thenReturn(Optional.of(new CombatMapViewPort.View(
+                mapId, new CombatMapViewPort.Grid(10, 10, 70, 5), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), 0)));
+        when(views.transitionCombatTokens(any())).thenReturn(new CombatMapViewPort.TokenTransitionResult("APPLIED", 1, List.of()));
         var lifecycle = mock(CombatLifecycleApplicationService.class);
         AdventureController controller = controller(adventures, mock(RuntimeTurnApplicationService.class),
-                mock(CombatMapPort.class), mock(CombatMapViewPort.class), players,
+                mock(CombatMapPort.class), views, players,
                 mock(AppliedRuleSetApplicationService.class), lifecycle);
         Logger logger = (Logger) LoggerFactory.getLogger(AdventureController.class);
         var appender = new ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
@@ -474,6 +634,196 @@ class ExplorationEnvironmentControllerTest {
         }
     }
 
+    @Test
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    void ownerPlacementUsesRenderedMapVersionAndKeepsPendingStateWhenMapStillRequiresPlacement(
+            org.springframework.boot.test.system.CapturedOutput output) {
+        UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), mapId = UUID.randomUUID();
+        UUID encounterId = UUID.randomUUID(), operationId = UUID.randomUUID(), groupId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID(), groupTokenId = UUID.randomUUID();
+        var party = List.of(new AdventurePartyMember(new CharacterSheetId(characterId), ControlMode.DIRECT,
+                true, true, true, true, true, true));
+        Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), party,
+                new AdventureContext("복도", "", "", ""));
+        var group = new ExplorationGroup(groupId, groupTokenId, List.of(
+                new ExplorationGroup.Member(characterId, ExplorationGroup.Formation.FRONT, 30)));
+        var cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(groupId, 10)).linkCombatEncounter(encounterId);
+        var transition = new CombatTokenTransition(operationId, encounterId, mapId,
+                CombatTokenTransition.Direction.ENTER, 3, CombatTokenTransition.Status.PLACEMENT_REQUIRED);
+        adventure.updateExplorationState(new OwnerPlayerId(owner), 0, new ExplorationState(List.of(group), cycle, transition));
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findByIdForUpdate(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        when(players.playerId()).thenReturn(owner);
+        CombatMapViewPort views = mock(CombatMapViewPort.class);
+        when(views.playerView(adventureId, owner)).thenReturn(Optional.of(new CombatMapViewPort.View(mapId,
+                new CombatMapViewPort.Grid(8, 8, 70, 5), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 9)));
+        when(views.transitionCombatTokens(any())).thenReturn(
+                new CombatMapViewPort.TokenTransitionResult("PLACEMENT_REQUIRED", 9, List.of()));
+        AdventureController controller = controller(adventures, mock(RuntimeTurnApplicationService.class),
+                mock(CombatMapPort.class), views, players, mock(AppliedRuleSetApplicationService.class));
+
+        String previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        AdventureController.ExplorationGroupsResponse response;
+        try {
+            response = controller.submitCombatTokenPlacement(adventureId,
+                    new AdventureController.CombatTokenPlacementRequest(adventure.version(), 9L, List.of(
+                            new CombatTokenTransition.Placement(characterId, 2, 3))));
+        } finally {
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
+
+        assertEquals(CombatTokenTransition.Status.PLACEMENT_REQUIRED, response.tokenTransition().status());
+        var command = org.mockito.ArgumentCaptor.forClass(CombatMapViewPort.TokenTransitionCommand.class);
+        verify(views).transitionCombatTokens(command.capture());
+        assertEquals(operationId, command.getValue().operationId());
+        assertEquals(9, command.getValue().expectedVersion());
+        assertEquals(List.of(new CombatMapViewPort.TokenTransitionPlacement(characterId, 2, 3)), command.getValue().placements());
+        assertEquals(CombatTokenTransition.Status.PLACEMENT_REQUIRED,
+                ((ExplorationState) adventure.gameState().values().get("explorationState")).tokenTransition().status());
+        assertTrue(output.getOut().contains("operation=combat_token_manual_placement outcome=started"));
+        assertTrue(output.getOut().contains("operationId=" + operationId));
+        assertTrue(output.getOut().contains("expectedPlacementCount=1 actualPlacementCount=1"));
+        assertTrue(output.getOut().contains("result=placement_required mapVersion=9"));
+    }
+
+    @Test void ownerPlacementRejectsAnotherPlayerBeforeMapAccess() {
+        UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID();
+        Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), List.of(
+                        new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT,
+                                true, true, true, true, true, true)),
+                new AdventureContext("복도", "", "", ""));
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findByIdForUpdate(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        when(players.playerId()).thenReturn(UUID.randomUUID());
+        CombatMapViewPort views = mock(CombatMapViewPort.class);
+        AdventureController controller = controller(adventures, mock(RuntimeTurnApplicationService.class),
+                mock(CombatMapPort.class), views, players, mock(AppliedRuleSetApplicationService.class));
+
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.submitCombatTokenPlacement(adventureId,
+                        new AdventureController.CombatTokenPlacementRequest(adventure.version(), 9L,
+                                List.of(new CombatTokenTransition.Placement(UUID.randomUUID(), 1, 1)))));
+        verifyNoInteractions(views);
+    }
+
+    @Test
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    void ownerPlacementRejectsStaleAdventureVersionBeforeMapAccessOrPersistence(
+            org.springframework.boot.test.system.CapturedOutput output) {
+        UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), mapId = UUID.randomUUID();
+        UUID encounterId = UUID.randomUUID(), operationId = UUID.randomUUID(), groupId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), List.of(
+                        new AdventurePartyMember(new CharacterSheetId(characterId), ControlMode.DIRECT,
+                                true, true, true, true, true, true)), new AdventureContext("복도", "", "", ""));
+        var group = new ExplorationGroup(groupId, UUID.randomUUID(), List.of(
+                new ExplorationGroup.Member(characterId, ExplorationGroup.Formation.FRONT, 30)));
+        var transition = new CombatTokenTransition(operationId, encounterId, mapId,
+                CombatTokenTransition.Direction.ENTER, 3, CombatTokenTransition.Status.PLACEMENT_REQUIRED);
+        adventure.updateExplorationState(new OwnerPlayerId(owner), 0,
+                new ExplorationState(List.of(group), null, transition));
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findByIdForUpdate(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        when(players.playerId()).thenReturn(owner);
+        CombatMapViewPort views = mock(CombatMapViewPort.class);
+        AdventureController controller = controller(adventures, mock(RuntimeTurnApplicationService.class),
+                mock(CombatMapPort.class), views, players, mock(AppliedRuleSetApplicationService.class));
+
+        long actualAdventureVersion = adventure.version();
+        long expectedAdventureVersion = actualAdventureVersion + 1;
+        String previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        ApiRequestGuard.ApiContractException failure;
+        try {
+            failure = assertThrows(ApiRequestGuard.ApiContractException.class,
+                    () -> controller.submitCombatTokenPlacement(adventureId,
+                            new AdventureController.CombatTokenPlacementRequest(expectedAdventureVersion, 9L,
+                                    List.of(new CombatTokenTransition.Placement(characterId, 2, 3)))));
+        } finally {
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
+
+        assertEquals("STALE_EXPLORATION_CYCLE", failure.code());
+        assertEquals(actualAdventureVersion, adventure.version());
+        assertEquals(CombatTokenTransition.Status.PLACEMENT_REQUIRED,
+                ((ExplorationState) adventure.gameState().values().get("explorationState")).tokenTransition().status());
+        verify(views, never()).playerView(any(), any());
+        verify(views, never()).transitionCombatTokens(any());
+        verify(adventures, never()).save(any());
+        assertTrue(output.getOut().contains("operation=combat_token_manual_placement_version_check outcome=started"));
+        assertTrue(output.getOut().contains("expectedAdventureVersion=" + expectedAdventureVersion));
+        assertTrue(output.getOut().contains("actualAdventureVersion=" + actualAdventureVersion));
+        assertTrue(output.getOut().contains("outcome=failed"));
+        assertTrue(output.getOut().contains("failureClass=ApiContractException"));
+        assertTrue(output.getOut().contains("recoveryAction=reload_adventure_and_retry_same_pending_transition"));
+        assertFalse(output.getOut().contains("x=2"));
+        assertFalse(output.getOut().contains("y=3"));
+    }
+
+    @Test
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    void ownerPlacementRejectsStaleRenderedMapWithoutChangingPendingStateOrCallingTransition(
+            org.springframework.boot.test.system.CapturedOutput output) {
+        UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), mapId = UUID.randomUUID();
+        UUID encounterId = UUID.randomUUID(), operationId = UUID.randomUUID(), groupId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), List.of(
+                        new AdventurePartyMember(new CharacterSheetId(characterId), ControlMode.DIRECT,
+                                true, true, true, true, true, true)), new AdventureContext("복도", "", "", ""));
+        var group = new ExplorationGroup(groupId, UUID.randomUUID(), List.of(
+                new ExplorationGroup.Member(characterId, ExplorationGroup.Formation.FRONT, 30)));
+        var transition = new CombatTokenTransition(operationId, encounterId, mapId,
+                CombatTokenTransition.Direction.ENTER, 3, CombatTokenTransition.Status.PLACEMENT_REQUIRED);
+        adventure.updateExplorationState(new OwnerPlayerId(owner), 0,
+                new ExplorationState(List.of(group), null, transition));
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findByIdForUpdate(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        when(players.playerId()).thenReturn(owner);
+        CombatMapViewPort views = mock(CombatMapViewPort.class);
+        when(views.playerView(adventureId, owner)).thenReturn(Optional.of(new CombatMapViewPort.View(mapId,
+                new CombatMapViewPort.Grid(8, 8, 70, 5), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 10)));
+        AdventureController controller = controller(adventures, mock(RuntimeTurnApplicationService.class),
+                mock(CombatMapPort.class), views, players, mock(AppliedRuleSetApplicationService.class));
+
+        String previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        ApiRequestGuard.ApiContractException failure;
+        try {
+            failure = assertThrows(ApiRequestGuard.ApiContractException.class,
+                    () -> controller.submitCombatTokenPlacement(adventureId,
+                            new AdventureController.CombatTokenPlacementRequest(adventure.version(), 9L,
+                                    List.of(new CombatTokenTransition.Placement(characterId, 2, 3)))));
+        } finally {
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
+
+        assertEquals("STALE_COMBAT_MAP_VERSION", failure.code());
+        assertEquals(CombatTokenTransition.Status.PLACEMENT_REQUIRED,
+                ((ExplorationState) adventure.gameState().values().get("explorationState")).tokenTransition().status());
+        verify(views, never()).transitionCombatTokens(any());
+        verify(adventures, never()).save(any());
+        assertTrue(output.getOut().contains("operation=combat_token_manual_placement outcome=started"));
+        assertTrue(output.getOut().contains("expectedMapVersion=9"));
+        assertTrue(output.getOut().contains("outcome=failed"));
+        assertTrue(output.getOut().contains("actualMapVersion=10"));
+        assertTrue(output.getOut().contains("failureClass=ApiContractException"));
+        assertTrue(output.getOut().contains("recoveryAction=refresh_map_and_retry_same_operation_id"));
+        assertFalse(output.getOut().contains("x=2"));
+        assertFalse(output.getOut().contains("y=3"));
+    }
+
     @Test void generatedSpatialFeatureInteractionOutsideHazardsPhaseIsRejectedBeforePersistence() {
         UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), sheetId = UUID.randomUUID();
         UUID groupId = UUID.randomUUID(), mapId = UUID.randomUUID(), featureId = UUID.randomUUID();
@@ -493,6 +843,8 @@ class ExplorationEnvironmentControllerTest {
         when(views.playerView(eq(adventureId), eq(owner))).thenReturn(Optional.of(new CombatMapViewPort.View(
                 mapId, new CombatMapViewPort.Grid(10, 10, 70, 5), List.of(), List.of(), List.of(), List.of(),
                 List.of(), List.of(), 0)));
+        when(views.gmEnvironmentView(eq(mapId), eq(owner))).thenReturn("{\"tokens\":[]}\n GM_MAP_STATE={\"tokens\":[]}");
+        when(views.gmEnvironmentView(eq(mapId), eq(owner))).thenReturn("{\"tokens\":[]}\n GM_MAP_STATE={\"tokens\":[]}");
         RuntimeTurnApplicationService runtime = mock(RuntimeTurnApplicationService.class);
         when(runtime.planExplorationEnvironmentPhase(any(), any(), any(), any(), any())).thenReturn(
                 new ExplorationCycle.EnvironmentProposal("지원되지 않는 환경 단계", List.of(),

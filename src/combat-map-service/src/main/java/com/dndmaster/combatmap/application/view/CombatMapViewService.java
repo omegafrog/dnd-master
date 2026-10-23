@@ -252,6 +252,75 @@ public final class CombatMapViewService {
         }
     }
     public CombatMap displayForGm(MapId id, MapOwnerId owner) { return owned(id, owner).map(); }
+    public TokenTransitionResult transitionCombatTokens(MapId id, MapOwnerId owner, long expectedVersion,
+            UUID operationId, TokenTransitionDirection direction, List<CombatMap.CombatGroup> groups) {
+        return transitionCombatTokens(id, owner, expectedVersion, operationId, direction, groups, List.of());
+    }
+    public TokenTransitionResult transitionCombatTokens(MapId id, MapOwnerId owner, long expectedVersion,
+            UUID operationId, TokenTransitionDirection direction, List<CombatMap.CombatGroup> groups,
+            List<TokenTransitionPlacement> placements) {
+        boolean diagnostics = diagnosticsEnabled();
+        long started = diagnostics ? System.nanoTime() : 0L;
+        String context = "mapId=" + id.value() + " operationId=" + operationId + " direction=" + direction
+                + " groupCount=" + (groups == null ? -1 : groups.size())
+                + " memberCount=" + (groups == null ? -1 : groups.stream().filter(Objects::nonNull)
+                        .mapToInt(group -> group.members().size()).sum()) + " placementCount="
+                + (placements == null ? -1 : placements.size()) + " expectedVersion=" + expectedVersion;
+        if (diagnostics) LOGGER.info("dev_combat_token_transition outcome=started {}", context);
+        long actualVersion = -1;
+        try {
+            VersionedOwnedCombatMap state = owned(id, owner);
+            actualVersion = state.version();
+            List<TokenTransitionPlacement> stablePlacements = placements == null ? List.of() : placements.stream()
+                    .sorted(java.util.Comparator.comparing(TokenTransitionPlacement::targetId)).toList();
+            String fingerprint = id + "|" + owner + "|COMBAT_TOKEN_TRANSITION|expectedVersion=" + expectedVersion
+                    + "|" + direction + "|" + groups + "|" + stablePlacements;
+            CombatMap replay = replay(id, owner, operationId, fingerprint);
+            if (replay != null) {
+                if (diagnostics) LOGGER.info("dev_combat_token_transition outcome=replayed {} actualVersion={} elapsedMs={}", context,
+                        replay.version(), java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+                return TokenTransitionResult.applied(replay.version(), replay.tokens());
+            }
+            if (state.version() != expectedVersion) throw new IllegalStateException("version mismatch");
+            List<CombatToken> changed;
+            Map<UUID, com.dndmaster.combatmap.domain.GridPosition> supplied = new java.util.HashMap<>();
+            for (TokenTransitionPlacement placement : stablePlacements) {
+                if (placement == null || placement.targetId() == null
+                        || supplied.putIfAbsent(placement.targetId(), new com.dndmaster.combatmap.domain.GridPosition(
+                                placement.x(), placement.y())) != null)
+                    throw new IllegalArgumentException("token placement targets must be unique");
+            }
+            try {
+                changed = direction == TokenTransitionDirection.ENTER
+                        ? state.map().enterCombat(groups, new com.dndmaster.combatmap.domain.PlayerId(owner.value()), supplied)
+                        : state.map().exitCombat(groups, new com.dndmaster.combatmap.domain.PlayerId(owner.value()), supplied);
+            } catch (com.dndmaster.combatmap.domain.CombatMapTransitionPlacementRequiredException placementRequired) {
+                if (diagnostics) LOGGER.info("dev_combat_token_transition outcome=placement_pending {} actualVersion={} expectedPlacementCount={} elapsedMs={}",
+                        context, actualVersion, groups.stream().mapToInt(group -> group.members().size()).sum(),
+                        java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+                return TokenTransitionResult.pending(actualVersion);
+            }
+            state.map().refreshVisibility(state.map().visibilitySnapshot() == null ? 0
+                    : state.map().visibilitySnapshot().ruleTurn());
+            store.update(owner, state.map(), expectedVersion, expectedVersion + 1, operationId, fingerprint);
+            if (diagnostics) LOGGER.info("dev_combat_token_transition outcome=completed {} actualVersion={} tokenCount={} elapsedMs={}",
+                    context, expectedVersion + 1, changed.size(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+            return TokenTransitionResult.applied(expectedVersion + 1, changed);
+        } catch (RuntimeException | Error failure) {
+            if (diagnostics) LOGGER.info("dev_combat_token_transition outcome=failed {} actualVersion={} failureClass={} recoveryAction=retry_same_operation_id elapsedMs={}",
+                    context, actualVersion, failure.getClass().getSimpleName(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+            throw failure;
+        }
+    }
+    public enum TokenTransitionDirection { ENTER, EXIT }
+    public record TokenTransitionPlacement(UUID targetId, int x, int y) {}
+    public record TokenTransitionResult(String status, long version, List<CombatToken> tokens) {
+        public TokenTransitionResult { tokens = tokens == null ? List.of() : List.copyOf(tokens); }
+        static TokenTransitionResult pending(long version) { return new TokenTransitionResult("PLACEMENT_REQUIRED", version, List.of()); }
+        static TokenTransitionResult applied(long version, List<CombatToken> tokens) { return new TokenTransitionResult("APPLIED", version, tokens); }
+    }
     public Optional<PlayerCombatMapView> displayForAdventure(AdventureId adventureId, MapOwnerId owner) { return store.findByAdventureId(adventureId, owner).map(state -> { observePublicImage(state.map().id(), owner, state); return projection(state.map(), state.version()); }); }
     public void deactivateForMaplessSituation(AdventureId adventureId, MapOwnerId owner) {
         store.deactivateForAdventure(adventureId, owner);

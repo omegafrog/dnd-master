@@ -15,6 +15,91 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class CombatMapViewServiceTest {
+    @org.junit.jupiter.api.Test
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    void combatTokenTransition_retriesSameOperationWithoutApplyingMapChangeTwice(
+            org.springframework.boot.test.system.CapturedOutput output) {
+        var store = mock(CombatMapViewStore.class);
+        var ai = mock(com.dndmaster.combatmap.application.view.AiMapGenerationPort.class);
+        var owner = new MapOwnerId(UUID.randomUUID());
+        var adventureId = new AdventureId(UUID.randomUUID());
+        var mapId = new com.dndmaster.combatmap.domain.MapId(UUID.randomUUID());
+        UUID operationId = UUID.randomUUID(), groupId = UUID.randomUUID(), tokenId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID(), enemyId = UUID.randomUUID();
+        var map = new com.dndmaster.combatmap.domain.CombatMap(mapId, adventureId,
+                new com.dndmaster.combatmap.domain.RuleSetId(UUID.randomUUID()),
+                new com.dndmaster.combatmap.domain.GridSpec(8, 8, 1, 5),
+                new com.dndmaster.combatmap.domain.PlayerId(owner.value()),
+                java.util.List.of(new com.dndmaster.combatmap.domain.CombatToken(new com.dndmaster.combatmap.domain.TokenId(tokenId),
+                                com.dndmaster.combatmap.domain.TokenType.PLAYER, new com.dndmaster.combatmap.domain.GridPosition(2, 2),
+                                com.dndmaster.combatmap.domain.TokenController.PLAYER,
+                                new com.dndmaster.combatmap.domain.PlayerId(owner.value())),
+                        new com.dndmaster.combatmap.domain.CombatToken(new com.dndmaster.combatmap.domain.TokenId(enemyId),
+                                com.dndmaster.combatmap.domain.TokenType.ENEMY, new com.dndmaster.combatmap.domain.GridPosition(5, 2),
+                                com.dndmaster.combatmap.domain.TokenController.AI_GAME_MASTER, null)),
+                java.util.List.of(), java.util.List.of(), 4, null);
+        var initial = new com.dndmaster.combatmap.application.view.VersionedOwnedCombatMap(map, owner, 4);
+        var persisted = new java.util.concurrent.atomic.AtomicReference<com.dndmaster.combatmap.application.view.VersionedOwnedCombatMap>();
+        when(store.find(mapId)).thenReturn(java.util.Optional.of(initial));
+        when(store.findByCommandId(operationId)).thenAnswer(invocation -> java.util.Optional.ofNullable(persisted.get()));
+        when(store.update(org.mockito.ArgumentMatchers.eq(owner), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(4L), org.mockito.ArgumentMatchers.eq(5L),
+                org.mockito.ArgumentMatchers.eq(operationId), org.mockito.ArgumentMatchers.anyString())).thenAnswer(invocation -> {
+            var changed = (com.dndmaster.combatmap.domain.CombatMap) invocation.getArgument(1);
+            String fingerprint = invocation.getArgument(5);
+            var recorded = new com.dndmaster.combatmap.domain.CombatMap(changed.id(), changed.adventureId(),
+                    changed.ruleSetId(), changed.grid(), changed.ownerPlayerId(), changed.tokens(), changed.obstacles(),
+                    changed.layers(), 5, operationId, fingerprint, changed.spatialFeatures(), changed.spatialPreparationBlocked());
+            persisted.set(new com.dndmaster.combatmap.application.view.VersionedOwnedCombatMap(recorded, owner, 5));
+            return 5L;
+        });
+        var service = new CombatMapViewService(store, source -> null, ai);
+        var groups = java.util.List.of(new com.dndmaster.combatmap.domain.CombatMap.CombatGroup(groupId, tokenId,
+                java.util.List.of(new com.dndmaster.combatmap.domain.CombatMap.CombatMember(characterId,
+                        com.dndmaster.combatmap.domain.CombatMap.Formation.FRONT))));
+
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        CombatMapViewService.TokenTransitionResult applied;
+        CombatMapViewService.TokenTransitionResult retried;
+        try {
+            applied = service.transitionCombatTokens(mapId, owner, 4, operationId,
+                    CombatMapViewService.TokenTransitionDirection.ENTER, groups);
+            retried = new CombatMapViewService(store, source -> null, ai).transitionCombatTokens(mapId, owner, 4, operationId,
+                    CombatMapViewService.TokenTransitionDirection.ENTER, groups);
+        } finally {
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
+        }
+
+        assertThat(applied.status()).isEqualTo("APPLIED");
+        assertThat(retried.status()).isEqualTo("APPLIED");
+        assertThat(retried.version()).isEqualTo(5);
+        assertThat(retried.tokens()).hasSize(2);
+        assertThat(retried.tokens()).filteredOn(token -> token.type() == com.dndmaster.combatmap.domain.TokenType.PLAYER)
+                .hasSize(1);
+        verify(store, org.mockito.Mockito.times(1)).update(org.mockito.ArgumentMatchers.eq(owner),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(4L), org.mockito.ArgumentMatchers.eq(5L),
+                org.mockito.ArgumentMatchers.eq(operationId), org.mockito.ArgumentMatchers.anyString());
+        var conflictingGroups = java.util.List.of(new com.dndmaster.combatmap.domain.CombatMap.CombatGroup(groupId, tokenId,
+                java.util.List.of(new com.dndmaster.combatmap.domain.CombatMap.CombatMember(UUID.randomUUID(),
+                        com.dndmaster.combatmap.domain.CombatMap.Formation.FRONT))));
+        var conflict = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> service.transitionCombatTokens(mapId, owner, 4, operationId,
+                        CombatMapViewService.TokenTransitionDirection.ENTER, conflictingGroups));
+        assertThat(conflict).hasMessageContaining("command id reused with different payload");
+        var differentVersionConflict = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> service.transitionCombatTokens(mapId, owner, 5, operationId,
+                        CombatMapViewService.TokenTransitionDirection.ENTER, groups));
+        assertThat(differentVersionConflict).hasMessageContaining("command id reused with different payload");
+        verify(store, org.mockito.Mockito.times(1)).update(org.mockito.ArgumentMatchers.eq(owner),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(4L), org.mockito.ArgumentMatchers.eq(5L),
+                org.mockito.ArgumentMatchers.eq(operationId), org.mockito.ArgumentMatchers.anyString());
+        assertThat(output).contains("dev_combat_token_transition outcome=started", "operationId=" + operationId,
+                "groupCount=1", "memberCount=1", "placementCount=0", "outcome=completed", "outcome=replayed",
+                "actualVersion=5");
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
     @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)

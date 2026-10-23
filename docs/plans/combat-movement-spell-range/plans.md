@@ -27,7 +27,7 @@
 | 3 | plan-365 — [#365 [전투 이동·주문 03/15] 시츄에이션 속성에 따른 지도 준비와 비공개 배치](https://github.com/omegafrog/dnd-master/issues/365) | 지도 필요 상황의 시작 위치·지도·초기 배치 준비 | 없음 |
 | 4 | plan-366 — [#366 [전투 이동·주문 04/15] 그룹 토큰·대열·분리·합류](https://github.com/omegafrog/dnd-master/issues/366) | 그룹 탐험 상태와 대열·분리·합류 | 없음 |
 | 5 | plan-367 — [#367 [전투 이동·주문 05/15] 우선권 순차 이동·발견·조우·환경 순환](https://github.com/omegafrog/dnd-master/issues/367) | 탐험 그룹의 차례 이동과 사건·환경 처리 | #365, #366 |
-| 6 | plan-368 — [#368 [전투 이동·주문 06/15] 탐험 그룹과 전투 캐릭터 토큰 전환](https://github.com/omegafrog/dnd-master/issues/368) | 탐험 그룹과 전투 캐릭터 위치 전환 | 없음 |
+| 6 | plan-368 — [#368 [전투 이동·주문 06/15] 탐험 그룹과 전투 캐릭터 토큰 전환](https://github.com/omegafrog/dnd-master/issues/368) | 탐험 그룹과 전투 캐릭터 위치 전환 | #367 |
 | 7 | plan-369 — [#369 [전투 이동·주문 07/15] 전투 이동 중 사건 판정·서술과 차례 유지](https://github.com/omegafrog/dnd-master/issues/369) | 전투 이동이 사건에서 멈춘 뒤 같은 플레이어 차례로 돌아오는 전체 흐름 | #368 |
 | 8 | plan-370 — [#370 [전투 이동·주문 08/15] 높이·확대·중앙 지도 화면 정렬](https://github.com/omegafrog/dnd-master/issues/370) | 중앙 지도에서 높이·확대·입력 오버레이 정렬 | #369 |
 | 9 | plan-371 — [#371 [전투 이동·주문 09/15] 지도에서 주문·기술 조준과 범위 미리보기](https://github.com/omegafrog/dnd-master/issues/371) | 전투 능력 조준과 사거리·효과 미리보기 | #363, #370 |

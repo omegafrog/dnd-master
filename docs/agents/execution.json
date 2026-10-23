@@ -285,7 +285,7 @@
         ]
       ],
       "dependencies": [],
-      "timeout_ms": 5700000,
+      "timeout_ms": null,
       "readiness_timeout_ms": 5000,
       "poll_interval_ms": 1000
     },
@@ -567,10 +567,26 @@
       ],
       "prepare": [],
       "verify_config": [
-        ["test", "-x", "src/user-pc-agent/build/install/user-pc-agent/bin/user-pc-agent"],
-        ["test", "-x", "${CODEX_EXECUTABLE}"],
-        ["test", "-d", "${CODEX_CLIENT_DIRECTORY}"],
-        ["curl", "-fsS", "${RELAY_HEALTH_URL}"]
+        [
+          "test",
+          "-x",
+          "src/user-pc-agent/build/install/user-pc-agent/bin/user-pc-agent"
+        ],
+        [
+          "test",
+          "-x",
+          "${CODEX_EXECUTABLE}"
+        ],
+        [
+          "test",
+          "-d",
+          "${CODEX_CLIENT_DIRECTORY}"
+        ],
+        [
+          "curl",
+          "-fsS",
+          "${RELAY_HEALTH_URL}"
+        ]
       ],
       "dependencies": [],
       "timeout_ms": null,
@@ -1068,6 +1084,98 @@
       "timeout_ms": 5700000,
       "readiness_timeout_ms": 180000,
       "poll_interval_ms": 2000
+    },
+    "adventure-exploration-cycle-unit": {
+      "command": [
+        "bash",
+        "-lc",
+        "./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.MapMovementCoordinatorTest --tests com.dndmaster.adventure.ExplorationCycleTest --tests com.dndmaster.adventure.combat.CombatEncounterPolicyTest --tests com.dndmaster.adventure.combat.CombatAutoProgressionWorkerTest --tests com.dndmaster.adventure.application.combat.CombatStartParticipantFactoryDiagnosticsTest --tests com.dndmaster.adventure.api.ExplorationEnvironmentControllerTest --tests com.dndmaster.adventure.infrastructure.integration.HttpTypedRuntimeGmAgentPortTest :combat-map-service:test --tests com.dndmaster.combatmap.SpatialFeatureApplicationServiceTest --tests com.dndmaster.combatmap.CombatTokenTransitionTest --tests com.dndmaster.combatmap.CombatMapViewServiceTest :ai-game-master-service:test --tests com.dndmaster.aigamemaster.api.TypedAgentContractControllerTest && npm --prefix src/web-ui run test -- --run src/features/combat-map/CombatMapFlow.test.tsx"
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "docs/agents/EXEC.md",
+        "docs/agents/execution.json",
+        "src/gradlew",
+        "src/gradle/wrapper/gradle-wrapper.properties",
+        "src/settings.gradle.kts",
+        "src/build.gradle.kts",
+        "src/adventure-service/build.gradle.kts",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/MapMovementCoordinator.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationCycle.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureController.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatEncounter.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatParticipant.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatStartPolicy.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatAutoProgressionWorker.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureApiConfiguration.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/MapMovementCoordinatorTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatAutoProgressionWorkerTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
+        "src/web-ui/package.json",
+        "src/web-ui/package-lock.json",
+        "src/web-ui/src/features/saved-adventures/AdventurePlayApi.ts",
+        "src/web-ui/src/features/combat-map/CombatMapView.tsx",
+        "src/web-ui/src/features/combat-map/CombatMapFlow.test.tsx",
+        "src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java",
+        "src/ai-game-master-service/src/test/java/com/dndmaster/aigamemaster/api/TypedAgentContractControllerTest.java",
+        "src/contracts/ai-game-master/schemas/exploration-environment-response.json",
+        "docs/contracts/product.md",
+        "docs/contracts/architecture.md",
+        "docs/contracts/diagrams/combat-loop.state.puml",
+        "docs/contracts/diagrams/combat-loop.state.svg",
+        "docs/contracts/diagrams/domain.class.puml",
+        "docs/contracts/diagrams/domain.class.svg",
+        "docs/contracts/diagrams/spatial-movement.sequence.puml",
+        "docs/contracts/diagrams/spatial-movement.sequence.svg",
+        "docs/contracts/diagrams/spatial-movement.state.puml",
+        "docs/contracts/diagrams/spatial-movement.state.svg",
+        "src/combat-map-service/build.gradle.kts",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/spatial/SpatialFeatureApplicationService.java",
+        "src/combat-map-service/src/test/java/com/dndmaster/combatmap/SpatialFeatureApplicationServiceTest.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/CombatTokenTransition.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationState.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatMapViewPort.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/HttpCombatMapViewGateway.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/domain/CombatMap.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/domain/CombatMapTransitionPlacementRequiredException.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/view/CombatMapViewService.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/api/CombatMapController.java",
+        "src/combat-map-service/src/test/java/com/dndmaster/combatmap/CombatTokenTransitionTest.java"
+      ],
+      "prepare": [
+        [
+          "npm",
+          "--prefix",
+          "src/web-ui",
+          "ci"
+        ]
+      ],
+      "verify_config": [
+        [
+          "test",
+          "-x",
+          "src/gradlew"
+        ],
+        [
+          "java",
+          "-version"
+        ],
+        [
+          "test",
+          "-x",
+          "src/web-ui/node_modules/.bin/vitest"
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 600000,
+      "readiness_timeout_ms": 180000,
+      "poll_interval_ms": 250
     }
   }
 }
