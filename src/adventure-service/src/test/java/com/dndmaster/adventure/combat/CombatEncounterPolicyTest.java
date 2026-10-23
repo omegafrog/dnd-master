@@ -221,6 +221,11 @@ class CombatEncounterPolicyTest {
                                 unawareToken, java.util.Set.of(HERO))), java.util.Set.of(HERO, partialHero));
         var cycle = com.dndmaster.adventure.domain.runtime.ExplorationCycle.start(UUID.randomUUID(),
                 java.util.Map.of(groupId, 10)).finishGroupTurn(groupId, false).withEnvironmentProposal(proposal);
+        var stateWithTokenHandoff = new com.dndmaster.adventure.domain.runtime.ExplorationState(List.of(), cycle)
+                .withTokenTransition(new com.dndmaster.adventure.domain.runtime.CombatTokenTransition(UUID.randomUUID(),
+                        UUID.randomUUID(), UUID.randomUUID(),
+                        com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Direction.ENTER, 0,
+                        com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status.REQUESTED));
         var roster = List.of(
                 new CombatParticipant(HERO, "Aware of both threats", CombatParticipant.Controller.PLAYER, 10, null),
                 new CombatParticipant(partialHero, "Aware of one threat", CombatParticipant.Controller.PLAYER, 8, null),
@@ -229,7 +234,8 @@ class CombatEncounterPolicyTest {
                 new CombatParticipant(unawareEnemy, "Unaware enemy", CombatParticipant.Controller.AI, 12, "enemy",
                         TurnResources.initial(), GOBLIN_STATS));
 
-        var participants = CombatStartParticipantFactory.applyExplorationAwareness(roster, cycle,
+        assertEquals(cycle, stateWithTokenHandoff.cycle());
+        var participants = CombatStartParticipantFactory.applyExplorationAwareness(roster, stateWithTokenHandoff.cycle(),
                 java.util.Map.of(awareToken, awareEnemy, unawareToken, unawareEnemy));
 
         assertFalse(participants.stream().filter(p -> p.participantId().equals(HERO)).findFirst().orElseThrow().surprised());

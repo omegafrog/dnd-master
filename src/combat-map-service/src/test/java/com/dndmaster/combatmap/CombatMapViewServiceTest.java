@@ -65,7 +65,7 @@ class CombatMapViewServiceTest {
         try {
             applied = service.transitionCombatTokens(mapId, owner, 4, operationId,
                     CombatMapViewService.TokenTransitionDirection.ENTER, groups);
-            retried = service.transitionCombatTokens(mapId, owner, 4, operationId,
+            retried = new CombatMapViewService(store, source -> null, ai).transitionCombatTokens(mapId, owner, 4, operationId,
                     CombatMapViewService.TokenTransitionDirection.ENTER, groups);
         } finally {
             if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
@@ -81,6 +81,13 @@ class CombatMapViewServiceTest {
         verify(store, org.mockito.Mockito.times(1)).update(org.mockito.ArgumentMatchers.eq(owner),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(4L), org.mockito.ArgumentMatchers.eq(5L),
                 org.mockito.ArgumentMatchers.eq(operationId), org.mockito.ArgumentMatchers.anyString());
+        var conflictingGroups = java.util.List.of(new com.dndmaster.combatmap.domain.CombatMap.CombatGroup(groupId, tokenId,
+                java.util.List.of(new com.dndmaster.combatmap.domain.CombatMap.CombatMember(UUID.randomUUID(),
+                        com.dndmaster.combatmap.domain.CombatMap.Formation.FRONT))));
+        var conflict = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> service.transitionCombatTokens(mapId, owner, 4, operationId,
+                        CombatMapViewService.TokenTransitionDirection.ENTER, conflictingGroups));
+        assertThat(conflict).hasMessageContaining("command id reused with different payload");
         assertThat(output).contains("dev_combat_token_transition outcome=started", "operationId=" + operationId,
                 "groupCount=1", "memberCount=1", "placementCount=0", "outcome=completed", "outcome=replayed",
                 "actualVersion=5");

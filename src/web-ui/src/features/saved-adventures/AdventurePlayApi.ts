@@ -88,7 +88,9 @@ export type ExplorationCycle = {
   pendingMovementEvent?: { id: string; groupId: string; cause: string; publicEvents: string[]; finalPosition: { x: number; y: number } } | null
   combatLinked: boolean
 }
-export type ExplorationGroups = { version: number; groups: ExplorationGroup[]; cycle?: ExplorationCycle | null }
+export type CombatTokenPlacement = { targetId: string; x: number; y: number }
+export type CombatTokenTransition = { direction: 'ENTER' | 'EXIT'; status: 'REQUESTED' | 'PLACEMENT_REQUIRED' | 'APPLIED'; placements: CombatTokenPlacement[] }
+export type ExplorationGroups = { version: number; groups: ExplorationGroup[]; cycle?: ExplorationCycle | null; tokenTransition?: CombatTokenTransition | null }
 
 export type MapGridAlignment = { mapId: string; version: number; imageRevision: string; imageViewId?: string; originX: number; originY: number; cellSize: number }
 export type MapGridAlignmentRequest = { mapId: string; commandId: string; expectedVersion: number; imageRevision: string; originX: number; originY: number; cellSize: number }
@@ -187,6 +189,7 @@ export interface AdventurePlayApi {
   saveSessionKnowledgeSet(adventureId: string, playerId: string, knowledgeDocumentIds: string[]): Promise<SessionKnowledgeSet>
   getCombatMap(adventureId: string): Promise<CombatMapView>
   getExplorationGroups?(adventureId: string): Promise<ExplorationGroups>
+  submitCombatTokenPlacement?(adventureId: string, expectedVersion: number, placements: CombatTokenPlacement[]): Promise<ExplorationGroups>
   saveExplorationGroups?(adventureId: string, expectedVersion: number, groups: Array<{ id: string; members: Array<{ characterSheetId: string; formation: 'FRONT' | 'MIDDLE' | 'REAR' }> }>): Promise<ExplorationGroups>
   startExplorationCycle?(adventureId: string, expectedVersion: number, commandId: string): Promise<ExplorationGroups>
   finishExplorationGroupTurn?(adventureId: string, groupId: string, expectedVersion: number, commandId: string): Promise<ExplorationGroups>
@@ -345,6 +348,13 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
 
   getExplorationGroups(adventureId: string) {
     return request<ExplorationGroups>(`/api/v1/adventures/${adventureId}/exploration-groups`, { headers: this.authHeaders() })
+  }
+
+  submitCombatTokenPlacement(adventureId: string, expectedVersion: number, placements: CombatTokenPlacement[]) {
+    return request<ExplorationGroups>(`/api/v1/adventures/${adventureId}/exploration/combat-token-placement`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({ expectedVersion, placements }),
+    })
   }
 
   saveExplorationGroups(adventureId: string, expectedVersion: number, groups: Array<{ id: string; members: Array<{ characterSheetId: string; formation: 'FRONT' | 'MIDDLE' | 'REAR' }> }>) {

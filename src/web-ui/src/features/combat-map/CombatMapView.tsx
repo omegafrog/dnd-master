@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
-import type { AdventurePlayApi, CombatMapView as CombatMapState, ExplorationCycle, ExplorationGroup, MapBoundary, MapBoundaryProposal, MapMovementResult } from '../saved-adventures/AdventurePlayApi'
+import type { AdventurePlayApi, CombatMapView as CombatMapState, CombatTokenPlacement, CombatTokenTransition, ExplorationCycle, ExplorationGroup, MapBoundary, MapBoundaryProposal, MapMovementResult } from '../saved-adventures/AdventurePlayApi'
 import { actionCandidate, moveCandidate, type GridCell, type MapInteractionCandidate } from './MapInteractionCandidate'
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 import { MapCropEditor } from './MapCropEditor'
@@ -57,6 +57,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [explorationGroups, setExplorationGroups] = useState<ExplorationGroup[]>([])
   const [explorationCycle, setExplorationCycle] = useState<ExplorationCycle | null>(null)
   const [explorationVersion, setExplorationVersion] = useState<number | null>(null)
+  const [tokenTransition, setTokenTransition] = useState<CombatTokenTransition | null>(null)
+  const [placementTargetId, setPlacementTargetId] = useState<string | null>(null)
+  const [manualPlacements, setManualPlacements] = useState<Record<string, { x: number; y: number }>>({})
   const [explorationBusy, setExplorationBusy] = useState(false)
   const [awaitingRuntimeTurnCommit, setAwaitingRuntimeTurnCommit] = useState(false)
   const previousRefreshToken = useRef(refreshToken)
@@ -231,6 +234,13 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         setExplorationGroups(result.groups)
         setExplorationVersion(result.version)
         setExplorationCycle(result.cycle ?? null)
+        setTokenTransition(result.tokenTransition ?? null)
+        if (result.tokenTransition?.status === 'PLACEMENT_REQUIRED') {
+          setManualPlacements(Object.fromEntries(result.tokenTransition.placements.map(({ targetId, x, y }) => [targetId, { x, y }])))
+        } else {
+          setManualPlacements({})
+          setPlacementTargetId(null)
+        }
         if (committedTurnRefresh && runtimeTurnExpectedVersion.current !== null) {
           const expectedVersion = runtimeTurnExpectedVersion.current
           if (result.version > expectedVersion) {
@@ -287,6 +297,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       setExplorationVersion(updated.version)
       setExplorationGroups(updated.groups)
       setExplorationCycle(updated.cycle ?? null)
+      setTokenTransition(updated.tokenTransition ?? null)
       setMap(await api.getCombatMap(adventureId))
       diagnosticEvent('exploration_cycle_ui', { outcome: 'completed', phase: updated.cycle?.phase ?? 'NOT_STARTED', elapsedSeconds: updated.cycle?.elapsedSeconds ?? 0, elapsedMs: Math.round(performance.now() - started) })
     } catch (error) {
@@ -299,6 +310,40 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     ? explorationCycle.groupOrder.find(id => !explorationCycle.completedGroups.includes(id)) ?? null
     : null
   const currentExplorationGroupTokenId = explorationGroups.find(group => group.id === currentExplorationGroupId)?.mapTokenId ?? null
+  const placementTargets = tokenTransition?.direction === 'ENTER'
+    ? explorationGroups.flatMap(group => group.members.map(member => ({ id: member.characterSheetId, label: `캐릭터 ${member.characterSheetId.slice(0, 8)}` })))
+    : tokenTransition?.direction === 'EXIT'
+      ? explorationGroups.map(group => ({ id: group.id, label: `그룹 ${group.id.slice(0, 8)}` }))
+      : []
+  const placementRequired = tokenTransition?.status === 'PLACEMENT_REQUIRED' && placementTargets.length > 0
+  const completeManualPlacement = placementTargets.length > 0
+    && placementTargets.every(target => manualPlacements[target.id] !== undefined)
+    && new Set(placementTargets.map(target => {
+      const cell = manualPlacements[target.id]
+      return cell ? `${cell.x},${cell.y}` : ''
+    })).size === placementTargets.length
+
+  async function submitManualPlacement() {
+    if (!api.submitCombatTokenPlacement || explorationVersion === null || !placementRequired || !completeManualPlacement || explorationBusy) return
+    const placements: CombatTokenPlacement[] = placementTargets.map(({ id }) => ({ targetId: id, ...manualPlacements[id] }))
+    const started = performance.now()
+    setExplorationBusy(true)
+    diagnosticEvent('combat_token_manual_placement_ui', { outcome: 'started', adventureId, direction: tokenTransition?.direction, targetCount: placements.length })
+    try {
+      const updated = await api.submitCombatTokenPlacement(adventureId, explorationVersion, placements)
+      setExplorationGroups(updated.groups)
+      setExplorationVersion(updated.version)
+      setExplorationCycle(updated.cycle ?? null)
+      setTokenTransition(updated.tokenTransition ?? null)
+      if (updated.tokenTransition?.status !== 'PLACEMENT_REQUIRED') setManualPlacements({})
+      setMap(await api.getCombatMap(adventureId))
+      setMessage(updated.tokenTransition?.status === 'PLACEMENT_REQUIRED' ? '전체 배치를 확인하지 못했습니다. 칸을 다시 선택해 제출하세요.' : '전체 배치를 저장했습니다.')
+      diagnosticEvent('combat_token_manual_placement_ui', { outcome: updated.tokenTransition?.status === 'PLACEMENT_REQUIRED' ? 'retry_required' : 'completed', direction: tokenTransition?.direction, targetCount: placements.length, elapsedMs: Math.round(performance.now() - started), recoveryAction: updated.tokenTransition?.status === 'PLACEMENT_REQUIRED' ? 'review_all_positions_and_retry' : 'resume_combat' })
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '파티 배치를 저장하지 못했습니다.')
+      diagnosticEvent('combat_token_manual_placement_ui', { outcome: 'failed', direction: tokenTransition?.direction, targetCount: placements.length, failureClass: error instanceof Error ? error.name : 'UnknownError', elapsedMs: Math.round(performance.now() - started), recoveryAction: 'retry_same_pending_transition' })
+    } finally { setExplorationBusy(false) }
+  }
 
   useEffect(() => {
     if (!map || !currentExplorationGroupId || !currentExplorationGroupTokenId) return
@@ -764,7 +809,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     } : {}),
   } as CSSProperties
   const hasVisibilityMetadata = Array.isArray(map?.current) && Array.isArray(map?.explored)
-  const placementRequired = map?.layers?.some(layer => layer.type === 'MAP_PLACEMENT_STATUS' && layer.value === 'PLACEMENT_REQUIRED') ?? false
+  const mapPreparationPlacementRequired = map?.layers?.some(layer => layer.type === 'MAP_PLACEMENT_STATUS' && layer.value === 'PLACEMENT_REQUIRED') ?? false
   const mapSetupReviewRequired = preparationMode && (map?.layers?.some(layer => layer.type === 'GRID_SOURCE' && layer.value === 'FALLBACK') === true || !gridConfirmed || !layoutSaved)
   const showMapSetupChoice = mapSetupReviewRequired && mapSetupChoice === 'review'
   const showMapSetupEditors = mapSetupReviewRequired && mapSetupChoice === 'edit'
@@ -1022,7 +1067,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
             return { target, tokenId: aimActor.id }
           }
           const draftLabel = door ? `${door.open ? '열린 문' : '닫힌 문'} ${cell.x},${cell.y}` : blocked ? `벽 ${cell.x},${cell.y}` : token ? `플레이어 시작 위치 ${cell.x},${cell.y}` : `빈 격자 ${cell.x},${cell.y}`
-          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : displayToken ? `${displayToken.type} ${displayToken.x},${displayToken.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-grid-x={cell.x} data-grid-y={cell.y} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-id={displayToken?.id} data-token-type={displayToken?.type} data-token-faction={tokenVisual?.faction} data-token-status={tokenVisual?.primaryStatus} data-token-asset={tokenVisual?.assetPath} data-token-frame={tokenVisual?.framePath} data-movement-preview={movementPreview ? 'true' : undefined} data-aim-path={aimPath ? 'true' : undefined} data-aim-effect={aimEffect ? 'true' : undefined} data-ghost-token={ghostDestination ? 'true' : undefined} data-start-selected={preparationMode && selectedPlayerStart?.x === cell.x && selectedPlayerStart?.y === cell.y ? 'true' : undefined} data-last-seen={displayToken?.lastSeen ? 'true' : 'false'} className={tokenVisual?.classes.join(' ')} disabled={!playable || startBlocked || (preparationMode && layoutEditing) || (!preparationMode && !visible && !explored)} onPointerDown={event => { if (!aimInteraction && !preparationMode && displayToken?.type === 'PLAYER' && event.button !== 2) { event.preventDefault(); startMovementStroke(displayToken.id, cell) } }} onPointerEnter={event => { if (aimInteraction) { const aim = aimCell(event); if (aim) aimInteraction.onHover(aim.target, map.version ?? 0, aim.tokenId) } else if (movementStroke.current && !displayToken && (visible || explored)) extendMovementStroke(cell); else if (movementHoverEnabled && !preparationMode && selectedToken && displayToken?.type !== 'PLAYER' && (visible || explored)) void chooseCell(cell) }} onFocus={() => { if (aimInteraction && aimActor && map.mapId) aimInteraction.onHover(cell, map.version ?? 0, aimActor.id) }} onClick={() => { if (aimInteraction) { if (aimActor && map.mapId) aimInteraction.onSelect(cell, map.version ?? 0, aimActor.id) } else if (preparationMode && !layoutEditing) setSelectedPlayerStart(cell); else if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id); else if (!preparationMode && (locationMode || waypointMode)) void chooseCell(cell) }}>
+          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={placementRequired && placementTargetId ? `배치 ${cell.x},${cell.y}` : preparationMode ? draftLabel : !playable ? '지도 밖 영역' : displayToken ? `${displayToken.type} ${displayToken.x},${displayToken.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-grid-x={cell.x} data-grid-y={cell.y} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-id={displayToken?.id} data-token-type={displayToken?.type} data-token-faction={tokenVisual?.faction} data-token-status={tokenVisual?.primaryStatus} data-token-asset={tokenVisual?.assetPath} data-token-frame={tokenVisual?.framePath} data-movement-preview={movementPreview ? 'true' : undefined} data-aim-path={aimPath ? 'true' : undefined} data-aim-effect={aimEffect ? 'true' : undefined} data-ghost-token={ghostDestination ? 'true' : undefined} data-start-selected={preparationMode && selectedPlayerStart?.x === cell.x && selectedPlayerStart?.y === cell.y ? 'true' : undefined} data-placement-selected={placementRequired && placementTargetId && manualPlacements[placementTargetId]?.x === cell.x && manualPlacements[placementTargetId]?.y === cell.y ? 'true' : undefined} data-last-seen={displayToken?.lastSeen ? 'true' : 'false'} className={tokenVisual?.classes.join(' ')} disabled={!playable || startBlocked || (placementRequired && displayToken !== undefined && displayToken.type !== 'PLAYER') || (preparationMode && layoutEditing) || (!preparationMode && !visible && !explored)} onPointerDown={event => { if (!placementRequired && !aimInteraction && !preparationMode && displayToken?.type === 'PLAYER' && event.button !== 2) { event.preventDefault(); startMovementStroke(displayToken.id, cell) } }} onPointerEnter={event => { if (placementRequired) return; if (aimInteraction) { const aim = aimCell(event); if (aim) aimInteraction.onHover(aim.target, map.version ?? 0, aim.tokenId) } else if (movementStroke.current && !displayToken && (visible || explored)) extendMovementStroke(cell); else if (movementHoverEnabled && !preparationMode && selectedToken && displayToken?.type !== 'PLAYER' && (visible || explored)) void chooseCell(cell) }} onFocus={() => { if (!placementRequired && aimInteraction && aimActor && map.mapId) aimInteraction.onHover(cell, map.version ?? 0, aimActor.id) }} onClick={() => { if (placementRequired) { if (placementTargetId) setManualPlacements(current => ({ ...current, [placementTargetId]: { x: cell.x, y: cell.y } })) } else if (aimInteraction) { if (aimActor && map.mapId) aimInteraction.onSelect(cell, map.version ?? 0, aimActor.id) } else if (preparationMode && !layoutEditing) setSelectedPlayerStart(cell); else if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id); else if (!preparationMode && (locationMode || waypointMode)) void chooseCell(cell) }}>
             {preparationMode ? door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '벽' : token ? '시작' : '' : ghostDestination ? '유령 토큰' : tokenVisual && displayToken ? <span className="token-visual" aria-hidden="true"><span className="token-visual-frame" style={{ backgroundImage: `url(${tokenVisual.framePath})` }} /><img src={tokenVisual.assetPath} alt="" /><span className="token-visual-label">{`${displayToken.type} (${displayToken.x},${displayToken.y})${displayToken.elevationFeet ? ` · 지면에서 높이 ${displayToken.elevationFeet} 피트` : ''}`}</span></span> : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
           </button>
           })}
@@ -1107,9 +1152,19 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         </>}
         <p role="status">{gridMessage}</p>
       </section>}
-      {!showMapSetupChoice && preparationMode && <section className="map-start-preparation" aria-label="플레이어 시작 위치"><h3>시작 위치 확인</h3>{placementRequired && <p role="alert">자동 판정으로 시작 위치를 찾지 못했습니다. 지도에서 직접 선택해주세요.</p>}<p>모험 중 맵에 진입할 때 행동·서술과 지도 이미지를 바탕으로 시작 위치를 자동 판정합니다. 아래 선택은 자동 판정에 실패했을 때 사용할 수 있는 수동 대안입니다.</p>{map.playerStartCandidates?.length ? <ul>{map.playerStartCandidates.map((candidate, index) => <li key={`${candidate.x}-${candidate.y}-${index}`}><button type="button" aria-pressed={selectedPlayerStart?.x === candidate.x && selectedPlayerStart?.y === candidate.y} onClick={() => setSelectedPlayerStart({ x: candidate.x, y: candidate.y })}>({candidate.x},{candidate.y}) 선택</button><span>신뢰도 {Math.round(candidate.confidence * 100)}% · {candidate.evidence.join(', ') || '근거 없음'}</span></li>)}</ul> : <p>아직 모험 중 진입 서술이 없어 자동 시작 위치 후보가 없습니다.</p>}<p role="status">{selectedPlayerStart ? `수동 대안으로 선택한 시작 칸: (${selectedPlayerStart.x},${selectedPlayerStart.y})` : '자동 판정 대기 중입니다.'}</p></section>}
+      {!showMapSetupChoice && preparationMode && <section className="map-start-preparation" aria-label="플레이어 시작 위치"><h3>시작 위치 확인</h3>{mapPreparationPlacementRequired && <p role="alert">자동 판정으로 시작 위치를 찾지 못했습니다. 지도에서 직접 선택해주세요.</p>}<p>모험 중 맵에 진입할 때 행동·서술과 지도 이미지를 바탕으로 시작 위치를 자동 판정합니다. 아래 선택은 자동 판정에 실패했을 때 사용할 수 있는 수동 대안입니다.</p>{map.playerStartCandidates?.length ? <ul>{map.playerStartCandidates.map((candidate, index) => <li key={`${candidate.x}-${candidate.y}-${index}`}><button type="button" aria-pressed={selectedPlayerStart?.x === candidate.x && selectedPlayerStart?.y === candidate.y} onClick={() => setSelectedPlayerStart({ x: candidate.x, y: candidate.y })}>({candidate.x},{candidate.y}) 선택</button><span>신뢰도 {Math.round(candidate.confidence * 100)}% · {candidate.evidence.join(', ') || '근거 없음'}</span></li>)}</ul> : <p>아직 모험 중 진입 서술이 없어 자동 시작 위치 후보가 없습니다.</p>}<p role="status">{selectedPlayerStart ? `수동 대안으로 선택한 시작 칸: (${selectedPlayerStart.x},${selectedPlayerStart.y})` : '자동 판정 대기 중입니다.'}</p></section>}
       {showMapSetupEditors && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>3. AI 초안 생성 및 검수</h3><p>{!cropConfirmed ? '먼저 1단계에서 여백 자르기를 적용하세요.' : !gridConfirmed ? '먼저 2단계에서 격자를 맞추고 적용하세요.' : '격자 적용 완료. 현재 자른 영역과 격자를 기준으로 AI 초안을 생성합니다.'}</p>{cropConfirmed && gridConfirmed && <><button type="button" disabled={boundaryDetecting || layoutSaving || layoutEditing} onClick={() => void detectBoundaries()}>{boundaryDetecting ? 'AI 벽·문 감지 중…' : 'AI 벽·문 감지'}</button><button type="button" onClick={() => { if (layoutEditing) { setLayoutEditing(false); return }; if (!layoutBeforeEdit) setLayoutBeforeEdit(map); setLayoutSaved(false); setLayoutEditing(true) }}>{layoutEditing ? '검수 닫기' : '벽·문 편집'}</button>{layoutEditing && <div className="map-layout-editor"><ol className="map-layout-guide"><li>선은 칸의 한 면에 붙어 표시됩니다.</li><li>벽 그리기·문 그리기·지우기 중 하나를 고르세요.</li><li>격자선 위를 누른 채 끌면 지나간 선분에 적용됩니다.</li></ol><div className="map-boundary-tools" role="group" aria-label="벽과 문 그리기 도구"><button type="button" aria-pressed={boundaryTool === 'WALL'} onClick={() => setBoundaryTool('WALL')}>벽 그리기</button><button type="button" aria-pressed={boundaryTool === 'DOOR'} onClick={() => setBoundaryTool('DOOR')}>문 그리기</button><button type="button" aria-pressed={boundaryTool === 'ERASE'} onClick={() => setBoundaryTool('ERASE')}>지우기</button></div>{tacticalMap}<p>칸은 이동하거나 선택되지 않습니다.</p><div className="map-layout-actions"><button type="button" disabled={layoutSaving} onClick={() => { boundaryStroke.current = null; setBoundaryPreview(null); const restored = layoutBeforeEdit; setMap(restored); setLayoutSaved(restored?.layers?.some(layer => layer.type === 'MAP_LAYOUT_CONFIRMED') ?? false); setLayoutDirty(false); setLayoutEditing(false); setLayoutBeforeEdit(null) }}>편집 취소</button><button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div></div>}</>}</section>}
       {!layoutEditing && !showMapSetupChoice && tacticalMap}
+      {!preparationMode && placementRequired && api.submitCombatTokenPlacement && explorationVersion !== null && <section className="exploration-groups" aria-label="전투 파티 배치">
+        <h3>{tokenTransition?.direction === 'EXIT' ? '탐험 그룹 복원 위치' : '전투 파티 배치'}</h3>
+        <p role="alert">전원을 배치할 수 있는 칸을 찾지 못했습니다. 각 대상의 위치를 선택한 뒤 전체 배치를 제출하세요. 지도 밖이나 공개되지 않은 칸은 선택할 수 없습니다.</p>
+        <ol>{placementTargets.map(target => <li key={target.id}>
+          <button type="button" aria-pressed={placementTargetId === target.id} onClick={() => setPlacementTargetId(target.id)}>{target.label} 위치 선택</button>
+          <span>{manualPlacements[target.id] ? `선택한 칸 (${manualPlacements[target.id].x},${manualPlacements[target.id].y})` : '위치 미선택'}</span>
+        </li>)}</ol>
+        <p>현재 지도에서 공개된 칸을 눌러 선택 대상의 위치를 지정하세요.</p>
+        <button type="button" disabled={!completeManualPlacement || explorationBusy || submitting} onClick={() => void submitManualPlacement()}>{explorationBusy ? '전체 배치 확인 중…' : '전체 배치 제출'}</button>
+      </section>}
       {!preparationMode && explorationGroups.length > 0 && api.saveExplorationGroups && <section className="exploration-groups" aria-label="탐험 그룹 관리">
         <h3>탐험 그룹과 대열</h3>
         {api.startExplorationCycle && api.finishExplorationGroupTurn && api.resolveExplorationMovementEvent && api.advanceExplorationEnvironment && explorationVersion !== null && <section aria-label="탐험 순환">

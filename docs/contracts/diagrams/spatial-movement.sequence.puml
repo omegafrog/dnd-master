@@ -90,10 +90,11 @@
      loop 전체 유효 배치를 확보하지 못한 동안
        Runtime -> Runtime : PLACEMENT_REQUIRED 전환 상태 저장·새로고침 뒤 복원
        note over Runtime,Map : 보류 중에는 지도를 변경하지 않고 전투 진행을 기다린다.
-       Runtime -> GM : 전체 캐릭터의 유효 배치 지정 요청
-       GM --> Runtime : 전체 배치
+       Runtime --> UI : 전원 위치를 공개 칸에서 선택하도록 표시
+       Player -> UI : 각 파티 캐릭터의 칸 지정
+       UI -> Runtime : 모험 소유자 인증과 함께 전원 배치 제출
        Runtime -> Runtime : 같은 전환 작업에 전체 배치 제출·요청 저장
-       Runtime -> Map : 같은 작업 식별자·최신 지도 버전으로 GM 전체 배치 검증
+       Runtime -> Map : 같은 작업 식별자·최신 지도 버전으로 전체 배치 검증
        Map --> Runtime : 전체 배치 검증 결과·같은 작업의 기존 완료 결과
      end
      Runtime -> Map : 단일 작업으로 그룹 토큰을 캐릭터 토큰으로 전환

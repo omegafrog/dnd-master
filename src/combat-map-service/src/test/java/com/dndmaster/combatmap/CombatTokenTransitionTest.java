@@ -41,4 +41,21 @@ class CombatTokenTransitionTest {
                         List.of(new CombatMap.CombatMember(characterId, CombatMap.Formation.FRONT)))), new PlayerId(ownerId)));
         assertEquals(before, map.tokens());
     }
+
+    @Test void rejectsFullPartyWhenLaterMemberHasNoValidCellAndLeavesEveryTokenUnchanged() {
+        UUID ownerId = UUID.randomUUID(), first = UUID.randomUUID(), second = UUID.randomUUID();
+        UUID groupTokenId = UUID.randomUUID();
+        CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()),
+                new RuleSetId(UUID.randomUUID()), new GridSpec(1, 1, 1, 5), new PlayerId(ownerId),
+                List.of(new CombatToken(new TokenId(groupTokenId), TokenType.PLAYER, new GridPosition(0, 0),
+                        TokenController.PLAYER, new PlayerId(ownerId))), List.of(), List.of(), 4, null);
+        var before = map.tokens();
+        var group = new CombatMap.CombatGroup(UUID.randomUUID(), groupTokenId, List.of(
+                new CombatMap.CombatMember(first, CombatMap.Formation.FRONT),
+                new CombatMap.CombatMember(second, CombatMap.Formation.MIDDLE)));
+
+        assertThrows(CombatMapTransitionPlacementRequiredException.class,
+                () -> map.enterCombat(List.of(group), new PlayerId(ownerId)));
+        assertEquals(before, map.tokens());
+    }
 }
