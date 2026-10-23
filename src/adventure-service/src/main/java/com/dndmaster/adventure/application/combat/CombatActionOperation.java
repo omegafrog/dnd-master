@@ -7,7 +7,7 @@ import java.util.UUID;
 
 /** Durable application saga record. The command identity is the idempotency boundary. */
 public final class CombatActionOperation {
-    public enum Status { RESERVED, PROCESSING_FAILED, COMMITTED }
+    public enum Status { RESERVED, GM_INTERVENTION_PENDING, PROCESSING_FAILED, COMMITTED }
 
     private final UUID commandId;
     private final String fingerprint;
@@ -19,6 +19,7 @@ public final class CombatActionOperation {
     private CombatActionResponse response;
     private String failure;
     private Integer diceTotal;
+    private MovementFollowUpCommand movementFollowUp;
 
     public CombatActionOperation(UUID commandId, String fingerprint, UUID encounterId, UUID actorId,
                                  TurnResourceCost reservedCost, List<CombatActionStep> steps) {
@@ -42,13 +43,27 @@ public final class CombatActionOperation {
         return operation;
     }
 
+    public static CombatActionOperation restore(UUID commandId, String fingerprint, UUID encounterId, UUID actorId,
+            TurnResourceCost reservedCost, List<CombatActionStep> steps, Status status,
+            CombatActionResponse response, String failure, MovementFollowUpCommand movementFollowUp) {
+        CombatActionOperation operation = restore(commandId, fingerprint, encounterId, actorId, reservedCost,
+                steps, status, response, failure);
+        operation.movementFollowUp = movementFollowUp;
+        return operation;
+    }
+
     public void requireSame(String candidateFingerprint) {
         if (!fingerprint.equals(candidateFingerprint)) throw new CombatIdempotencyConflictException();
     }
 
     public void failed(Throwable cause) {
-        status = Status.PROCESSING_FAILED;
+        if (status != Status.GM_INTERVENTION_PENDING) status = Status.PROCESSING_FAILED;
         failure = cause.getMessage() == null ? cause.getClass().getSimpleName() : cause.getMessage();
+    }
+
+    public void failedBeforeCommit(Throwable cause) {
+        failed(cause);
+        response = null;
     }
 
     public void committed(CombatActionResponse result) {
@@ -57,7 +72,21 @@ public final class CombatActionOperation {
         failure = null;
     }
 
-    public void recordDiceTotal(int total) { diceTotal = total; }
+    public void awaitingMovementAdjudication(CombatActionResponse result, MovementFollowUpCommand followUp) {
+        awaitingMovementAdjudication(result);
+        movementFollowUp = Objects.requireNonNull(followUp);
+    }
+
+    public void awaitingMovementAdjudication(CombatActionResponse result) {
+        response = Objects.requireNonNull(result);
+        status = Status.GM_INTERVENTION_PENDING;
+        failure = null;
+    }
+
+    public void recordDiceTotal(int total) {
+        if (diceTotal != null && diceTotal != total) throw new IllegalStateException("movement roll already recorded");
+        diceTotal = total;
+    }
 
     public void completeStep(String name) {
         replaceStep(name, CombatActionStep.Status.DONE);
@@ -87,4 +116,17 @@ public final class CombatActionOperation {
     public CombatActionResponse response() { return response; }
     public String failure() { return failure; }
     public Integer diceTotal() { return diceTotal; }
+    public MovementFollowUpCommand movementFollowUp() { return movementFollowUp; }
+    public CombatActionStep step(String name) {
+        return steps.stream().filter(step -> step.name().equals(name)).findFirst().orElse(null);
+    }
+    public UUID mapOperationId() {
+        CombatActionStep map = step("map");
+        if (map == null) throw new IllegalStateException("combat action has no durable map operation");
+        try {
+            return UUID.fromString(map.idempotencyKey());
+        } catch (IllegalArgumentException invalid) {
+            throw new IllegalStateException("durable map operation identity is invalid", invalid);
+        }
+    }
 }

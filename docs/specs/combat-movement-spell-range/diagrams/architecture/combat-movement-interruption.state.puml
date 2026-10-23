@@ -10,12 +10,12 @@
  state "사건 발생 칸에서 경로 중단" as Interrupt
  state "사건 GM 응답 대기" as Gm
  state "백엔드 응답 계약·필수 판정 검증" as Contract
- state "필수 플레이어 굴림·선택 또는 시스템 판정 대기" as Pending
+ state "GM 개입 대기" as Pending
+ state "같은 이동 작업에 필수 굴림 결과 저장" as Submitted
  state "같은 작업·턴으로 재시도 대기" as Retry
  state "실제 도달 위치 최종 반영" as Commit
  state "실제 이동 거리 차감" as Charge
  state "플레이어가 명시적으로 턴 종료" as EndTurn
- state "예약 취소·오류 안내" as Rejected
 
  [*] --> Input
  Input --> Confirm : 플레이어가 새 경로 제출·확인
@@ -24,24 +24,27 @@
  Validate --> Input : 검증 실패 / 비용 없이 거부
  Reserve --> Cell : Combat Map이 장기 이동 예약 저장
  Cell --> Cell : 다음 칸 평가 / 예약 진행 상태 보존
- Cell --> Commit : 정상 경로 끝 / 필수 판정 해결
+ Cell --> Commit : 정상 경로 끝
  Cell --> Interrupt : 새 적 발견·함정·반응
- Interrupt --> Gm : 백엔드 소유 사건 사실과\n서버가 발급한 작업·턴 식별자 전달
+ Interrupt --> Commit : 실제 도달 위치·이동량 확정
  Gm --> Contract : 전용 고정 구조 응답 수신
- Contract --> Pending : 필수 판정·플레이어 굴림·선택 필요
- Pending --> Contract : 규칙과 판정 소유권에 따라 해결
- Contract --> Commit : 계약 유효 / 필수 판정 해결
+ Contract --> Pending : 기존 플레이어 굴림 필요 / 대기 유지·굴림 요청 반환
+ Pending --> Pending : 다른 전투 행동·턴 종료 요청 거부
+ Pending --> Submitted : 같은 이동 작업에 연결된 필수 굴림 제출
+ Submitted --> Gm : 저장된 굴림 결과로 GM 최종 판정 요청
+ Contract --> Input : 최종 판정 유효 / 대기 해제·같은 플레이어 턴 재개
  Gm --> Retry : 재시도 가능한 모델 오류
  Contract --> Retry : 재시도 가능한 응답 구조·상태 소유자 오류
  Pending --> Retry : 재시도 가능한 판정 소유자 오류
+ Contract --> Pending : 응답 검증 거부 / 이동 결과 유지·같은 작업 잠금
+ Pending --> Pending : 최종 응답 실패·불일치 / 대기 잠금 유지
  Retry --> Gm : GM 응답 복구
  Retry --> Pending : 필수 판정 복구
- Contract --> Rejected : 복구 불가능한 검증 실패
- Pending --> Rejected : 복구 불가능한 판정·연동 실패
- Rejected --> Input
  Commit --> Charge : Combat Map 최종 결과 확인
  Charge --> Charge : 후속 처리 장애 / 같은 작업으로 복구
- Charge --> Input : 현재 참가자 유지 / 결과·서술 표시
+ Charge --> Pending : 중단 사건 / 같은 작업의 GM 개입 대기 저장
+ Pending --> Gm : 서버 작업·턴 식별자로 최초 판정 요청 또는 재시도
+ Charge --> Input : 정상 경로 끝 / 현재 참가자 유지
  Input --> EndTurn : 플레이어가 턴 종료 선택
  EndTurn --> [*]
 
@@ -52,21 +55,28 @@
  end note
  note right of Cell
  칸별 평가는 DB의 칸별 최종 반영이 아니다.
- 판정 대기와 재시도 중에는 작업을 보존하고
- 공개 지도 상태를 최종 반영하지 않는다.
+ 사건 발생 칸까지의 위치와 비용을 한 번 확정한 뒤
+ GM 판정 대기와 재시도 중 같은 작업을 보존한다.
  end note
  note right of Gm
  AI Game Master는 식별자를 만들지 않는다.
- 응답은 판정 결과·서술·선택적 플레이어 굴림/선택 요청·
+ 응답은 판정 결과·서술·필요한 기존 플레이어 굴림 요청·
  전투 시작 여부를 전용 고정 구조로 반환한다.
  백엔드는 구조와 규칙·판정 소유권을 검증한다.
+ end note
+ note right of Pending
+ 사건 판정 전에 같은 이동 작업에 대기 상태를 저장한다.
+ 필수 굴림 결과와 GM의 최종 판정이 저장된 뒤에만 해제한다.
+ 대기 중 다른 전투 행동과 턴 종료를 허용하지 않는다.
+ 최종 응답 오류·불일치도 대기를 풀지 않는다.
+ 위치 반영과 이동 거리 차감은 반복하지 않는다.
  end note
  note right of Retry
  작업·턴 식별자와 저장된 진행 상태를 유지한다.
  이미 완료한 판정·반영·거리 차감을 반복하지 않는다.
  end note
  note right of Commit
- ADR-018: 모든 필수 판정 뒤 실제 통과한 경로의 위치,
+ ADR-018: 실제 통과한 경로의 위치,
  공간 요소, 시야·탐험 상태를 로컬 트랜잭션으로 원자 반영한다.
  반영 뒤의 후속 상태 변경은 기존 멱등 복구 절차를 따른다.
  end note

@@ -11,12 +11,13 @@ public interface MovementFollowUpPort {
     Result publish(MovementFollowUpCommand command, UUID adventureId, UUID sessionId, UUID ownerPlayerId);
 
     record Result(Status status, String value) {
-        public enum Status { DONE, RETRY, PERMANENT_FAILURE }
+        public enum Status { DONE, PLAYER_INPUT_REQUIRED, RETRY, PERMANENT_FAILURE }
         public Result {
             status = Objects.requireNonNull(status, "follow-up status must not be null");
             value = value == null ? "" : value;
         }
         public static Result done(String value) { return new Result(Status.DONE, value); }
+        public static Result playerInputRequired(String value) { return new Result(Status.PLAYER_INPUT_REQUIRED, value); }
         public static Result retry(String value) { return new Result(Status.RETRY, value); }
         public static Result permanentFailure(String value) { return new Result(Status.PERMANENT_FAILURE, value); }
     }

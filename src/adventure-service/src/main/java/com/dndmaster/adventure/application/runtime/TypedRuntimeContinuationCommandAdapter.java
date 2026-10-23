@@ -56,7 +56,8 @@ public final class TypedRuntimeContinuationCommandAdapter implements RuntimeTurn
         }
         java.util.Set<String> fields = new java.util.HashSet<>();
         payload.fieldNames().forEachRemaining(fields::add);
-        if (!fields.equals(java.util.Set.of("kind", "trigger", "operationId", "turnId", "hostileTokenId"))) {
+        if (!fields.equals(java.util.Set.of("kind", "trigger", "operationId", "turnId", "hostileTokenId",
+                "mapVersion", "traversedPath", "finalPosition", "publicEvents", "playerCheck", "playerRoll"))) {
             throw new PermanentFollowUpFailure("continuation payload contains unknown properties");
         }
         if (!payload.path("kind").isTextual() || !kind.name().equals(payload.path("kind").asText())) {
@@ -65,13 +66,28 @@ public final class TypedRuntimeContinuationCommandAdapter implements RuntimeTurn
         String trigger = requiredText(payload, "trigger");
         UUID operationId = requiredUuid(payload, "operationId");
         UUID payloadTurnId = requiredUuid(payload, "turnId");
-        UUID hostileTokenId = requiredUuid(payload, "hostileTokenId");
+        UUID hostileTokenId = optionalUuid(payload, "hostileTokenId");
+        long mapVersion = payload.path("mapVersion").asLong(-1);
+        if (mapVersion < 0 || !payload.path("traversedPath").isArray() || !payload.path("publicEvents").isArray()) {
+            throw new PermanentFollowUpFailure("continuation movement facts are invalid");
+        }
+        if (!java.util.Set.of("HOSTILE_OBSERVED", "SPATIAL_FEATURE_REQUIRES_DECISION").contains(trigger)
+                || ("HOSTILE_OBSERVED".equals(trigger) != (hostileTokenId != null))) {
+            throw new PermanentFollowUpFailure("continuation payload trigger and hostile token do not match");
+        }
         if (!command.turnId().equals(payloadTurnId)) {
             throw new PermanentFollowUpFailure("continuation payload turn id does not match command turn id");
         }
         MovementFollowUpRuntimeConsumer.Continuation continuation = new MovementFollowUpRuntimeConsumer.Continuation(
                 com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.valueOf(kind.name()),
-                trigger, operationId, payloadTurnId, hostileTokenId);
+                trigger, operationId, payloadTurnId, hostileTokenId, mapVersion,
+                objectMapper.readerForListOf(com.dndmaster.adventure.application.combat.CombatMapPreviewPosition.class)
+                        .readValue(payload.path("traversedPath")),
+                payload.path("finalPosition").isNull() ? null : objectMapper.treeToValue(payload.path("finalPosition"),
+                        com.dndmaster.adventure.application.combat.CombatMapPreviewPosition.class),
+                objectMapper.readerForListOf(String.class).readValue(payload.path("publicEvents")),
+                payload.path("playerCheck").isNull() ? null : objectMapper.treeToValue(payload.path("playerCheck"), RuntimeCheckProposal.class),
+                payload.path("playerRoll").isNull() ? null : payload.path("playerRoll").asInt());
         if (!objectMapper.writeValueAsString(continuation).equals(command.payloadJson())) {
             throw new PermanentFollowUpFailure("continuation payload is not canonical");
         }
@@ -95,5 +111,12 @@ public final class TypedRuntimeContinuationCommandAdapter implements RuntimeTurn
         } catch (IllegalArgumentException failure) {
             throw new IllegalArgumentException("continuation payload field " + field + " is invalid", failure);
         }
+    }
+
+    private static UUID optionalUuid(JsonNode payload, String field) {
+        if (payload == null || !payload.isObject() || !payload.has(field)) {
+            throw new PermanentFollowUpFailure("continuation payload field " + field + " is required");
+        }
+        return payload.get(field).isNull() ? null : requiredUuid(payload, field);
     }
 }

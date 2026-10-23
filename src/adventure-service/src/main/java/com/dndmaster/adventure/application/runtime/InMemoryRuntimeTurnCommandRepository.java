@@ -24,6 +24,12 @@ public final class InMemoryRuntimeTurnCommandRepository implements RuntimeTurnCo
                         .thenComparing(RuntimeTurnCommand::commandId)).toList();
     }
 
+    @Override public List<RuntimeTurnCommand> findPendingMovementByAdventure(UUID adventureId) {
+        return commands.values().stream().filter(command -> command.adventureId().equals(adventureId)
+                && "movement.follow-up".equals(command.commandType())
+                && command.executionStatus() == RuntimeTurnCommand.ExecutionStatus.GM_INTERVENTION_PENDING).toList();
+    }
+
     @Override public synchronized void save(RuntimeTurnCommand command) {
         RuntimeTurnCommand previous = commands.values().stream()
                 .filter(value -> value.turnId().equals(command.turnId())

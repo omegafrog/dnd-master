@@ -19,6 +19,7 @@ import java.util.UUID;
 
 /** Single idempotent command path for human combat actions and explicit turn end. */
 public final class CombatActionApplicationService {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(CombatActionApplicationService.class);
     private final CombatEncounterRepository encounterRepository;
     private final CombatActionOperationRepository operationRepository;
     private final CombatEventRepository eventRepository;
@@ -30,6 +31,11 @@ public final class CombatActionApplicationService {
     private final MapMovementCoordinator movementCoordinator;
     private final CombatEndPort combatEndPort;
     private final CombatNarrationPort narrationPort;
+    private com.dndmaster.adventure.application.runtime.MovementFollowUpPort movementFollowUpPort;
+    private com.dndmaster.adventure.application.runtime.MovementFollowUpRuntimeConsumer movementFollowUpConsumer;
+    private com.dndmaster.adventure.application.runtime.RuntimeTurnCommandRepository runtimeCommands;
+    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private org.springframework.transaction.support.TransactionTemplate movementCommitTransactions;
 
     public CombatActionApplicationService(CombatEncounterRepository encounterRepository,
                                           CombatActionOperationRepository operationRepository,
@@ -95,6 +101,23 @@ public final class CombatActionApplicationService {
         this.decisionPort = Objects.requireNonNull(decisionPort);
         this.combatEndPort = Objects.requireNonNull(combatEndPort);
         this.narrationPort = Objects.requireNonNull(narrationPort);
+    }
+
+    public void setMovementFollowUpPorts(
+            com.dndmaster.adventure.application.runtime.MovementFollowUpPort movementFollowUpPort,
+            com.dndmaster.adventure.application.runtime.MovementFollowUpRuntimeConsumer movementFollowUpConsumer,
+            com.dndmaster.adventure.application.runtime.RuntimeTurnCommandRepository runtimeCommands,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        this.movementFollowUpPort = Objects.requireNonNull(movementFollowUpPort);
+        this.movementFollowUpConsumer = Objects.requireNonNull(movementFollowUpConsumer);
+        this.runtimeCommands = Objects.requireNonNull(runtimeCommands);
+        this.objectMapper = Objects.requireNonNull(objectMapper);
+    }
+
+    public void setMovementCommitTransactionManager(
+            org.springframework.transaction.PlatformTransactionManager transactionManager) {
+        this.movementCommitTransactions = new org.springframework.transaction.support.TransactionTemplate(
+                Objects.requireNonNull(transactionManager));
     }
 
     public CombatActionResponse submitFreeForm(FreeFormCombatCommand command) {
@@ -382,10 +405,35 @@ public final class CombatActionApplicationService {
         CombatActionOperation existing = operationRepository.findByCommandId(command.operationId()).orElse(null);
         if (existing != null) {
             existing.requireSame(command.fingerprint());
-            if (existing.status() == CombatActionOperation.Status.COMMITTED) return existing.response();
+            if (existing.status() == CombatActionOperation.Status.GM_INTERVENTION_PENDING
+                    && existing.response() != null && existing.response().movementAdjudication() != null
+                    && existing.response().movementAdjudication().waitingForPlayerInput()) {
+                return existing.response();
+            }
+            if (existing.status() == CombatActionOperation.Status.COMMITTED) {
+                if (command.isMovement() && existing.response() != null
+                        && existing.response().movementAdjudication() == null
+                        && command.combatMapId() != null) {
+                    return resumeCommittedMovementFollowUp(command, existing);
+                }
+                return existing.response();
+            }
+            if (command.isMovement() && existing.response() != null) {
+                return resumeCommittedMovementFollowUp(command, existing);
+            }
         }
 
         CombatEncounter encounter = activeEncounter(command);
+        if (existing == null && operationRepository.hasPendingForEncounter(encounter.encounterId())) {
+            long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                    "combat_action_pending_guard", "commandId=" + command.operationId() + " encounterId="
+                            + encounter.encounterId() + " expected=no_pending_operation actual=pending_operation");
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "combat_action_pending_guard", "commandId=" + command.operationId() + " encounterId="
+                            + encounter.encounterId() + " expected=allow_new_action actual=retry_required"
+                            + " recoveryAction=resume_same_pending_operation", started);
+            throw new CombatCommandRejectedException("RETRY_REQUIRED", List.of("COMBAT_ACTION_RECOVERY_PENDING"));
+        }
         if (command.isMovement()) return submitMovement(command, encounter, existing);
         CombatActionEvaluation evaluation = aiActor
                 ? rulesEngine.validateAiAction(encounter,
@@ -584,19 +632,23 @@ public final class CombatActionApplicationService {
                     ? "COMBAT_VERSION_CONFLICT" : "ACTION_NOT_ALLOWED", List.of(exception.getMessage()));
         }
 
+        UUID mapOperationId = existing == null ? UUID.randomUUID()
+                : mapOperationId(existing);
         CombatActionOperation operation = existing == null
                 ? new CombatActionOperation(command.operationId(), command.fingerprint(), encounter.encounterId(),
                 command.characterSheetId().value(), evaluation.cost(), List.of(
                 new CombatActionStep(command.combatMapId() == null ? "narrative" : "map",
-                        command.operationId() + (command.combatMapId() == null ? ":narrative" : ":map"),
+                        command.combatMapId() == null ? command.operationId() + ":narrative" : mapOperationId.toString(),
                         CombatActionStep.Status.PENDING)))
                 : existing;
         operationRepository.save(operation);
         int committedDistance = distance;
+        CombatMapMoveResult movement = null;
+        boolean movementCommitComplete = false;
         try {
             if (command.combatMapId() != null && !stepDone(operation, "map")) {
-                CombatMapMoveResult movement = movementCoordinator.resolve(
-                        new CombatMapMoveCommand(command, distance, expectedMapVersion(command)));
+                movement = movementCoordinator.resolve(
+                        new CombatMapMoveCommand(withOperationId(command, mapOperationId), distance, expectedMapVersion(command)));
                 requireCommittedMovement(movement);
                 if (movement.status() == CombatMapMovementStatus.INTERRUPTED) {
                     committedDistance = traversedMovementDistance(movement);
@@ -605,23 +657,37 @@ public final class CombatActionApplicationService {
                 }
                 operation.completeStep("map");
                 operationRepository.save(operation);
+            } else if (command.combatMapId() != null) {
+                movement = movementCoordinator.query(command.combatMapId(), mapOperationId);
+                requireCommittedMovement(movement);
+                if (movement.status() == CombatMapMovementStatus.INTERRUPTED) {
+                    committedDistance = traversedMovementDistance(movement);
+                    reservation = encounter.reserveAction(command.characterSheetId().value(),
+                            TurnResourceCost.movementOnly(committedDistance), command.expectedVersion());
+                }
             } else if (command.combatMapId() == null) {
                 operation.completeStep("narrative");
                 operationRepository.save(operation);
             }
             CombatEncounter committed = encounter.commitMovement(command.characterSheetId().value(), reservation,
                     command.narrativePosition());
-            encounterRepository.save(committed, encounter.version());
             String judgment = command.narrativePosition() == null
                     ? "moved " + committedDistance + "ft" : command.narrativePosition().rangeBand()
                     + " range, " + command.narrativePosition().cover() + " cover";
             CombatActionResponse response = new CombatActionResponse(committed.encounterId(), command.operationId(),
                     committed.version(), "MOVE_COMMITTED", null, judgment, List.of());
-            operation.committed(response);
-            operationRepository.save(operation);
-            eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor(),
-                    "MOVEMENT_RESOLVED", "{\"operationId\":\"" + command.operationId()
-                    + "\",\"distance\":" + committedDistance + "}"));
+            if (requiresMovementAdjudication(movement)) operation.awaitingMovementAdjudication(response);
+            else operation.committed(response);
+            commitMovementResult(committed, encounter.version(), operation, committedDistance);
+            movementCommitComplete = true;
+            if (movement != null) {
+                response = attachMovementAdjudication(command, committed, operation, movement, response);
+                if (operation.status() != CombatActionOperation.Status.GM_INTERVENTION_PENDING) {
+                    operation.committed(response);
+                    operationRepository.save(operation);
+                }
+            }
+            if (operation.status() == CombatActionOperation.Status.GM_INTERVENTION_PENDING) return response;
             response = narrateAfterCommit(command, response, command.action(), committed);
             operation.committed(response);
             operationRepository.save(operation);
@@ -629,10 +695,102 @@ public final class CombatActionApplicationService {
         } catch (CombatCommandRejectedException exception) {
             throw exception;
         } catch (RuntimeException exception) {
-            operation.failed(exception);
+            if (movementCommitComplete) operation.failed(exception);
+            else operation.failedBeforeCommit(exception);
             operationRepository.save(operation);
             throw new CombatExternalFailureException(exception);
         }
+    }
+
+    public CombatActionResponse submitMovementPlayerRoll(UUID adventureId, UUID operationId, UUID pendingTurnId,
+            int result, long expectedVersion) {
+        CombatActionOperation operation = operationRepository.findByCommandId(operationId)
+                .orElseThrow(() -> new CombatCommandRejectedException("RETRY_REQUIRED", List.of("MOVEMENT_ROLL_NOT_PENDING")));
+        CombatEncounter encounter = encounterRepository.findByEncounterId(operation.encounterId())
+                .orElseThrow(() -> new CombatCommandRejectedException("COMBAT_NOT_ACTIVE", List.of("COMBAT_NOT_ACTIVE")));
+        CombatActionResponse pending = operation.response();
+        var adjudication = pending == null ? null : pending.movementAdjudication();
+        if (operation.status() == CombatActionOperation.Status.COMMITTED && adjudication != null
+                && adjudication.turnId().equals(pendingTurnId) && Objects.equals(operation.diceTotal(), result)) {
+            return pending;
+        }
+        if (!encounter.adventureId().equals(adventureId)
+                || operation.status() != CombatActionOperation.Status.GM_INTERVENTION_PENDING
+                || adjudication == null || !adjudication.waitingForPlayerInput()
+                || !adjudication.turnId().equals(pendingTurnId)
+                || !encounter.currentParticipantId().equals(operation.actorId())
+                || pending.encounterVersion() != expectedVersion || encounter.version() != expectedVersion) {
+            throw new CombatCommandRejectedException("RETRY_REQUIRED", List.of("MOVEMENT_ROLL_NOT_PENDING"));
+        }
+        if (result < 1 || result > 20 || !"1d20".equalsIgnoreCase(adjudication.playerInput().diceExpression())) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("INVALID_PLAYER_ROLL"));
+        }
+        try {
+            operation.recordDiceTotal(result);
+        } catch (IllegalStateException mismatch) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("MOVEMENT_ROLL_ALREADY_RECORDED"));
+        }
+        operationRepository.save(operation);
+        long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "combat_action_movement_player_roll", "commandId=" + operation.commandId() + " operationId="
+                        + operation.mapOperationId() + " turnId=" + pendingTurnId + " expected=recorded_required_roll actual=submitted");
+        try {
+            MovementFollowUpCommand followUp = Objects.requireNonNull(operation.movementFollowUp(),
+                    "pending movement follow-up facts are missing").afterPlayerRoll(adjudication.playerInput(), result);
+            UUID sourceId = UUID.nameUUIDFromBytes(("combat-action-movement-source:" + operation.mapOperationId())
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            com.dndmaster.adventure.application.runtime.RuntimeTurnCommand source = Objects.requireNonNull(runtimeCommands, "runtime command repository is not configured")
+                    .findByCommandId(sourceId).orElseThrow(() -> new IllegalStateException("movement source command is missing"));
+            var published = movementFollowUpPort.publish(followUp, adventureId, source.sessionId(), source.ownerPlayerId());
+            if (published.status() != com.dndmaster.adventure.application.runtime.MovementFollowUpPort.Result.Status.DONE) {
+                throw new IllegalStateException("final movement ruling could not be persisted: " + published.value());
+            }
+            var consumed = movementFollowUpConsumer.consume(source, followUp);
+            if (consumed.status() != com.dndmaster.adventure.application.runtime.MovementFollowUpPort.Result.Status.DONE) {
+                throw new IllegalStateException("final movement ruling did not complete: " + consumed.value());
+            }
+            final com.dndmaster.adventure.application.runtime.CombatContinuationCommand finalRuling;
+            try {
+                finalRuling = objectMapper.readValue(consumed.value(),
+                        com.dndmaster.adventure.application.runtime.CombatContinuationCommand.class);
+            } catch (java.io.IOException malformed) {
+                throw new IllegalStateException("stored final movement ruling is corrupt", malformed);
+            }
+            UUID expectedContinuationId = UUID.nameUUIDFromBytes(("movement-continuation:" + followUp.commandId())
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            if (!finalRuling.commandId().equals(expectedContinuationId) || !finalRuling.turnId().equals(pendingTurnId)
+                    || !finalRuling.operationId().equals(operation.mapOperationId())
+                    || !finalRuling.trigger().equals(adjudication.trigger()) || finalRuling.waitingForPlayerInput()) {
+                throw new IllegalStateException("final movement ruling identity or state is invalid");
+            }
+            CombatActionResponse response = new CombatActionResponse(pending.encounterId(), operation.commandId(),
+                    pending.encounterVersion(), pending.status(), result, finalRuling.judgment(), pending.violations(),
+                    finalRuling.narration(), finalRuling);
+            operation.committed(response);
+            operationRepository.save(operation);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "combat_action_movement_player_roll", "commandId=" + operation.commandId() + " operationId="
+                            + operation.mapOperationId() + " turnId=" + pendingTurnId
+                            + " expected=final_ruling_and_follow_up_saved actual=committed recoveryAction=replay_final_response", started);
+            return response;
+        } catch (RuntimeException | Error failure) {
+            operation.failed(failure);
+            operationRepository.save(operation);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "combat_action_movement_player_roll", "commandId=" + operation.commandId() + " operationId="
+                            + operation.mapOperationId() + " turnId=" + pendingTurnId
+                            + " expected=final_ruling_and_follow_up_saved actual=failed recoveryAction=retry_same_operation", started, failure);
+            throw failure instanceof CombatCommandRejectedException rejected ? rejected : new CombatExternalFailureException(failure);
+        }
+    }
+
+    public CombatActionResponse pendingMovementAdjudication(UUID adventureId) {
+        return encounterRepository.findActive(adventureId)
+                .flatMap(encounter -> operationRepository.findPendingMovementForEncounter(encounter.encounterId()))
+                .map(CombatActionOperation::response)
+                .filter(Objects::nonNull)
+                .filter(response -> response.movementAdjudication() != null)
+                .orElse(null);
     }
 
     private static int movementDistance(CombatActionCommand command) {
@@ -665,6 +823,21 @@ public final class CombatActionApplicationService {
         }
     }
 
+    private static boolean requiresMovementAdjudication(CombatMapMoveResult movement) {
+        return movementFollowUpTrigger(movement) != null;
+    }
+
+    private static String movementFollowUpTrigger(CombatMapMoveResult movement) {
+        if (movement == null) return null;
+        if (isMovementFollowUpTrigger(movement.interruptionReason())) return movement.interruptionReason();
+        return movement.publicEvents().stream().filter(CombatActionApplicationService::isMovementFollowUpTrigger)
+                .findFirst().orElse(null);
+    }
+
+    private static boolean isMovementFollowUpTrigger(String trigger) {
+        return "HOSTILE_OBSERVED".equals(trigger) || "SPATIAL_FEATURE_REQUIRES_DECISION".equals(trigger);
+    }
+
     private static void validateNarrativePosition(CombatActionCommand command, CombatEncounter encounter) {
         NarrativeCombatPosition position = command.narrativePosition();
         if (command.combatMapId() != null || position == null) return;
@@ -681,6 +854,209 @@ public final class CombatActionApplicationService {
     private static boolean stepDone(CombatActionOperation operation, String name) {
         return operation.steps().stream().anyMatch(step -> step.name().equals(name)
                 && step.status() == CombatActionStep.Status.DONE);
+    }
+
+    private static UUID mapOperationId(CombatActionOperation operation) {
+        CombatActionStep step = operation.step("map");
+        if (step == null) return UUID.randomUUID();
+        try {
+            return UUID.fromString(step.idempotencyKey());
+        } catch (IllegalArgumentException invalid) {
+            throw new IllegalStateException("durable map operation identity is invalid", invalid);
+        }
+    }
+
+    private CombatActionResponse resumeCommittedMovementFollowUp(CombatActionCommand command,
+            CombatActionOperation operation) {
+        CombatActionResponse response = operation.response();
+        if (response.movementAdjudication() != null || command.combatMapId() == null) {
+            operation.committed(response);
+            operationRepository.save(operation);
+            return response;
+        }
+        CombatActionStep step = operation.step("map");
+        if (step == null || step.status() != CombatActionStep.Status.DONE) return response;
+        UUID mapOperationId = mapOperationId(operation);
+        long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "combat_action_saved_map_recovery", "commandId=" + command.operationId() + " operationId="
+                        + mapOperationId + " encounterId=" + operation.encounterId()
+                        + " expected=saved_map_result actual=querying");
+        try {
+            CombatMapMoveResult movement = movementCoordinator.query(command.combatMapId(), mapOperationId);
+            CombatEncounter encounter = encounterRepository.findByEncounterId(operation.encounterId())
+                    .orElseThrow(() -> new IllegalStateException("combat encounter is unavailable for movement recovery"));
+            CombatActionResponse recovered = attachMovementAdjudication(command, encounter, operation, movement, response);
+            if (operation.status() == CombatActionOperation.Status.GM_INTERVENTION_PENDING) {
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                        "combat_action_saved_map_recovery", "commandId=" + command.operationId() + " operationId="
+                                + mapOperationId + " encounterId=" + operation.encounterId()
+                                + " expected=GM_INTERVENTION_PENDING actual=preserved recoveryAction=resume_same_operation", started);
+                return recovered;
+            }
+            recovered = narrateAfterCommit(command, recovered, command.action(), encounter);
+            operation.committed(recovered);
+            operationRepository.save(operation);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "combat_action_saved_map_recovery", "commandId=" + command.operationId() + " operationId="
+                            + mapOperationId + " encounterId=" + operation.encounterId()
+                            + " expected=saved_map_result actual=replayed recoveryAction=reuse_saved_map_result", started);
+            return recovered;
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "combat_action_saved_map_recovery", "commandId=" + command.operationId() + " operationId="
+                            + mapOperationId + " encounterId=" + operation.encounterId()
+                            + " expected=saved_map_result actual=failed recoveryAction=retry_same_operation", started, failure);
+            throw failure;
+        }
+    }
+
+    private void commitMovementResult(CombatEncounter committed, long expectedVersion,
+            CombatActionOperation operation, int committedDistance) {
+        long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "combat_action_movement_commit", "commandId=" + operation.commandId() + " operationId="
+                        + operation.mapOperationId() + " encounterId=" + committed.encounterId()
+                        + " expectedEncounterVersion=" + expectedVersion + " actualEncounterVersion="
+                        + committed.version());
+        Runnable writes = () -> {
+            encounterRepository.save(committed, expectedVersion);
+            operationRepository.save(operation);
+            eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor(),
+                    "MOVEMENT_RESOLVED", "{\"operationId\":\"" + operation.commandId()
+                    + "\",\"distance\":" + committedDistance + "}"));
+        };
+        try {
+            if (movementCommitTransactions == null) {
+                writes.run();
+            } else {
+                movementCommitTransactions.executeWithoutResult(status -> writes.run());
+            }
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "combat_action_movement_commit", "commandId=" + operation.commandId() + " operationId="
+                            + operation.mapOperationId() + " encounterId=" + committed.encounterId()
+                            + " expectedEncounterVersion=" + expectedVersion + " actualEncounterVersion="
+                            + committed.version() + " expected=encounter_operation_event_atomic actual=committed"
+                            + " recoveryAction=replay_saved_operation", started);
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "combat_action_movement_commit", "commandId=" + operation.commandId() + " operationId="
+                            + operation.mapOperationId() + " encounterId=" + committed.encounterId()
+                            + " expected=encounter_operation_event_atomic actual=failed"
+                            + " recoveryAction=retry_same_operation", started, failure);
+            throw failure;
+        }
+    }
+
+    private CombatActionResponse attachMovementAdjudication(CombatActionCommand command, CombatEncounter encounter,
+            CombatActionOperation operation, CombatMapMoveResult movement, CombatActionResponse response) {
+        if (movement == null || movement.operationId() == null
+                || !movement.operationId().equals(mapOperationId(operation))) {
+            throw new IllegalStateException("movement recovery operation identity does not match stored action");
+        }
+        String trigger = movementFollowUpTrigger(movement);
+        if (trigger == null) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(LOGGER,
+                    "combat_action_unsupported_movement_trigger", "commandId=" + command.operationId()
+                            + " operationId=" + mapOperationId(operation) + " encounterId=" + encounter.encounterId()
+                            + " expected=HOSTILE_OBSERVED_or_SPATIAL_FEATURE_REQUIRES_DECISION actual=unsupported_or_absent"
+                            + " interruptionReasonPresent=" + (movement.interruptionReason() != null)
+                            + " publicEventCount=" + movement.publicEvents().size()
+                            + " branch=keep_existing_response recoveryAction=return_saved_response",
+                    () -> { });
+            return response;
+        }
+        if (response.encounterVersion() != encounter.version()
+                || !encounter.currentParticipantId().equals(operation.actorId())
+                || !operation.actorId().equals(command.characterSheetId().value())) {
+            throw new IllegalStateException("movement adjudication encounter version or actor changed");
+        }
+        if (movement.hostileTokenId() != null && !"HOSTILE_OBSERVED".equals(trigger)
+                || movement.hostileTokenId() == null && "HOSTILE_OBSERVED".equals(trigger)) {
+            throw new IllegalStateException("movement adjudication token identity does not match trigger");
+        }
+        if (movementFollowUpPort == null || movementFollowUpConsumer == null || runtimeCommands == null || objectMapper == null) {
+            throw new IllegalStateException("movement adjudication recovery ports are not configured");
+        }
+        UUID turnId = UUID.nameUUIDFromBytes(("combat-turn:" + encounter.encounterId() + ":" + encounter.round()
+                + ":" + encounter.currentParticipantId()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        var followUp = MovementFollowUpCommand.forTrigger(mapOperationId(operation), turnId,
+                movement.hostileTokenId(), trigger, value -> MovementFollowUpCommand.Kind.COMBAT,
+                movement.version(), movement.traversedPath(), movement.finalPosition(), movement.publicEvents());
+        operation.awaitingMovementAdjudication(response, followUp);
+        operationRepository.save(operation);
+        UUID sourceId = UUID.nameUUIDFromBytes(("combat-action-movement-source:" + mapOperationId(operation))
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String sourceContext;
+        try {
+            sourceContext = objectMapper.writeValueAsString(java.util.Map.of("encounterId", encounter.encounterId(),
+                    "actorId", operation.actorId(), "expectedEncounterVersion", command.expectedVersion(),
+                    "operationId", mapOperationId(operation)));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+            throw new IllegalStateException("movement adjudication source context serialization failed", failure);
+        }
+        var source = runtimeCommands.findByCommandId(sourceId).orElseGet(() -> {
+            var created = com.dndmaster.adventure.application.runtime.RuntimeTurnCommand.create(turnId, sourceId,
+                    command.adventureId().value(), command.sessionId(), command.ownerPlayerId(), sourceContext,
+                    "combat-map.move", "{}", 0);
+            runtimeCommands.save(created);
+            return created;
+        });
+        long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "combat_action_movement_follow_up", "commandId=" + command.operationId() + " turnId=" + turnId
+                        + " operationId=" + mapOperationId(operation) + " trigger=" + trigger
+                        + " traversedCellCount=" + movement.traversedPath().size());
+        try {
+            var published = movementFollowUpPort.publish(followUp, command.adventureId().value(), command.sessionId(),
+                    Objects.requireNonNull(command.ownerPlayerId(), "owner player id is required for movement recovery"));
+            if (published.status() != com.dndmaster.adventure.application.runtime.MovementFollowUpPort.Result.Status.DONE) {
+                throw new IllegalStateException("movement adjudication event could not be persisted: " + published.value());
+            }
+            var consumed = movementFollowUpConsumer.consume(source, followUp);
+            if (consumed.status() != com.dndmaster.adventure.application.runtime.MovementFollowUpPort.Result.Status.DONE) {
+                throw new IllegalStateException("movement adjudication did not complete: " + consumed.value());
+            }
+            final com.dndmaster.adventure.application.runtime.CombatContinuationCommand adjudication;
+            try {
+                adjudication = objectMapper.readValue(consumed.value(),
+                        com.dndmaster.adventure.application.runtime.CombatContinuationCommand.class);
+            } catch (java.io.IOException malformed) {
+                throw new IllegalStateException("movement adjudication response is corrupt", malformed);
+            }
+            UUID continuationCommandId = UUID.nameUUIDFromBytes(("movement-continuation:" + followUp.commandId())
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            if (!continuationCommandId.equals(adjudication.commandId()) || !turnId.equals(adjudication.turnId())
+                    || !followUp.operationId().equals(adjudication.operationId()) || !trigger.equals(adjudication.trigger())) {
+                throw new IllegalStateException("movement adjudication response identity mismatch");
+            }
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "combat_action_movement_follow_up", "commandId=" + command.operationId() + " turnId=" + turnId
+                            + " operationId=" + mapOperationId(operation) + " expected=typed_gm_response actual=validated"
+                            + " playerInputRequired=" + adjudication.playerInput().required()
+                            + " waitingForPlayerInput=" + adjudication.waitingForPlayerInput()
+                            + " combatStartRequested=" + adjudication.combatStartRequested()
+                            + " recoveryAction=replay_saved_response", started);
+            CombatActionResponse resolved = response.withMovementAdjudication(adjudication);
+            if (adjudication.waitingForPlayerInput()) {
+                operation.awaitingMovementAdjudication(resolved, followUp);
+            } else {
+                operation.committed(resolved);
+            }
+            operationRepository.save(operation);
+            return resolved;
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "combat_action_movement_follow_up", "commandId=" + command.operationId() + " turnId=" + turnId
+                            + " operationId=" + mapOperationId(operation) + " trigger=" + trigger
+                            + " expected=typed_gm_response actual=failed recoveryAction=retry_same_operation", started, failure);
+            throw failure;
+        }
+    }
+
+    private static CombatActionCommand withOperationId(CombatActionCommand command, UUID operationId) {
+        return new CombatActionCommand(operationId, command.adventureId(), command.sessionId(), command.ruleSetId(),
+                command.characterSheetId(), command.combatMapId(), command.role(), command.action(), command.movementPath(),
+                command.ownerPlayerId(), command.tokenId(), command.expectedVersion(), command.targetArmorClass(),
+                command.attackModifier(), command.targetCharacterSheetId(), command.damageAmount(), command.endCombat(),
+                command.narrativePosition(), command.movementDistance(), command.mapVersion(), command.aimSelection());
     }
 
     public CombatActionResponse endTurn(CombatActionCommand command) {
@@ -700,6 +1076,16 @@ public final class CombatActionApplicationService {
             if (existing.status() == CombatActionOperation.Status.COMMITTED) return existing.response();
         }
         CombatEncounter encounter = activeEncounter(command);
+        if (existing == null && operationRepository.hasPendingForEncounter(encounter.encounterId())) {
+            long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                    "combat_action_pending_guard", "commandId=" + command.operationId() + " encounterId="
+                            + encounter.encounterId() + " expected=no_pending_operation actual=pending_operation");
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "combat_action_pending_guard", "commandId=" + command.operationId() + " encounterId="
+                            + encounter.encounterId() + " expected=allow_turn_end actual=retry_required"
+                            + " recoveryAction=resume_same_pending_operation", started);
+            throw new CombatCommandRejectedException("RETRY_REQUIRED", List.of("COMBAT_ACTION_RECOVERY_PENDING"));
+        }
         if (!encounter.currentParticipantId().equals(command.characterSheetId().value())
                 || encounter.currentParticipant().controller() != controller) {
             throw new CombatCommandRejectedException("COMBAT_STATE_REJECTED", List.of(
@@ -795,10 +1181,12 @@ public final class CombatActionApplicationService {
                     "{\"operationId\":\"" + command.operationId() + "\",\"narration\":\""
                             + escape(narration) + "\"}"));
             return new CombatActionResponse(response.encounterId(), response.operationId(), response.encounterVersion(),
-                    response.status(), response.diceTotal(), response.judgment(), response.violations(), narration);
+                    response.status(), response.diceTotal(), response.judgment(), response.violations(), narration,
+                    response.movementAdjudication());
         } catch (RuntimeException ignored) {
             return new CombatActionResponse(response.encounterId(), response.operationId(), response.encounterVersion(),
-                    response.status(), response.diceTotal(), response.judgment(), response.violations(), null);
+                    response.status(), response.diceTotal(), response.judgment(), response.violations(), null,
+                    response.movementAdjudication());
         }
     }
 

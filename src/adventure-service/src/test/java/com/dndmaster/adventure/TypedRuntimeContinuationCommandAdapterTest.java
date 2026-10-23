@@ -19,7 +19,7 @@ class TypedRuntimeContinuationCommandAdapterTest {
         AtomicReference<RuntimeContinuationCommandPort.ContinuationCommand> called = new AtomicReference<>();
         RuntimeContinuationCommandPort port = port(called);
         RuntimeTurnCommand command = command("{\"kind\":\"COMBAT\",\"trigger\":\"HOSTILE_OBSERVED\",\"operationId\":\"not-a-uuid\",\"turnId\":\""
-                + UUID.randomUUID() + "\",\"hostileTokenId\":null}");
+                + UUID.randomUUID() + "\",\"hostileTokenId\":null,\"mapVersion\":0,\"traversedPath\":[],\"finalPosition\":null,\"publicEvents\":[],\"playerCheck\":null,\"playerRoll\":null}");
 
         RuntimeTurnCommandExecution result = adapter(port).execute(command);
 
@@ -129,7 +129,8 @@ class TypedRuntimeContinuationCommandAdapterTest {
 
     private static String payload(UUID operationId, UUID turnId, UUID hostileTokenId) {
         return "{\"kind\":\"COMBAT\",\"trigger\":\"HOSTILE_OBSERVED\",\"operationId\":\"" + operationId
-                + "\",\"turnId\":\"" + turnId + "\",\"hostileTokenId\":\"" + hostileTokenId + "\"}";
+                + "\",\"turnId\":\"" + turnId + "\",\"hostileTokenId\":\"" + hostileTokenId
+                + "\",\"mapVersion\":0,\"traversedPath\":[],\"finalPosition\":null,\"publicEvents\":[],\"playerCheck\":null,\"playerRoll\":null}";
     }
 
 }

@@ -105,7 +105,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
     }
 
     @Test
-    void resumes_the_saved_map_operation_instead_of_restarting_the_command() {
+    void map_ui_reuses_the_saved_map_operation_after_runtime_command_interruption() {
         UUID operationId = UUID.randomUUID();
         AtomicReference<UUID> resumed = new AtomicReference<>();
         CombatMapPort mapPort = new CombatMapPort() {
@@ -220,6 +220,28 @@ class CombatMapRuntimeTurnCommandAdapterTest {
     }
 
     @Test
+    void follows_up_a_public_spatial_decision_without_an_enemy_token() {
+        UUID operationId = UUID.randomUUID();
+        CombatMapPort mapPort = new CombatMapPort() {
+            @Override public void validateAndMove(CombatActionCommand command) {}
+            @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult move(CombatMapMoveCommand command) {
+                return new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
+                        CombatMapMovementStatus.INTERRUPTED, List.of(new CombatMapPreviewPosition(1, 1)),
+                        List.of(new CombatMapPreviewPosition(1, 1)), new CombatMapPreviewPosition(1, 1),
+                        List.of("SPATIAL_FEATURE_REQUIRES_DECISION"), "SPATIAL_FEATURE_REQUIRES_DECISION");
+            }
+        };
+
+        RuntimeTurnCommandExecution result = adapter(mapPort).execute(validCommand());
+
+        assertEquals(RuntimeTurnCommandExecution.Status.DONE, result.status());
+        assertEquals("SPATIAL_FEATURE_REQUIRES_DECISION", result.movementResult().followUp().trigger());
+        assertEquals(operationId, result.movementResult().followUp().operationId());
+        assertEquals(result.movementResult().operationId(), result.movementResult().followUp().operationId());
+        assertEquals(null, result.movementResult().followUp().hostileTokenId());
+    }
+
+    @Test
     void preserves_requested_and_traversed_paths_and_interruption_status() {
         UUID operationId = UUID.randomUUID();
         List<CombatMapPreviewPosition> requested = List.of(
@@ -269,6 +291,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
                 new ObjectMapper(), new DefaultResolutionPort(),
                 trigger -> switch (trigger) {
                     case "HOSTILE_OBSERVED" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT;
+                    case "SPATIAL_FEATURE_REQUIRES_DECISION" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT;
                     default -> throw new IllegalArgumentException("unknown movement follow-up trigger: " + trigger);
                 });
     }

@@ -42,13 +42,12 @@ public final class MovementFollowUpRuntimeConsumer {
             var eventPayload = readStrictJson(event.payload());
             validateIdentity(eventPayload, "commandId");
             validateIdentity(eventPayload, "operationId");
-            validateIdentity(eventPayload, "hostileTokenId");
+            validateOptionalIdentity(eventPayload, "hostileTokenId");
             validateIdentity(eventPayload, "turnId");
-            JsonNode expectedPayload = objectMapper.valueToTree(expected);
-            if (!eventPayload.equals(expectedPayload)) {
+            MovementFollowUpCommand followUp = objectMapper.treeToValue(eventPayload, MovementFollowUpCommand.class);
+            if (!expected.equals(followUp)) {
                 throw new PermanentFollowUpFailure("movement follow-up event payload mismatch");
             }
-            MovementFollowUpCommand followUp = objectMapper.treeToValue(eventPayload, MovementFollowUpCommand.class);
             if (!source.turnId().equals(followUp.turnId())) {
                 throw new PermanentFollowUpFailure("movement follow-up belongs to another turn");
             }
@@ -62,10 +61,14 @@ public final class MovementFollowUpRuntimeConsumer {
             if (existing != null && existing.executionStatus() == RuntimeTurnCommand.ExecutionStatus.DONE) {
                 return MovementFollowUpPort.Result.done(existing.outcomeJson());
             }
+            if (existing != null && existing.executionStatus() == RuntimeTurnCommand.ExecutionStatus.GM_INTERVENTION_PENDING) {
+                return MovementFollowUpPort.Result.playerInputRequired(existing.outcomeJson());
+            }
             int order = commands.findByTurnId(source.turnId()).stream()
                     .mapToInt(RuntimeTurnCommand::executionOrder).max().orElse(source.executionOrder()) + 1;
             String payload = objectMapper.writeValueAsString(new Continuation(kind, followUp.trigger(), followUp.operationId(),
-                    source.turnId(), followUp.hostileTokenId()));
+                    source.turnId(), followUp.hostileTokenId(), followUp.mapVersion(), followUp.traversedPath(),
+                    followUp.finalPosition(), followUp.publicEvents(), followUp.playerCheck(), followUp.playerRoll()));
             RuntimeTurnCommand continuation = existing == null
                     ? RuntimeTurnCommand.create(source.turnId(), continuationId, source.adventureId(), source.sessionId(),
                             source.ownerPlayerId(), source.targetContext(),
@@ -75,7 +78,9 @@ public final class MovementFollowUpRuntimeConsumer {
             RuntimeContinuationOutcome outcome;
             try {
                 outcome = continuationPort.execute(continuation,
-                        new Continuation(kind, followUp.trigger(), followUp.operationId(), source.turnId(), followUp.hostileTokenId()));
+                        new Continuation(kind, followUp.trigger(), followUp.operationId(), source.turnId(), followUp.hostileTokenId(),
+                                followUp.mapVersion(), followUp.traversedPath(), followUp.finalPosition(), followUp.publicEvents(),
+                                followUp.playerCheck(), followUp.playerRoll()));
             } catch (PermanentFollowUpFailure failure) {
                 commands.save(continuation.failed(failure.getMessage(), failure.getMessage()));
                 return MovementFollowUpPort.Result.permanentFailure(failure.getMessage());
@@ -90,6 +95,11 @@ public final class MovementFollowUpRuntimeConsumer {
             if (outcome.status() == RuntimeContinuationOutcome.Status.PERMANENT_FAILURE) {
                 commands.save(continuation.failed(outcome.value(), outcome.value()));
                 return MovementFollowUpPort.Result.permanentFailure(outcome.value());
+            }
+            CombatContinuationCommand adjudication = objectMapper.readValue(outcome.value(), CombatContinuationCommand.class);
+            if (adjudication.waitingForPlayerInput()) {
+                commands.save(continuation.movementInterventionPending(outcome.value()));
+                return MovementFollowUpPort.Result.playerInputRequired(outcome.value());
             }
             commands.save(continuation.done(outcome.value()));
             return MovementFollowUpPort.Result.done(outcome.value());
@@ -135,6 +145,13 @@ public final class MovementFollowUpRuntimeConsumer {
         }
     }
 
+    private static void validateOptionalIdentity(JsonNode payload, String field) {
+        if (payload == null || !payload.isObject() || !payload.has(field)) {
+            throw new PermanentFollowUpFailure("movement follow-up field " + field + " is required");
+        }
+        if (!payload.get(field).isNull()) validateIdentity(payload, field);
+    }
+
     private static MovementFollowUpCommand.Kind requiredKind(JsonNode payload) {
         if (payload == null || !payload.hasNonNull("kind") || !payload.path("kind").isTextual()
                 || payload.path("kind").asText().isBlank()) {
@@ -148,9 +165,28 @@ public final class MovementFollowUpRuntimeConsumer {
     }
 
     public record Continuation(MovementFollowUpCommand.Kind kind, String trigger, UUID operationId, UUID turnId,
-            UUID hostileTokenId) {
+            UUID hostileTokenId, long mapVersion,
+            java.util.List<com.dndmaster.adventure.application.combat.CombatMapPreviewPosition> traversedPath,
+            com.dndmaster.adventure.application.combat.CombatMapPreviewPosition finalPosition,
+            java.util.List<String> publicEvents, RuntimeCheckProposal playerCheck, Integer playerRoll) {
+        public Continuation {
+            traversedPath = java.util.List.copyOf(traversedPath == null ? java.util.List.of() : traversedPath);
+            publicEvents = java.util.List.copyOf(publicEvents == null ? java.util.List.of() : publicEvents);
+        }
         public Continuation(MovementFollowUpCommand.Kind kind, String trigger, UUID operationId, UUID turnId) {
-            this(kind, trigger, operationId, turnId, null);
+            this(kind, trigger, operationId, turnId, null, 0, java.util.List.of(), null, java.util.List.of(), null, null);
+        }
+        public Continuation(MovementFollowUpCommand.Kind kind, String trigger, UUID operationId, UUID turnId,
+                UUID hostileTokenId) {
+            this(kind, trigger, operationId, turnId, hostileTokenId, 0, java.util.List.of(), null, java.util.List.of(), null, null);
+        }
+        public Continuation(MovementFollowUpCommand.Kind kind, String trigger, UUID operationId, UUID turnId,
+                UUID hostileTokenId, long mapVersion,
+                java.util.List<com.dndmaster.adventure.application.combat.CombatMapPreviewPosition> traversedPath,
+                com.dndmaster.adventure.application.combat.CombatMapPreviewPosition finalPosition,
+                java.util.List<String> publicEvents) {
+            this(kind, trigger, operationId, turnId, hostileTokenId, mapVersion, traversedPath, finalPosition,
+                    publicEvents, null, null);
         }
     }
 }

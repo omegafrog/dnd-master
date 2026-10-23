@@ -46,6 +46,14 @@ public final class CombatController {
     private final com.dndmaster.adventure.application.combat.CharacterCombatPort characterCombatPort;
     private final AdventureAiRequestApplicationService aiRequestService;
     private final CombatRangedAttackValidator rangedAttackValidator;
+    private com.dndmaster.adventure.application.runtime.RuntimeTurnCommandRepository runtimeCommands;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRuntimeCommands(com.dndmaster.adventure.application.runtime.RuntimeTurnCommandRepository commands) {
+        this.runtimeCommands = commands;
+    }
+    public record PendingRuntimeMovement(UUID operationId, long encounterVersion,
+            com.dndmaster.adventure.application.runtime.CombatContinuationCommand movementAdjudication,
+            String source) { }
     public CombatController(CombatEncounterRepository repository, AuthenticatedPlayerResolver playerResolver,
                             com.dndmaster.adventure.application.saved.AdventureRepository adventureRepository,
                             com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository,
@@ -152,6 +160,38 @@ public final class CombatController {
             handOffToScheduledAiFollowUp(adventure, command, permit);
             return ResponseEntity.accepted().body(response);
         }
+    }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/combat/actions/{operationId}/roll/{pendingTurnId}")
+    public ResponseEntity<CombatActionResponse> submitMovementPlayerRoll(@PathVariable UUID adventureId,
+            @PathVariable UUID operationId, @PathVariable UUID pendingTurnId,
+            @RequestBody AdventureController.PlayerRollRequest request) {
+        assertOwnerAndLoad(adventureId);
+        return ResponseEntity.accepted().body(actionService.submitMovementPlayerRoll(adventureId, operationId,
+                pendingTurnId, request.result(), request.expectedVersion()));
+    }
+
+    @GetMapping("/api/v1/adventures/{adventureId}/combat/actions/pending-movement")
+    public ResponseEntity<?> pendingMovementAdjudication(@PathVariable UUID adventureId) {
+        var adventure = assertOwnerAndLoad(adventureId);
+        CombatActionResponse pending = actionService.pendingMovementAdjudication(adventureId);
+        if (pending == null && runtimeCommands != null) {
+            for (var command : runtimeCommands.findPendingMovementByAdventure(adventureId)) {
+                try {
+                    var movement = new com.fasterxml.jackson.databind.ObjectMapper().readValue(command.payloadJson(),
+                            com.dndmaster.adventure.application.combat.MovementFollowUpCommand.class);
+                    var adjudication = new com.fasterxml.jackson.databind.ObjectMapper().readValue(command.outcomeJson(),
+                            com.dndmaster.adventure.application.runtime.CombatContinuationCommand.class);
+                    if (adjudication.waitingForPlayerInput()) {
+                        return ResponseEntity.ok(new PendingRuntimeMovement(movement.operationId(), adventure.version(),
+                                adjudication, "RUNTIME_TURN"));
+                    }
+                } catch (java.io.IOException failure) {
+                    throw new IllegalStateException("pending runtime movement is corrupt", failure);
+                }
+            }
+        }
+        return pending == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(pending);
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat/free-form")

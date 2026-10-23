@@ -20,7 +20,7 @@ public record RuntimeTurnCommand(
         int attemptCount,
         String outcomeJson) {
 
-    public enum ExecutionStatus { PENDING, DONE, FAILED }
+    public enum ExecutionStatus { PENDING, GM_INTERVENTION_PENDING, DONE, FAILED }
 
     public RuntimeTurnCommand {
         commandId = Objects.requireNonNull(commandId, "command id must not be null");
@@ -71,6 +71,22 @@ public record RuntimeTurnCommand(
                 commandType, payloadJson, ExecutionStatus.FAILED, executionOrder, idempotencyKey,
                 required(error == null || error.isBlank() ? "unknown command failure" : error, "command error"),
                 attemptCount + 1, outcome == null ? "" : outcome);
+    }
+
+    public RuntimeTurnCommand movementInterventionPending(String outcome) {
+        if (!commandType.equals("movement.follow-up")) throw new IllegalStateException("only movement follow-up commands can await GM intervention");
+        return new RuntimeTurnCommand(commandId, turnId, adventureId, sessionId, ownerPlayerId, targetContext,
+                commandType, payloadJson, ExecutionStatus.GM_INTERVENTION_PENDING, executionOrder, idempotencyKey,
+                "", attemptCount + 1, outcome == null ? "" : outcome);
+    }
+
+    public RuntimeTurnCommand pendingMovementRoll(String finalFollowUpPayload) {
+        if (executionStatus != ExecutionStatus.GM_INTERVENTION_PENDING || !commandType.equals("movement.follow-up")) {
+            throw new IllegalStateException("movement roll requires a pending movement follow-up");
+        }
+        return new RuntimeTurnCommand(commandId, turnId, adventureId, sessionId, ownerPlayerId, targetContext,
+                commandType, Objects.requireNonNull(finalFollowUpPayload), ExecutionStatus.GM_INTERVENTION_PENDING,
+                executionOrder, idempotencyKey, "", attemptCount, outcomeJson);
     }
 
     private static String required(String value, String name) {

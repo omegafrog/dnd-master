@@ -22,6 +22,7 @@ import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandAdapter;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommitOrchestrator;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
 import com.dndmaster.adventure.application.runtime.NarrationSafetyPort;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceSearchPort;
@@ -108,7 +109,7 @@ class RuntimeTurnCommitOrchestratorTest {
         var followUp = new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
                 followUpId, operationId, hostileTokenId, fixture.turnId,
                 com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
-                "HOSTILE_OBSERVED");
+                "HOSTILE_OBSERVED", 3, List.of(), null, List.of("HOSTILE_OBSERVED"));
         var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(
                 3, operationId, com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED,
                 List.of(), List.of(), null, List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED",
@@ -116,7 +117,8 @@ class RuntimeTurnCommitOrchestratorTest {
         String rawFollowUp = "{ \"trigger\" : \"HOSTILE_OBSERVED\", \"kind\" : \"COMBAT\","
                 + " \"turnId\" : \"" + fixture.turnId + "\", \"hostileTokenId\" : \"" + hostileTokenId
                 + "\", \"operationId\" : \"" + operationId + "\", \"commandId\" : \"" + followUpId
-                + "\" }";
+                + "\", \"mapVersion\" : 3, \"traversedPath\" : [], \"finalPosition\" : null"
+                + ", \"publicEvents\" : [\"HOSTILE_OBSERVED\"] }";
         String rawMovement = "{\"version\":3,\"operationId\":\"" + operationId
                 + "\",\"status\":\"INTERRUPTED\",\"requestedPath\":[],\"traversedPath\":[],"
                 + "\"finalPosition\":null,\"publicEvents\":[\"HOSTILE_OBSERVED\"],"
@@ -132,7 +134,8 @@ class RuntimeTurnCommitOrchestratorTest {
                     return fixture.followUpPublisher().publish(published, adventureId, sessionId, ownerPlayerId);
                 }).commit(fixture.readyTurn(), List.of(command), () -> {});
 
-        assertEquals(RuntimeTurnCommitOrchestrator.Status.COMMITTED, result.status());
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.COMMITTED, result.status(),
+                result.failedCommand() == null ? "no failed command" : result.failedCommand().lastError());
         assertEquals(rawFollowUp, fixture.commands.findByCommandId(followUpId).orElseThrow().payloadJson());
         assertEquals(followUp, captured.get());
     }
@@ -342,7 +345,7 @@ class RuntimeTurnCommitOrchestratorTest {
     }
 
     @Test
-    void restores_the_saved_movement_result_when_a_saga_resumes_after_the_command_is_done() {
+    void map_ui_resumes_after_the_movement_result_is_saved_without_running_the_map_command_again() {
         RuntimeTurnFixture fixture = new RuntimeTurnFixture();
         UUID operationId = UUID.randomUUID();
         String outcome = "{\"version\":4,\"operationId\":\"" + operationId
@@ -374,8 +377,10 @@ class RuntimeTurnCommitOrchestratorTest {
         var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
                 com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED, List.of(), List.of(),
                 null, List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED", null,
-                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.hostileObserved(operationId,
-                        fixture.turnId, hostileTokenId), null, hostileTokenId);
+                new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
+                        followUpId(operationId), operationId, hostileTokenId, fixture.turnId,
+                        com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                        "HOSTILE_OBSERVED", 4, List.of(), null, List.of("HOSTILE_OBSERVED")), null, hostileTokenId);
         RuntimeTurnCommand move = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
         AtomicInteger publications = new AtomicInteger();
         var durablePublisher = fixture.followUpPublisher();
@@ -387,15 +392,277 @@ class RuntimeTurnCommitOrchestratorTest {
         var orchestrator = fixture.orchestrator(ignored ->
                 RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, movementOutcome, movement), followUpPort);
 
-        assertEquals(RuntimeTurnCommitOrchestrator.Status.RETRY_REQUIRED,
-                orchestrator.commit(fixture.readyTurn(), List.of(move), () -> {}).status());
+        RuntimeTurnCommitOrchestrator.Result firstAttempt = orchestrator.commit(fixture.readyTurn(), List.of(move), () -> {});
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.RETRY_REQUIRED, firstAttempt.status(),
+                firstAttempt.failedCommand() == null ? "no failed command" : firstAttempt.failedCommand().lastError());
+        // Simulate a new application instance loading only the saved turn and commands.
         assertEquals(RuntimeTurnCommitOrchestrator.Status.COMMITTED,
-                orchestrator.resume(fixture.turnId, () -> {}).status());
+                fixture.orchestrator(ignored -> { throw new AssertionError("saved movement must not run again"); }, followUpPort)
+                        .resume(fixture.turnId, () -> {}).status());
         assertEquals(2, publications.get());
         assertEquals(1, fixture.commands.findByTurnId(fixture.turnId).stream()
                 .filter(command -> command.commandType().equals("movement.follow-up")).count());
         assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, fixture.commands.findByTurnId(fixture.turnId).stream()
                 .filter(command -> command.commandType().equals("movement.follow-up")).findFirst().orElseThrow().executionStatus());
+    }
+
+    @Test
+    void map_player_roll_is_durably_reused_when_final_ruling_retries() throws Exception {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        RuntimeTurn ready = fixture.readyTurn();
+        fixture.turns.save(ready.beginCommit());
+        UUID operationId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        var check = new com.dndmaster.adventure.application.runtime.RuntimeCheckProposal(true,
+                "확인 판정", "Athletics", UUID.randomUUID(),
+                com.dndmaster.adventure.application.runtime.RuntimeCheckProposal.RollMethod.PLAYER,
+                "1d20", 2, 12, List.of("book:check"), "계속 진행", "다시 시도합니다.");
+        var followUp = new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
+                followUpId(operationId), operationId, hostileTokenId, fixture.turnId,
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                "HOSTILE_OBSERVED", 4, List.of(), null, List.of("HOSTILE_OBSERVED"));
+        var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
+                com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED, List.of(), List.of(),
+                null, List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED", null, followUp, null, hostileTokenId);
+        String movementJson = fixture.objectMapper.writeValueAsString(movement);
+        fixture.commands.save(fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING)
+                .done(movementJson));
+        var initialRuling = new com.dndmaster.adventure.application.runtime.CombatContinuationCommand(
+                UUID.randomUUID(), fixture.turnId, operationId, hostileTokenId, "HOSTILE_OBSERVED",
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                "판정 대기", "굴림을 제출해 주세요.", check, true, false);
+        RuntimeTurnCommand pending = RuntimeTurnCommand.create(fixture.turnId, followUp.commandId(),
+                ready.adventureId().value(), ready.sessionId(), UUID.randomUUID(), "external",
+                "movement.follow-up", fixture.objectMapper.writeValueAsString(followUp), 1)
+                .movementInterventionPending(fixture.objectMapper.writeValueAsString(initialRuling));
+        fixture.commands.save(pending);
+        AtomicInteger finalRulings = new AtomicInteger();
+        MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(fixture.events,
+                fixture.commands, fixture.objectMapper, (command, continuation) -> {
+                    if (finalRulings.getAndIncrement() == 0)
+                        return com.dndmaster.adventure.application.runtime.RuntimeContinuationOutcome.retry("temporary final ruling failure");
+                    try {
+                        return com.dndmaster.adventure.application.runtime.RuntimeContinuationOutcome.applied(fixture.objectMapper.writeValueAsString(
+                                new com.dndmaster.adventure.application.runtime.CombatContinuationCommand(
+                                        command.commandId(), continuation.turnId(), continuation.operationId(),
+                                        continuation.hostileTokenId(), continuation.trigger(), continuation.kind(),
+                                        "완료", "다음 행동을 선택해 주세요.",
+                                        com.dndmaster.adventure.application.runtime.RuntimeCheckProposal.none(), false, false)));
+                    } catch (com.fasterxml.jackson.core.JsonProcessingException failure) { throw new IllegalStateException(failure); }
+                });
+        RuntimeTurnCommitOrchestrator orchestrator = new RuntimeTurnCommitOrchestrator(fixture.turns,
+                fixture.commands, ignored -> { throw new AssertionError("saved map move must not run again"); },
+                fixture.followUpPublisher()::publish, consumer);
+
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.RETRY_REQUIRED,
+                orchestrator.submitMovementPlayerRoll(fixture.turnId, 14).status());
+        RuntimeTurnCommand afterFailure = fixture.commands.findByCommandId(followUp.commandId()).orElseThrow();
+        var savedRoll = fixture.objectMapper.readValue(afterFailure.payloadJson(),
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.class);
+        assertEquals(14, savedRoll.playerRoll());
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.GM_INTERVENTION_PENDING, afterFailure.executionStatus());
+
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.COMMITTED,
+                new RuntimeTurnCommitOrchestrator(fixture.turns, fixture.commands,
+                        ignored -> { throw new AssertionError("saved map move must not run again"); },
+                        fixture.followUpPublisher()::publish, consumer)
+                        .submitMovementPlayerRoll(fixture.turnId, 14).status());
+        assertEquals(2, finalRulings.get());
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE,
+                fixture.commands.findByCommandId(followUp.commandId()).orElseThrow().executionStatus());
+        assertEquals(14, fixture.objectMapper.readValue(fixture.commands.findByCommandId(followUp.commandId()).orElseThrow().payloadJson(),
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.class).playerRoll());
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.COMMITTED,
+                new RuntimeTurnCommitOrchestrator(fixture.turns, fixture.commands,
+                        ignored -> { throw new AssertionError("saved map move must not run again"); },
+                        fixture.followUpPublisher()::publish, consumer)
+                        .submitMovementPlayerRoll(fixture.turnId, 14).status());
+        assertEquals(2, finalRulings.get());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new RuntimeTurnCommitOrchestrator(fixture.turns, fixture.commands,
+                        ignored -> { throw new AssertionError("saved map move must not run again"); },
+                        fixture.followUpPublisher()::publish, consumer)
+                        .submitMovementPlayerRoll(fixture.turnId, 13));
+    }
+
+    @Test
+    void completed_typed_follow_up_is_not_repeated_when_local_commit_restarts() throws Exception {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        UUID operationId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
+                com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED, List.of(), List.of(),
+                null, List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED", null,
+                new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
+                        followUpId(operationId), operationId, hostileTokenId, fixture.turnId,
+                        com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                        "HOSTILE_OBSERVED", 4, List.of(), null, List.of("HOSTILE_OBSERVED")), null, hostileTokenId);
+        RuntimeTurnCommand move = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
+        AtomicInteger publications = new AtomicInteger();
+        String movementOutcome = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(movement);
+        MovementFollowUpPort publisher = (command, adventureId, sessionId, ownerPlayerId) -> {
+            publications.incrementAndGet();
+            return fixture.followUpPublisher().publish(command, adventureId, sessionId, ownerPlayerId);
+        };
+        var firstInstance = fixture.orchestrator(ignored ->
+                RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, movementOutcome, movement), publisher);
+
+        assertThrows(IllegalStateException.class, () -> firstInstance.commit(fixture.readyTurn(), List.of(move),
+                () -> { throw new IllegalStateException("simulated process stop"); }));
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, fixture.commands.findByTurnId(fixture.turnId).stream()
+                .filter(command -> command.commandType().equals("movement.follow-up")).findFirst().orElseThrow().executionStatus());
+        assertEquals(1, publications.get());
+
+        var restartedInstance = fixture.orchestrator(ignored -> {
+            throw new AssertionError("saved movement must not run after restart");
+        }, publisher);
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.COMMITTED,
+                restartedInstance.resume(fixture.turnId, () -> {}).status());
+        assertEquals(1, publications.get());
+        assertEquals(RuntimeTurnLifecycle.COMMITTED, fixture.turns.findByTurnId(fixture.turnId).orElseThrow().lifecycle());
+    }
+
+    @Test
+    void map_ui_reuses_committed_movement_budget_when_turn_confirmation_save_fails() throws Exception {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        UUID operationId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        var followUp = new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
+                followUpId(operationId), operationId, hostileTokenId, fixture.turnId,
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                "HOSTILE_OBSERVED", 4, List.of(), null, List.of("HOSTILE_OBSERVED"));
+        var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
+                com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED, List.of(), List.of(),
+                null, List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED", null, followUp, null, hostileTokenId);
+        RuntimeTurnCommand move = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
+        String movementOutcome = fixture.objectMapper.writeValueAsString(movement);
+        AtomicInteger movementExecutions = new AtomicInteger();
+        AtomicInteger followUpPublications = new AtomicInteger();
+        AtomicInteger localCommitCalls = new AtomicInteger();
+        AtomicInteger persistedMovementBudget = new AtomicInteger();
+        java.util.concurrent.atomic.AtomicBoolean localStateCommitted = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.atomic.AtomicBoolean loseTurnConfirmation = new java.util.concurrent.atomic.AtomicBoolean(true);
+        RuntimeTurnRepository turnRepository = new RuntimeTurnRepository() {
+            @Override public java.util.Optional<RuntimeTurn> findByTurnId(UUID id) { return fixture.turns.findByTurnId(id); }
+            @Override public java.util.Optional<RuntimeTurn> findByCommandId(UUID id) { return fixture.turns.findByCommandId(id); }
+            @Override public List<RuntimeTurn> findAllByAdventureId(com.dndmaster.adventure.domain.adventure.AdventureId id) {
+                return fixture.turns.findAllByAdventureId(id);
+            }
+            @Override public void save(RuntimeTurn turn) {
+                if (turn.lifecycle() == RuntimeTurnLifecycle.COMMITTED && loseTurnConfirmation.getAndSet(false))
+                    throw new IllegalStateException("simulated process stop after movement budget commit");
+                fixture.turns.save(turn);
+            }
+        };
+        var publisher = (com.dndmaster.adventure.application.runtime.MovementFollowUpPort)
+                (command, adventureId, sessionId, ownerPlayerId) -> {
+                    followUpPublications.incrementAndGet();
+                    return fixture.followUpPublisher().publish(command, adventureId, sessionId, ownerPlayerId);
+                };
+        RuntimeTurnCommandAdapter mapAdapter = command -> {
+            movementExecutions.incrementAndGet();
+            return RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, movementOutcome, movement);
+        };
+        RuntimeTurnCommitOrchestrator firstInstance = new RuntimeTurnCommitOrchestrator(turnRepository,
+                fixture.commands, mapAdapter, publisher, fixture.followUpConsumer());
+        Runnable localCommit = () -> {
+            localCommitCalls.incrementAndGet();
+            if (localStateCommitted.compareAndSet(false, true)) persistedMovementBudget.addAndGet(4);
+        };
+
+        assertThrows(IllegalStateException.class,
+                () -> firstInstance.commit(fixture.readyTurn(), List.of(move), localCommit));
+        assertEquals(4, persistedMovementBudget.get());
+        assertEquals(RuntimeTurnLifecycle.COMMITTING, fixture.turns.findByTurnId(fixture.turnId).orElseThrow().lifecycle());
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, fixture.commands.findByCommandId(move.commandId()).orElseThrow().executionStatus());
+
+        RuntimeTurnCommitOrchestrator restartedInstance = new RuntimeTurnCommitOrchestrator(turnRepository,
+                fixture.commands, ignored -> { throw new AssertionError("saved map movement must not run again"); },
+                publisher, fixture.followUpConsumer());
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.COMMITTED,
+                restartedInstance.resume(fixture.turnId, localCommit).status());
+        assertEquals(4, persistedMovementBudget.get());
+        assertEquals(2, localCommitCalls.get());
+        assertEquals(1, movementExecutions.get());
+        assertEquals(1, followUpPublications.get());
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE,
+                fixture.commands.findByCommandId(followUp.commandId()).orElseThrow().executionStatus());
+        assertEquals(RuntimeTurnLifecycle.COMMITTED, fixture.turns.findByTurnId(fixture.turnId).orElseThrow().lifecycle());
+        assertEquals(fixture.turnId, fixture.objectMapper.readValue(
+                fixture.commands.findByCommandId(followUp.commandId()).orElseThrow().payloadJson(),
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.class).turnId());
+    }
+
+    @Test
+    void map_ui_reuses_the_saved_typed_result_when_follow_up_completion_ack_is_lost() throws Exception {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        UUID operationId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        var traversed = List.of(new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(1, 1));
+        var finalPosition = traversed.getFirst();
+        var followUp = new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
+                followUpId(operationId), operationId, hostileTokenId, fixture.turnId,
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                "HOSTILE_OBSERVED", 4, traversed, finalPosition, List.of("HOSTILE_OBSERVED"));
+        var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
+                com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED,
+                List.of(new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(1, 1),
+                        new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(2, 1)),
+                traversed, finalPosition, List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED", null, followUp, null,
+                hostileTokenId);
+        RuntimeTurnCommand move = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
+        String movementOutcome = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(movement);
+        AtomicInteger adjudications = new AtomicInteger();
+        java.util.concurrent.atomic.AtomicBoolean loseCompletionAck = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var commandRepository = new com.dndmaster.adventure.application.runtime.RuntimeTurnCommandRepository() {
+            @Override public java.util.Optional<RuntimeTurnCommand> findByCommandId(UUID id) {
+                return fixture.commands.findByCommandId(id);
+            }
+            @Override public java.util.Optional<RuntimeTurnCommand> findByIdempotencyKey(String key) {
+                return fixture.commands.findByIdempotencyKey(key);
+            }
+            @Override public List<RuntimeTurnCommand> findByTurnId(UUID turnId) {
+                return fixture.commands.findByTurnId(turnId);
+            }
+            @Override public void save(RuntimeTurnCommand command) {
+                if ("movement.follow-up".equals(command.commandType())
+                        && command.executionStatus() == RuntimeTurnCommand.ExecutionStatus.DONE
+                        && loseCompletionAck.getAndSet(false)) {
+                    throw new IllegalStateException("simulated stop after typed result persistence");
+                }
+                fixture.commands.save(command);
+            }
+        };
+        var consumer = new com.dndmaster.adventure.application.runtime.MovementFollowUpRuntimeConsumer(
+                fixture.events, fixture.commands, fixture.objectMapper, (command, continuation) -> {
+                    adjudications.incrementAndGet();
+                    try {
+                        return com.dndmaster.adventure.application.runtime.RuntimeContinuationOutcome.applied(
+                                fixture.objectMapper.writeValueAsString(new com.dndmaster.adventure.application.runtime.CombatContinuationCommand(
+                                        command.commandId(), continuation.turnId(), continuation.operationId(),
+                                        continuation.hostileTokenId(), continuation.trigger(), continuation.kind(),
+                                        "판정 완료", "다음 행동을 선택해 주세요.",
+                                        com.dndmaster.adventure.application.runtime.RuntimeCheckProposal.none(), false, false)));
+                    } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+                        throw new IllegalStateException(failure);
+                    }
+                });
+        com.dndmaster.adventure.application.runtime.RuntimeTurnCommandAdapter firstAdapter = ignored ->
+                RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, movementOutcome, movement);
+        var firstInstance = new RuntimeTurnCommitOrchestrator(fixture.turns, commandRepository, firstAdapter,
+                fixture.followUpPublisher()::publish, consumer);
+
+        assertThrows(IllegalStateException.class, () -> firstInstance.commit(fixture.readyTurn(), List.of(move), () -> {}));
+        assertEquals(1, adjudications.get());
+
+        var restartedInstance = new RuntimeTurnCommitOrchestrator(fixture.turns, commandRepository,
+                ignored -> { throw new AssertionError("saved movement must not run after restart"); },
+                fixture.followUpPublisher()::publish, consumer);
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.COMMITTED,
+                restartedInstance.resume(fixture.turnId, () -> {}).status());
+        assertEquals(1, adjudications.get());
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, fixture.commands.findByTurnId(fixture.turnId).stream()
+                .filter(command -> "movement.follow-up".equals(command.commandType())).findFirst().orElseThrow().executionStatus());
     }
 
     @Test
@@ -521,7 +788,18 @@ class RuntimeTurnCommitOrchestratorTest {
 
         MovementFollowUpRuntimeConsumer followUpConsumer() {
             return new MovementFollowUpRuntimeConsumer(events, commands, objectMapper,
-                    (command, continuation) -> com.dndmaster.adventure.application.runtime.RuntimeContinuationOutcome.applied("continued"));
+                    (command, continuation) -> {
+                        try {
+                            return com.dndmaster.adventure.application.runtime.RuntimeContinuationOutcome.applied(
+                                    objectMapper.writeValueAsString(new com.dndmaster.adventure.application.runtime.CombatContinuationCommand(
+                                            command.commandId(), continuation.turnId(), continuation.operationId(),
+                                            continuation.hostileTokenId(), continuation.trigger(), continuation.kind(),
+                                            "판정 완료", "다음 행동을 선택해 주세요.",
+                                            com.dndmaster.adventure.application.runtime.RuntimeCheckProposal.none(), false, false)));
+                        } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+                            throw new IllegalStateException(failure);
+                        }
+                    });
         }
 
         RuntimeTurn readyTurn() {

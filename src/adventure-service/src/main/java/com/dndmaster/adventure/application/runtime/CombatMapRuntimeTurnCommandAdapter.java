@@ -18,6 +18,7 @@ import java.util.UUID;
 
 /** Adapts the durable map move command to Combat Map's authoritative command API. */
 public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnCommandAdapter {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(CombatMapRuntimeTurnCommandAdapter.class);
     private final MapMovementCoordinator movementCoordinator;
     private final ObjectMapper mapper;
     private final MovementFollowUpPolicy followUpPolicy;
@@ -115,28 +116,57 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
 
     private RuntimeTurnCommandExecution movementExecution(UUID turnId,
             com.dndmaster.adventure.application.combat.CombatMapMoveResult movement, String outcome) {
-        validateMovementResult(movement);
-        var followUp = (movement.interruptionReason() != null && movement.interruptionReason().equals("HOSTILE_OBSERVED"))
-                || movement.publicEvents().contains("HOSTILE_OBSERVED")
-                ? com.dndmaster.adventure.application.combat.MovementFollowUpCommand.forTrigger(movement.operationId(),
-                        turnId, movement.hostileTokenId(), "HOSTILE_OBSERVED", followUpPolicy) : null;
-        var enriched = followUp == null ? movement : movement.withFollowUp(followUp);
-        String enrichedOutcome = followUp == null ? outcome : serialize(enriched);
-        return switch (movement.status()) {
-            case COMMITTED, INTERRUPTED -> RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, enrichedOutcome, enriched);
-            case CHECK_REQUIRED, RETRY_REQUIRED -> RuntimeTurnCommandExecution.movement(
-                    RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, enrichedOutcome, enriched);
-            case CANCELLED -> RuntimeTurnCommandExecution.movement(
-                    RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, enrichedOutcome, enriched);
-        };
+        String context = "turnId=" + turnId + " operationId=" + movement.operationId()
+                + " traversedCellCount=" + movement.traversedPath().size()
+                + " publicEventCount=" + movement.publicEvents().size()
+                + " interruptionReason=" + movement.interruptionReason();
+        long startedAt = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(
+                LOGGER, "combat_movement_interruption", context);
+        try {
+            validateMovementResult(movement);
+            String trigger = movement.interruptionReason() != null ? movement.interruptionReason()
+                    : movement.publicEvents().stream().filter(value -> "HOSTILE_OBSERVED".equals(value)
+                            || "SPATIAL_FEATURE_REQUIRES_DECISION".equals(value)).findFirst().orElse(null);
+            var followUp = trigger == null ? null
+                    : com.dndmaster.adventure.application.combat.MovementFollowUpCommand.forTrigger(
+                            movement.operationId(), turnId, movement.hostileTokenId(), trigger, followUpPolicy,
+                            movement.version(), movement.traversedPath(), movement.finalPosition(), movement.publicEvents());
+            var enriched = followUp == null ? movement : movement.withFollowUp(followUp);
+            String enrichedOutcome = followUp == null ? outcome : serialize(enriched);
+            var result = switch (movement.status()) {
+                case COMMITTED, INTERRUPTED -> RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, enrichedOutcome, enriched);
+                case CHECK_REQUIRED, RETRY_REQUIRED -> RuntimeTurnCommandExecution.movement(
+                        RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, enrichedOutcome, enriched);
+                case CANCELLED -> RuntimeTurnCommandExecution.movement(
+                        RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, enrichedOutcome, enriched);
+            };
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "combat_movement_interruption", context + " expected=validated actual=" + movement.status()
+                            + " followUp=" + (followUp != null) + " tokenIdentityPresent="
+                            + (movement.hostileTokenId() != null) + " recoveryAction="
+                            + (followUp == null ? "none" : "resume_same_operation"), startedAt);
+            return result;
+        } catch (RuntimeException failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "combat_movement_interruption", context + " recoveryAction=reject_unverified_result", startedAt, failure);
+            throw failure;
+        }
     }
 
     private static void validateMovementResult(
             com.dndmaster.adventure.application.combat.CombatMapMoveResult movement) {
         boolean hostileObserved = "HOSTILE_OBSERVED".equals(movement.interruptionReason())
                 || movement.publicEvents().contains("HOSTILE_OBSERVED");
+        boolean spatialDecision = "SPATIAL_FEATURE_REQUIRES_DECISION".equals(movement.interruptionReason())
+                || movement.publicEvents().contains("SPATIAL_FEATURE_REQUIRES_DECISION");
         if (hostileObserved && movement.hostileTokenId() == null) {
             throw new IllegalArgumentException("movement result HOSTILE_OBSERVED requires hostileTokenId");
+        }
+        if (spatialDecision && movement.hostileTokenId() != null) {
+            throw new IllegalArgumentException("spatial feature decision must not identify a hostile token");
+        }
+        if ((hostileObserved || spatialDecision) && movement.operationId() == null) {
+            throw new IllegalArgumentException("movement interruption requires operationId");
         }
     }
 

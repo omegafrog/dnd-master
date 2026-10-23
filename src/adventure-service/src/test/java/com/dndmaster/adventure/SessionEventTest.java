@@ -50,6 +50,44 @@ class SessionEventTest {
     }
 
     @Test
+    void adjudicates_tokenless_spatial_event_once_and_replays_the_saved_typed_response() throws Exception {
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        ObjectMapper mapper = new ObjectMapper();
+        AtomicInteger calls = new AtomicInteger();
+        RuntimeContinuationCommandOutcomePort outcomes = new PostgresRuntimeContinuationCommandOutcomePort(
+                commands, mapper, request -> {
+                    calls.incrementAndGet();
+                    var continuation = request.continuation();
+                    return new com.dndmaster.adventure.application.runtime.CombatContinuationCommand(
+                            request.command().commandId(), continuation.turnId(), continuation.operationId(),
+                            continuation.hostileTokenId(), continuation.trigger(), continuation.kind(),
+                            "함정이 작동했습니다.", "발밑의 장치가 작동합니다.",
+                            com.dndmaster.adventure.application.runtime.RuntimeCheckProposal.none(), false);
+                });
+        UUID turnId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        var continuation = new MovementFollowUpRuntimeConsumer.Continuation(MovementFollowUpCommand.Kind.COMBAT,
+                "SPATIAL_FEATURE_REQUIRES_DECISION", operationId, turnId, null, 4,
+                List.of(new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(2, 3)),
+                new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(2, 3),
+                List.of("SPATIAL_FEATURE_REQUIRES_DECISION"));
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, commandId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "{}", "movement.continuation.combat", mapper.writeValueAsString(continuation), 0);
+        var request = new RuntimeContinuationCommandPort.ContinuationCommand(command, continuation);
+
+        var first = outcomes.combat(request);
+        var replay = outcomes.combat(request);
+
+        assertEquals(first, replay);
+        assertEquals(1, calls.get());
+        assertEquals("SPATIAL_FEATURE_REQUIRES_DECISION", replay.trigger());
+        assertEquals(null, replay.hostileTokenId());
+        assertEquals("발밑의 장치가 작동합니다.", replay.narration());
+        assertEquals("COMBAT", mapper.readTree(commands.findByCommandId(commandId).orElseThrow().outcomeJson()).path("kind").asText());
+    }
+
+    @Test
     void malformed_persisted_typed_continuation_identity_is_a_permanent_data_failure() {
         InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
         RuntimeContinuationCommandOutcomePort outcomes = new PostgresRuntimeContinuationCommandOutcomePort(commands, new ObjectMapper());
@@ -271,7 +309,7 @@ class SessionEventTest {
     }
 
     @Test
-    void runtime_consumes_durable_follow_up_into_one_typed_continuation_and_replays_it_idempotently() {
+    void runtime_consumes_durable_follow_up_into_one_typed_continuation_and_replays_it_idempotently() throws Exception {
         InMemorySessionEventRepository events = new InMemorySessionEventRepository();
         InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
         UUID turnId = UUID.randomUUID();
@@ -285,7 +323,10 @@ class SessionEventTest {
                 RuntimeContinuationHandlerRegistry.standard(command -> {
                     assertEquals("movement.continuation.combat", command.commandType());
                     return com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution.done(
-                            "combat-state:" + command.commandId());
+                            typedContinuationJson(new com.dndmaster.adventure.application.runtime.CombatContinuationCommand(
+                                    command.commandId(), followUp.turnId(), followUp.operationId(), followUp.hostileTokenId(),
+                                    followUp.trigger(), followUp.kind(), "판정 완료", "다음 행동을 선택해 주세요.",
+                                    com.dndmaster.adventure.application.runtime.RuntimeCheckProposal.none(), false, false)));
                 }));
 
         assertEquals(MovementFollowUpPort.Result.Status.DONE, consumer.consume(source, followUp).status());
@@ -295,7 +336,13 @@ class SessionEventTest {
         assertEquals(1, continuation.size());
         assertEquals("movement.continuation.combat", continuation.getFirst().commandType());
         assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, continuation.getFirst().executionStatus());
-        assertEquals("combat-state:" + continuation.getFirst().commandId(), continuation.getFirst().outcomeJson());
+        assertEquals(continuation.getFirst().commandId(), new ObjectMapper().readValue(continuation.getFirst().outcomeJson(),
+                com.dndmaster.adventure.application.runtime.CombatContinuationCommand.class).commandId());
+    }
+
+    private static String typedContinuationJson(com.dndmaster.adventure.application.runtime.CombatContinuationCommand command) {
+        try { return new ObjectMapper().writeValueAsString(command); }
+        catch (com.fasterxml.jackson.core.JsonProcessingException failure) { throw new IllegalStateException(failure); }
     }
 
     @Test
@@ -406,7 +453,10 @@ class SessionEventTest {
                 new EnumMap<>(MovementFollowUpCommand.Kind.class);
         handlers.put(MovementFollowUpCommand.Kind.COMBAT, (command, continuation) -> {
             if (calls.getAndIncrement() == 0) return RuntimeContinuationOutcome.retry("combat temporarily unavailable");
-            return RuntimeContinuationOutcome.applied("COMBAT:state-changed");
+            return RuntimeContinuationOutcome.applied(typedContinuationJson(new com.dndmaster.adventure.application.runtime.CombatContinuationCommand(
+                    command.commandId(), continuation.turnId(), continuation.operationId(), continuation.hostileTokenId(),
+                    continuation.trigger(), continuation.kind(), "판정 완료", "다음 행동을 선택해 주세요.",
+                    com.dndmaster.adventure.application.runtime.RuntimeCheckProposal.none(), false, false)));
         });
         MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands,
                 new ObjectMapper(),
@@ -421,7 +471,7 @@ class SessionEventTest {
         RuntimeTurnCommand continuation = commands.findByTurnId(source.turnId()).getFirst();
         assertEquals(2, calls.get());
         assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, continuation.executionStatus());
-        assertEquals("COMBAT:state-changed", continuation.outcomeJson());
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, continuation.executionStatus());
         assertEquals(MovementFollowUpPort.Result.Status.DONE, consumer.consume(source, followUp).status());
         assertEquals(2, calls.get());
     }
@@ -438,9 +488,7 @@ class SessionEventTest {
             UUID turnId = UUID.randomUUID();
             UUID operationId = UUID.randomUUID();
             UUID hostileTokenId = UUID.randomUUID();
-            String payload = "{\"kind\":\"" + kind + "\",\"trigger\":\"HOSTILE_OBSERVED\",\"operationId\":\""
-                    + operationId + "\",\"turnId\":\"" + turnId + "\",\"hostileTokenId\":\""
-                    + hostileTokenId + "\"}";
+            String payload = continuationPayload(operationId, turnId, hostileTokenId);
             RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(),
                     UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation." + kind.name().toLowerCase(), payload, 1);
             RuntimeContinuationOutcome outcome = RuntimeContinuationHandlerRegistry.standard(adapters).execute(command,
@@ -618,9 +666,13 @@ class SessionEventTest {
     }
 
     private static String continuationPayload(UUID operationId, UUID turnId, UUID hostileTokenId) {
-        return "{\"kind\":\"COMBAT\",\"trigger\":\"HOSTILE_OBSERVED\",\"operationId\":\""
-                + operationId + "\",\"turnId\":\"" + turnId + "\",\"hostileTokenId\":\""
-                + hostileTokenId + "\"}";
+        try {
+            return new ObjectMapper().writeValueAsString(new MovementFollowUpRuntimeConsumer.Continuation(
+                    MovementFollowUpCommand.Kind.COMBAT, "HOSTILE_OBSERVED", operationId, turnId, hostileTokenId,
+                    0, List.of(), null, List.of()));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+            throw new IllegalStateException(failure);
+        }
     }
 
 }

@@ -17,6 +17,25 @@
  ACTIVE --> REACTION_PENDING : 반응 발동 조건 발생
  REACTION_PENDING --> ACTIVE : 반응 선택 해결
  ACTIVE --> ACTIVE : 행동 확정·차례 진행
+ ACTIVE --> MOVEMENT_INTERRUPTED : 지도 UI 또는 /combat/actions 이동 중 사건 발생
+ MOVEMENT_INTERRUPTED --> MOVEMENT_INTERRUPTED : operation·turn UUID 재검증·저장 결과 복구
+ MOVEMENT_INTERRUPTED --> GM_INTERVENTION_PENDING : 실제 위치·이동량 확정 및 같은 작업 대기 저장
+ GM_INTERVENTION_PENDING --> GM_INTERVENTION_PENDING : 최초 GM 요청·기존 굴림 제출 대기
+ GM_INTERVENTION_PENDING --> GM_INTERVENTION_PENDING : 최종 GM 응답·구조/식별자 검증·후속 저장 실패; 같은 작업 재시도
+ GM_INTERVENTION_PENDING --> ACTIVE : 굴림 필요 없음·최초 응답과 후속 변경 저장 완료
+ GM_INTERVENTION_PENDING --> ACTIVE : 기존 굴림 제출 뒤 최종 판정·필수 후속 변경 저장 완료
+ note right of MOVEMENT_INTERRUPTED
+   두 입력 경로는 같은 GM 판정 계약을 사용한다.
+   서버 발급 식별자에 따라 이동 결과와 판정을 한 번만 저장한다.
+   GM은 토큰이나 차례를 변경하지 않고, 남은 경로도 자동 실행하지 않는다.
+ end note
+ note right of GM_INTERVENTION_PENDING
+   최초 GM 응답의 굴림 요청이면 기존 굴림만 같은 작업에 연결한다.
+   실패·불일치·후속 저장 실패는 대기를 유지하고 같은 작업을 재시도한다.
+   굴림이 없으면 검증된 최초 응답을 최종 판정으로 삼는다.
+   최종 판정과 필수 후속 변경을 저장한 뒤에만 차례 입력을 허용한다.
+   GM 서술은 위치·이동량·턴 종료를 변경하지 않는다.
+ end note
  ACTIVE --> ACTIVE : 현재 참가자가 surprised이면 첫 차례 건너뜀
  ACTIVE --> ENDED : 전투 종료 확정
  ENDED --> [*]

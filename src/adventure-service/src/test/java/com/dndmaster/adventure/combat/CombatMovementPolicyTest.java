@@ -10,16 +10,25 @@ import org.junit.jupiter.api.Test;
 
 class CombatMovementPolicyTest {
     @Test
-    void movement_can_be_split_and_consumes_only_the_distance_taken() {
-        TurnResources initial = TurnResources.initial();
+    void movement_can_be_used_before_between_and_after_actions_with_only_actual_distance_spent() {
+        TurnResources initial = TurnResources.initial(30);
 
-        TurnResources afterFirstMove = initial.commit(
+        TurnResources beforeAction = initial.commit(
                 initial.reserve(TurnResourceCost.movementOnly(10)));
-        TurnResources afterSecondMove = afterFirstMove.commit(
-                afterFirstMove.reserve(TurnResourceCost.movementOnly(15)));
+        TurnResources afterAction = beforeAction.commit(
+                beforeAction.reserve(TurnResourceCost.actionOnly()));
+        TurnResources betweenActions = afterAction.commit(
+                afterAction.reserve(TurnResourceCost.movementOnly(5)));
+        TurnResources afterBonusAction = betweenActions.commit(
+                betweenActions.reserve(new TurnResourceCost(0, false, true, false)));
+        TurnResources afterSecondMove = afterBonusAction.commit(
+                afterBonusAction.reserve(TurnResourceCost.movementOnly(15)));
 
-        assertEquals(5, afterSecondMove.movement());
-        assertEquals(true, afterSecondMove.actionAvailable());
+        assertEquals(0, afterSecondMove.movement());
+        assertEquals(30, afterSecondMove.movementSpeed());
+        assertEquals(30, afterSecondMove.movementUsed());
+        assertEquals(false, afterSecondMove.actionAvailable());
+        assertEquals(false, afterSecondMove.bonusActionAvailable());
     }
 
     @Test

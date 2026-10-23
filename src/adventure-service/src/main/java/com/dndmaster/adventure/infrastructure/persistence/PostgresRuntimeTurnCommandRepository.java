@@ -27,6 +27,11 @@ public final class PostgresRuntimeTurnCommandRepository implements RuntimeTurnCo
                 this::map, turnId);
     }
 
+    @Override public List<RuntimeTurnCommand> findPendingMovementByAdventure(UUID adventureId) {
+        return jdbc.query("SELECT * FROM adventure_runtime_turn_command WHERE adventure_id = ? AND command_type = 'movement.follow-up' AND execution_status = 'GM_INTERVENTION_PENDING' ORDER BY updated_at DESC, execution_order DESC LIMIT 1",
+                this::map, adventureId);
+    }
+
     @Override public Optional<RuntimeTurnCommand> findByIdempotencyKey(String idempotencyKey) {
         return jdbc.query("SELECT * FROM adventure_runtime_turn_command WHERE idempotency_key = ?", this::map, idempotencyKey)
                 .stream().findFirst();
@@ -39,6 +44,7 @@ public final class PostgresRuntimeTurnCommandRepository implements RuntimeTurnCo
                      payload_json, execution_status, execution_order, idempotency_key, last_error, attempt_count, outcome_json)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (command_id) DO UPDATE SET
+                    payload_json = EXCLUDED.payload_json,
                     execution_status = EXCLUDED.execution_status,
                     last_error = EXCLUDED.last_error,
                     attempt_count = EXCLUDED.attempt_count,

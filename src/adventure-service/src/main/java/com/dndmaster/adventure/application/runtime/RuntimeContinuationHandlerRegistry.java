@@ -60,6 +60,7 @@ public final class RuntimeContinuationHandlerRegistry implements RuntimeContinua
                 "runtime continuation adapter result must not be null");
         return switch (execution.status()) {
             case DONE -> RuntimeContinuationOutcome.applied(execution.value());
+            case PLAYER_INPUT_REQUIRED -> RuntimeContinuationOutcome.retry(execution.value());
             case TRANSIENT_FAILURE -> RuntimeContinuationOutcome.retry(execution.value());
             case PERMANENT_FAILURE -> RuntimeContinuationOutcome.permanentFailure(execution.value());
         };

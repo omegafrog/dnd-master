@@ -14,16 +14,42 @@ public final class PostgresRuntimeContinuationCommandOutcomePort implements Runt
 
     private final RuntimeTurnCommandRepository commands;
     private final ObjectMapper objectMapper;
+    private final java.util.function.Function<RuntimeContinuationCommandPort.ContinuationCommand,
+            CombatContinuationCommand> adjudicator;
 
     public PostgresRuntimeContinuationCommandOutcomePort(RuntimeTurnCommandRepository commands, ObjectMapper objectMapper) {
+        this(commands, objectMapper, request -> new CombatContinuationCommand(request.command().commandId(),
+                request.command().turnId(), request.continuation().operationId(), request.continuation().hostileTokenId(),
+                request.continuation().trigger(), request.continuation().kind()));
+    }
+
+    public PostgresRuntimeContinuationCommandOutcomePort(RuntimeTurnCommandRepository commands, ObjectMapper objectMapper,
+            java.util.function.Function<RuntimeContinuationCommandPort.ContinuationCommand, CombatContinuationCommand> adjudicator) {
         this.commands = Objects.requireNonNull(commands, "runtime command repository must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "object mapper must not be null");
+        this.adjudicator = Objects.requireNonNull(adjudicator, "movement adjudicator must not be null");
     }
 
     @Override public synchronized CombatContinuationCommand combat(RuntimeContinuationCommandPort.ContinuationCommand request) {
         validateRequest(request);
-        return persist(request, CombatContinuationCommand.class,
-                (id, turn, operation, hostile, trigger, kind) -> new CombatContinuationCommand(id, turn, operation, hostile, trigger, kind));
+        RuntimeTurnCommand command = request.command();
+        RuntimeTurnCommand existing = commands.findByCommandId(command.commandId()).orElse(null);
+        if (existing != null && existing.executionStatus() == RuntimeTurnCommand.ExecutionStatus.DONE) {
+            if (existing.outcomeJson().isBlank()) throw new CorruptRuntimeContinuationOutcomeException(
+                    "done continuation command has no durable outcome", null);
+            CombatContinuationCommand persisted = read(existing.outcomeJson(), CombatContinuationCommand.class);
+            validateOutcomeMatches(persisted, command, request.continuation(), existing.outcomeJson());
+            return persisted;
+        }
+        CombatContinuationCommand response = adjudicator.apply(request);
+        validateResponseIdentity(response, command, request.continuation());
+        try {
+            String canonical = objectMapper.writeValueAsString(response);
+            commands.save(command.done(canonical));
+            return response;
+        } catch (JsonProcessingException failure) {
+            throw new IllegalStateException("typed continuation outcome serialization failed", failure);
+        }
     }
 
     private void validateRequest(RuntimeContinuationCommandPort.ContinuationCommand request) {
@@ -33,12 +59,13 @@ public final class PostgresRuntimeContinuationCommandOutcomePort implements Runt
         RuntimeTurnCommand command = request.command();
         MovementFollowUpRuntimeConsumer.Continuation continuation = request.continuation();
         if (continuation.kind() != MovementFollowUpCommand.Kind.COMBAT
-                || !"HOSTILE_OBSERVED".equals(continuation.trigger())) {
+                || !java.util.Set.of("HOSTILE_OBSERVED", "SPATIAL_FEATURE_REQUIRES_DECISION").contains(continuation.trigger())
+                || ("HOSTILE_OBSERVED".equals(continuation.trigger()) != (continuation.hostileTokenId() != null))) {
             throw new CorruptRuntimeContinuationOutcomeException(
                     "typed continuation request kind or trigger does not match combat outcome", null);
         }
         if (command.commandId() == null || command.turnId() == null
-                || continuation.operationId() == null || continuation.hostileTokenId() == null
+                || continuation.operationId() == null
                 || !command.turnId().equals(continuation.turnId())) {
             throw new CorruptRuntimeContinuationOutcomeException(
                     "typed continuation request identity does not match command", null);
@@ -48,6 +75,29 @@ public final class PostgresRuntimeContinuationCommandOutcomePort implements Runt
                     "typed continuation request command type does not match combat outcome", null);
         }
         validateCommandPayload(command, continuation);
+    }
+
+    private void validateOutcomeMatches(CombatContinuationCommand persisted, RuntimeTurnCommand command,
+            MovementFollowUpRuntimeConsumer.Continuation continuation, String rawJson) {
+        validateResponseIdentity(persisted, command, continuation);
+        try {
+            if (!objectMapper.writeValueAsString(persisted).equals(rawJson)) {
+                throw new CorruptRuntimeContinuationOutcomeException("durable adjudication response is not canonical", null);
+            }
+        } catch (JsonProcessingException failure) {
+            throw new CorruptRuntimeContinuationOutcomeException("durable adjudication response is corrupt", failure);
+        }
+    }
+
+    private static void validateResponseIdentity(CombatContinuationCommand response, RuntimeTurnCommand command,
+            MovementFollowUpRuntimeConsumer.Continuation continuation) {
+        if (response == null || !command.commandId().equals(response.commandId())
+                || !continuation.turnId().equals(response.turnId())
+                || !continuation.operationId().equals(response.operationId())
+                || !Objects.equals(continuation.hostileTokenId(), response.hostileTokenId())
+                || !continuation.trigger().equals(response.trigger()) || continuation.kind() != response.kind()) {
+            throw new CorruptRuntimeContinuationOutcomeException("GM response identity does not match stored movement operation", null);
+        }
     }
 
     private void validateCommandPayload(RuntimeTurnCommand command,
@@ -66,31 +116,6 @@ public final class PostgresRuntimeContinuationCommandOutcomePort implements Runt
         }
     }
 
-    private <T extends RuntimeContinuationCommandOutcome> T persist(
-            RuntimeContinuationCommandPort.ContinuationCommand request, Class<T> type, OutcomeFactory<T> factory) {
-        RuntimeTurnCommand command = request.command();
-        RuntimeTurnCommand existing = commands.findByCommandId(command.commandId()).orElse(null);
-        MovementFollowUpRuntimeConsumer.Continuation continuation = request.continuation();
-        T expected = factory.create(command.commandId(), command.turnId(), continuation.operationId(),
-                continuation.hostileTokenId(), continuation.trigger(), continuation.kind());
-        if (existing != null && existing.executionStatus() == RuntimeTurnCommand.ExecutionStatus.DONE) {
-            if (existing.outcomeJson().isBlank()) {
-                throw new CorruptRuntimeContinuationOutcomeException(
-                        "done continuation command has no durable outcome", null);
-            }
-            T persisted = read(existing.outcomeJson(), type);
-            validateMatches(persisted, expected, existing.outcomeJson());
-            return persisted;
-        }
-        try {
-            String canonical = objectMapper.writeValueAsString(expected);
-            commands.save(command.done(canonical));
-            return expected;
-        } catch (JsonProcessingException failure) {
-            throw new IllegalStateException("typed continuation command serialization failed", failure);
-        }
-    }
-
     private <T> T read(String json, Class<T> type) {
         try (JsonParser parser = objectMapper.createParser(json)) {
             T value = objectMapper.readerFor(type)
@@ -105,23 +130,4 @@ public final class PostgresRuntimeContinuationCommandOutcomePort implements Runt
         }
     }
 
-    private void validateMatches(RuntimeContinuationCommandOutcome persisted,
-            RuntimeContinuationCommandOutcome expected, String rawJson) {
-        try {
-            String canonical = objectMapper.writeValueAsString(persisted);
-            if (!canonical.equals(rawJson) || !persisted.equals(expected)) {
-                throw new CorruptRuntimeContinuationOutcomeException(
-                        "durable continuation command outcome does not match request", null);
-            }
-        } catch (JsonProcessingException failure) {
-            throw new CorruptRuntimeContinuationOutcomeException(
-                    "durable continuation command outcome is corrupt", failure);
-        }
-    }
-
-    @FunctionalInterface
-    private interface OutcomeFactory<T> {
-        T create(java.util.UUID commandId, java.util.UUID turnId, java.util.UUID operationId,
-                java.util.UUID hostileTokenId, String trigger, MovementFollowUpCommand.Kind kind);
-    }
 }

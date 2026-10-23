@@ -141,6 +141,84 @@ public class RuntimeTurnApplicationService {
         }
     }
 
+    /** Uses the existing GM planner for a public, already-committed combat movement interruption. */
+    public CombatContinuationCommand adjudicateMovementFollowUp(
+            RuntimeContinuationCommandPort.ContinuationCommand request) {
+        Objects.requireNonNull(request, "movement continuation request must not be null");
+        RuntimeTurnCommand source = Objects.requireNonNull(request.command(), "movement continuation command must not be null");
+        MovementFollowUpRuntimeConsumer.Continuation movement = Objects.requireNonNull(request.continuation(),
+                "movement continuation facts must not be null");
+        long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "combat_movement_gm_adjudication", "commandId=" + source.commandId() + " turnId=" + movement.turnId()
+                        + " operationId=" + movement.operationId() + " trigger=" + movement.trigger()
+                        + " traversedCellCount=" + movement.traversedPath().size() + " publicEventCount=" + movement.publicEvents().size());
+        int narrationChars = 0;
+        try {
+            Adventure adventure = adventureRepository.findById(new AdventureId(source.adventureId()))
+                    .orElseThrow(() -> new IllegalStateException("adventure not found for movement adjudication"));
+            if (!adventure.ownerPlayerId().value().equals(source.ownerPlayerId())) {
+                throw new SecurityException("movement adjudication owner mismatch");
+            }
+            RuntimeBinding binding = bindingRepository.findCurrentByAdventureId(adventure.id())
+                    .orElseThrow(() -> new IllegalStateException("runtime binding not found for movement adjudication"));
+            ScenarioPackage scenarioPackage = scenarioPackageRepository.findById(binding.scenarioPackageId())
+                    .orElseThrow(() -> new IllegalStateException("scenario package not found for movement adjudication"));
+            String action = "전투 이동이 공개 사건에서 멈췄다. 사건 종류=" + movement.trigger()
+                    + "; 지도 버전=" + movement.mapVersion() + "; 통과한 칸=" + movement.traversedPath()
+                    + "; 실제 도착 칸=" + movement.finalPosition() + "; 공개 사건=" + movement.publicEvents()
+                    + ". 이 사실만 사용해 사건을 판정하고 공개할 한국어 서술, 필요한 기존 플레이어 판정 여부, 전투 시작 여부를 응답한다."
+                    + " 이동 위치·소비량·턴은 변경하거나 결정하지 않는다.";
+            if (movement.playerCheck() != null) {
+                var check = movement.playerCheck();
+                action += " 기존 플레이어 판정 결과가 제출되었다: 판정=" + check.abilityOrSkill()
+                        + "; 주사위=" + check.diceExpression() + "; 보정치=" + check.modifier()
+                        + "; 난이도=" + check.difficulty() + "; 플레이어 주사위 결과=" + movement.playerRoll()
+                        + ". 이 결과를 반영한 최종 사건 판정·공개 서술을 반환한다.";
+            }
+            List<String> hiddenFacts = hiddenMapFactsForCurrentSituation(scenarioPackage, adventure);
+            RuntimePlanningRequest planningRequest = new RuntimePlanningRequest(adventure.id(), adventure.ownerPlayerId(),
+                    adventure.sessionId().value(), movement.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
+                    adventure.currentContext(), binding.activeSourceContext(), action,
+                    new EvidencePack(List.of(), List.of(), List.of()), recentConversationForPrompt(adventure),
+                    adventure.party().stream().map(member -> currentCharacterSheet(member.characterSheetId().value())).toList(),
+                    lockedScenarioContext(scenarioPackage, scenarioPackage.scenarioModel()),
+                    providerEndpointId(adventure.sessionId().value()), providerSelection(adventure.sessionId().value(), "provider"),
+                    providerSelection(adventure.sessionId().value(), "model"), providerSelection(adventure.sessionId().value(), "reasoning"),
+                    null, adventure.ruleSetId().value(), adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(),
+                    List.of(), adventure.currentSituation() == null ? "" : adventure.currentSituation().promptContext(),
+                    longTermFactsForPrompt(adventure), hiddenFacts, scenarioPackage.scenarioModel())
+                    .withRagSearchContext(Map.of("movementOperationId", movement.operationId().toString(),
+                            "combatTurnId", movement.turnId().toString()));
+            RuntimePlan plan = planningPort.planWithOutcomes(planningRequest).plan();
+            if (movement.playerCheck() != null && plan.checkProposal().required()
+                    && plan.checkProposal().rollMethod() == RuntimeCheckProposal.RollMethod.PLAYER) {
+                throw new IllegalStateException("final movement ruling requested another player roll");
+            }
+            narrationChars = plan.narration().length();
+            NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
+                    plan.narration(), planningRequest.evidencePack(), adventure.currentContext(), action, hiddenFacts));
+            if (!safety.approved()) throw new IllegalStateException("movement adjudication narration safety rejected");
+            CombatContinuationCommand response = new CombatContinuationCommand(source.commandId(), movement.turnId(),
+                    movement.operationId(), movement.hostileTokenId(), movement.trigger(), movement.kind(), plan.judgment(),
+                    plan.narration(), plan.checkProposal(), plan.combatStartRequested());
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "combat_movement_gm_adjudication", "commandId=" + source.commandId() + " turnId=" + movement.turnId()
+                            + " operationId=" + movement.operationId() + " expected=typed_response actual=adjudicated"
+                            + " narrationChars=" + narrationChars + " playerInputRequired=" + plan.checkProposal().required()
+                            + " waitingForPlayerInput=" + (plan.checkProposal().required()
+                                    && plan.checkProposal().rollMethod() == RuntimeCheckProposal.RollMethod.PLAYER)
+                            + " combatStartRequested=" + plan.combatStartRequested() + " recoveryAction=read_durable_outcome", started);
+            return response;
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "combat_movement_gm_adjudication", "commandId=" + source.commandId() + " turnId=" + movement.turnId()
+                            + " operationId=" + movement.operationId() + " traversedCellCount=" + movement.traversedPath().size()
+                            + " narrationChars=" + narrationChars + " expected=typed_response actual=failed"
+                            + " recoveryAction=retry_same_durable_operation", started, failure);
+            throw failure;
+        }
+    }
+
     public RuntimeTurnApplicationService(
             AdventureRepository adventureRepository,
             RuntimeBindingRepository bindingRepository,
@@ -616,8 +694,34 @@ public class RuntimeTurnApplicationService {
         Adventure adventure = adventureRepository.findById(command.adventureId())
                 .orElseThrow(() -> new IllegalStateException("adventure not found"));
         if (!adventure.ownerPlayerId().equals(command.ownerPlayerId())) throw new IllegalStateException("pending turn owner mismatch");
-        if (pending.lifecycle() != RuntimeTurnLifecycle.PENDING_ROLL) throw new IllegalStateException("pending roll is no longer open");
+        if (pending.lifecycle() == RuntimeTurnLifecycle.COMMITTED && commitOrchestrator != null) {
+            RuntimeTurnCommitOrchestrator.Result replayed = commitOrchestrator.submitMovementPlayerRoll(
+                    pending.turnId(), command.result());
+            if (replayed.status() != RuntimeTurnCommitOrchestrator.Status.COMMITTED)
+                throw new IllegalStateException("completed movement roll could not be replayed");
+            return new RuntimeTurnResult(pending, adventure.currentContext(), adventure.conversation(), adventure.version(),
+                    null, replayed.movementResult());
+        }
         if (adventure.version() != command.expectedVersion()) throw new IllegalStateException("ADVENTURE_VERSION_CONFLICT");
+        if (pending.lifecycle() == RuntimeTurnLifecycle.COMMITTING && commitOrchestrator != null) {
+            RuntimeTurnCommitOrchestrator.Result movementRoll = commitOrchestrator.submitMovementPlayerRoll(
+                    pending.turnId(), command.result());
+            if (movementRoll.status() == RuntimeTurnCommitOrchestrator.Status.REPAIR_REQUIRED) {
+                throw new IllegalStateException("movement follow-up requires repair");
+            }
+            if (movementRoll.status() == RuntimeTurnCommitOrchestrator.Status.RETRY_REQUIRED) {
+                return new RuntimeTurnResult(pending, adventure.currentContext(), adventure.conversation(), adventure.version(),
+                        null, movementRoll.movementResult());
+            }
+            RuntimeTurnCommitOrchestrator.Result resumed = resumeRuntimeTurn(pending);
+            if (resumed.status() == RuntimeTurnCommitOrchestrator.Status.COMMITTED) {
+                return new RuntimeTurnResult(resumed.turn(), committedContext(pending), committedConversation(pending),
+                        pending.version() + 1, null, movementRoll.movementResult());
+            }
+            return new RuntimeTurnResult(pending, adventure.currentContext(), adventure.conversation(), adventure.version(),
+                    null, movementRoll.movementResult());
+        }
+        if (pending.lifecycle() != RuntimeTurnLifecycle.PENDING_ROLL) throw new IllegalStateException("pending roll is no longer open");
         RuntimeCheckProposal check = pending.plan().checkProposal();
         if (!check.required() || check.rollMethod() != RuntimeCheckProposal.RollMethod.PLAYER) {
             throw new IllegalStateException("PENDING_CHECK_ARTIFACT_MISSING");

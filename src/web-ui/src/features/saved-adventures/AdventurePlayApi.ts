@@ -164,6 +164,20 @@ export type MapMovementResult = {
   pendingCheck?: { checkId: string; operationId: string; label: string; diceExpression: string; ownerPlayerId: string; actor: 'PLAYER' }
 }
 
+export type PendingCombatMovement = {
+  operationId: string
+  encounterVersion: number
+  source?: 'COMBAT_ACTION' | 'RUNTIME_TURN'
+  completed?: boolean
+  movementAdjudication?: {
+    turnId: string
+    judgment: string
+    narration: string
+    waitingForPlayerInput: boolean
+    playerInput: { required: boolean; reason: string; abilityOrSkill: string; diceExpression: string; modifier: number }
+  } | null
+}
+
 export type SpatialActionRequest = { mapId: string; tokenId: string; x: number; y: number; expectedVersion: number; commandId: string }
 export type SpatialTurnRequest = { mapId: string; expectedVersion: number; commandId: string }
 export type SpatialActionResult = { mapId: string; mapVersion: number; publicEvents: string[]; operationId?: string; status?: string; pendingCheck?: { checkId: string; operationId: string; label: string; diceExpression: string; ownerPlayerId: string; actor: 'PLAYER' } }
@@ -220,6 +234,8 @@ export interface AdventurePlayApi {
   interactSpatial?(adventureId: string, request: SpatialActionRequest): Promise<SpatialActionResult>
   combatTurnStartSpatial?(adventureId: string, request: SpatialTurnRequest): Promise<SpatialActionResult>
   advanceSpatialDurations?(adventureId: string, request: SpatialTurnRequest): Promise<SpatialActionResult>
+  pendingCombatMovement?(adventureId: string): Promise<PendingCombatMovement | null>
+  submitCombatMovementRoll?(adventureId: string, operationId: string, turnId: string, request: { result: number; expectedVersion: number }, source?: 'COMBAT_ACTION' | 'RUNTIME_TURN'): Promise<PendingCombatMovement>
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -518,6 +534,25 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
       body: JSON.stringify({ mapId: spatial.mapId, operationId: spatial.operationId, checkId: spatial.checkId,
         ownerPlayerId: spatial.ownerPlayerId, commandId, expectedVersion }),
     })
+  }
+
+  pendingCombatMovement(adventureId: string) {
+    return request<PendingCombatMovement | null>(`/api/v1/adventures/${adventureId}/combat/actions/pending-movement`, {
+      headers: this.authHeaders(),
+    }).then(value => value ?? null)
+  }
+
+  submitCombatMovementRoll(adventureId: string, operationId: string, turnId: string,
+    body: { result: number; expectedVersion: number }, source: 'COMBAT_ACTION' | 'RUNTIME_TURN' = 'COMBAT_ACTION') {
+    if (source === 'RUNTIME_TURN') {
+      return request<{ turn?: { lifecycle?: string } }>(`/api/v1/adventures/${adventureId}/turns/${turnId}/roll`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: JSON.stringify(body),
+      }).then(response => ({ operationId, encounterVersion: body.expectedVersion, source: 'RUNTIME_TURN' as const,
+        completed: response.turn?.lifecycle === 'COMMITTED', movementAdjudication: null }))
+    }
+    return request<PendingCombatMovement>(`/api/v1/adventures/${adventureId}/combat/actions/${operationId}/roll/${turnId}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: JSON.stringify(body),
+    }).then(response => ({ ...response, source: 'COMBAT_ACTION' as const }))
   }
 
   resumeRuntimeTurn(adventureId: string, turnId: string, idempotencyKey: string) {

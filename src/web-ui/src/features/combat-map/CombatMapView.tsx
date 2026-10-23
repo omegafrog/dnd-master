@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
-import type { AdventurePlayApi, CombatMapView as CombatMapState, CombatTokenPlacement, CombatTokenTransition, ExplorationCycle, ExplorationGroup, MapBoundary, MapBoundaryProposal, MapMovementResult } from '../saved-adventures/AdventurePlayApi'
+import type { AdventurePlayApi, CombatMapView as CombatMapState, CombatTokenPlacement, CombatTokenTransition, ExplorationCycle, ExplorationGroup, MapBoundary, MapBoundaryProposal, MapMovementResult, PendingCombatMovement } from '../saved-adventures/AdventurePlayApi'
 import { actionCandidate, moveCandidate, type GridCell, type MapInteractionCandidate } from './MapInteractionCandidate'
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 import { MapCropEditor } from './MapCropEditor'
@@ -102,6 +102,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [boundaryPreview, setBoundaryPreview] = useState<BoundaryStroke | null>(null)
   const [pendingMovement, setPendingMovement] = useState<PendingMovement | null>(() => readPendingMovement(adventureId))
   const [replayedMovement, setReplayedMovement] = useState<MapMovementResult | null>(null)
+  const [pendingCombatMovement, setPendingCombatMovement] = useState<PendingCombatMovement | null>(null)
+  const [combatMovementRoll, setCombatMovementRoll] = useState('')
+  const [submittingCombatMovementRoll, setSubmittingCombatMovementRoll] = useState(false)
 
   useEffect(() => () => {
     if (publicMapImage?.startsWith('blob:')) URL.revokeObjectURL(publicMapImage)
@@ -122,6 +125,14 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         const nextMap = fetchedMap
         if (!active) return
         setMap(nextMap)
+        if (!preparationMode && api.pendingCombatMovement) {
+          try {
+            const pendingCombat = await api.pendingCombatMovement(adventureId)
+            if (active) setPendingCombatMovement(pendingCombat)
+          } catch {
+            if (active) setMessage('저장된 전투 사건 판정을 불러오지 못했습니다. 새로고침 후 다시 확인하세요.')
+          }
+        }
         if (preparationMode) diagnosticEvent('combat_map_preparation_load', { outcome: 'completed', adventureId, mapId: nextMap.mapId ?? '', elapsedMs: Math.round(performance.now() - started) })
         const savedMovement = readPendingMovement(adventureId)
         let serverMovement: PendingMovement | null = null
@@ -708,6 +719,30 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     }
   }
 
+  async function submitCombatMovementRoll() {
+    const pending = pendingCombatMovement
+    const adjudication = pending?.movementAdjudication
+    const result = Number.parseInt(combatMovementRoll, 10)
+    if (!pending || !adjudication?.waitingForPlayerInput || !api.submitCombatMovementRoll
+      || !Number.isInteger(result) || result < 1 || result > 20) return
+    setSubmittingCombatMovementRoll(true)
+    try {
+      const response = await api.submitCombatMovementRoll(adventureId, pending.operationId, adjudication.turnId,
+        { result, expectedVersion: pending.encounterVersion }, pending.source ?? 'COMBAT_ACTION')
+      if (response.movementAdjudication?.waitingForPlayerInput || (pending.source === 'RUNTIME_TURN' && !response.completed)) {
+        if (response.movementAdjudication?.waitingForPlayerInput) setPendingCombatMovement(response)
+      } else {
+        setPendingCombatMovement(null)
+        setCombatMovementRoll('')
+        setMessage(response.movementAdjudication?.narration ?? '사건 판정이 저장되었습니다. 같은 차례를 이어갈 수 있습니다.')
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '사건 판정을 저장하지 못했습니다. 같은 굴림으로 다시 제출하세요.')
+    } finally {
+      setSubmittingCombatMovementRoll(false)
+    }
+  }
+
   async function observeCurrentCell() {
     if (!api.observeSpatial || !map?.mapId) return
     const player = map.tokens?.find(token => token.type === 'PLAYER')
@@ -1253,6 +1288,15 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         {replayedMovement.interruptionReason && <p>중단 사유: {replayedMovement.interruptionReason}</p>}
         {replayedMovement.followUp && <p>후속 진행: {replayedMovement.followUp.kind === 'CONTINUATION' ? '모험 진행 판단 대기' : replayedMovement.followUp.kind}</p>}
         {replayedMovement.publicEvents.length > 0 && <p>공개된 결과: {replayedMovement.publicEvents.join(', ')}</p>}
+      </section>}
+      {pendingCombatMovement?.movementAdjudication?.waitingForPlayerInput && <section aria-label="전투 중 이동 사건 판정 대기" role="status">
+        <p>{pendingCombatMovement.movementAdjudication.judgment}</p>
+        <p>{pendingCombatMovement.movementAdjudication.playerInput.reason} · {pendingCombatMovement.movementAdjudication.playerInput.abilityOrSkill} · {pendingCombatMovement.movementAdjudication.playerInput.diceExpression}</p>
+        <p>{pendingCombatMovement.movementAdjudication.narration}</p>
+        <form aria-label="전투 중 이동 사건 굴림 제출" onSubmit={event => { event.preventDefault(); void submitCombatMovementRoll() }}>
+          <label>주사위 결과<input type="number" min="1" max="20" step="1" required value={combatMovementRoll} onChange={event => setCombatMovementRoll(event.currentTarget.value)} disabled={submittingCombatMovementRoll} /></label>
+          <button type="submit" disabled={submittingCombatMovementRoll || !api.submitCombatMovementRoll}>{submittingCombatMovementRoll ? '판정 저장 중…' : '굴림 제출'}</button>
+        </form>
       </section>}
       {pendingMovement && (pendingMovement.result.status === 'RETRY_REQUIRED' || pendingMovement.result.status === 'CHECK_REQUIRED') && <section aria-label="저장된 이동 상태" role="status">
         <p>{pendingMovement.result.status === 'RETRY_REQUIRED' ? '이동 재시도 필요' : '이동 판정 확인 필요'}</p>

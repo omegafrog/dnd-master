@@ -18,44 +18,57 @@
      loop 경로를 칸 순서대로 평가 / 사건 칸에서 중단
        Map -> Map : 예약 안에서 칸 평가·진행 상태 보존
      end
-     opt 새 적 발견·함정·반응 등 GM 사건 발생
+     alt 새 적 발견·함정·반응 등 GM 사건 발생
        Map --> Runtime : 중단한 칸과 백엔드 소유 사건 사실
+       Runtime -> Map : 실제 위치·공간 상태 최종 반영 요청
+       Map -> Map : 사건 칸까지 실제 위치·이동량 원자 저장
+       Map --> Runtime : 확정 위치·실제 이동 거리
+       Runtime -> Encounter : 실제 이동 거리 작업당 한 번 차감
+       Encounter --> Runtime : 저장된 이동 예산·같은 참가자와 플레이어 차례
+       Runtime -> Runtime : 같은 operation을 GM_INTERVENTION_PENDING으로 저장
        Runtime -> GM : 사건 사실·서버가 발급한 작업 및 턴 식별자
        note right of GM
          AI는 식별자를 생성하지 않는다.
        end note
-       GM --> Runtime : 전용 고정 구조의 판정 결과·서술·전투 시작 여부\n선택적 기존 규칙 판정·플레이어 굴림 또는 선택 요청
-       Runtime -> Runtime : 응답 구조·규칙·판정 소유권 검증
-       opt 필수 판정 또는 플레이어 선택 필요
-         opt 플레이어 굴림 또는 선택 필요
-         Runtime -> UI : 필요한 기존 굴림·선택 요청
-         Player -> UI : 필요한 굴림·선택 제출
-         UI -> Runtime : 제출 결과
-         end
-         Runtime -> Runtime : 시스템 판정 또는 플레이어 결과를 소유 경계에서 해결
+       GM --> Runtime : 전용 고정 구조 판정·서술·전투 시작 여부·기존 플레이어 굴림 필요 여부
+       Runtime -> Runtime : 응답 구조·operation·turn 식별자 검증
+       alt 기존 플레이어 굴림이 필요함
+         Runtime -> UI : 같은 작업에 필요한 기존 굴림 요청
+         Player -> UI : 기존 굴림 결과 제출
+         UI -> Runtime : 같은 operation·turn 식별자와 굴림 결과
+         Runtime -> Runtime : 굴림·식별자 검증 후 같은 작업에 저장
+         Runtime -> GM : 저장된 굴림 결과로 최종 판정 요청
+         GM --> Runtime : 최종 고정 구조 판정·서술·전투 시작 여부
+         Runtime -> Runtime : 최종 응답 구조·operation·turn 식별자 검증
+       else 굴림이 필요 없음
+         Runtime -> Runtime : 검증된 최초 응답을 최종 판정으로 확정
        end
-       loop 재시도 가능한 모델·응답 구조·상태 소유자 오류가 남은 경우
-         Runtime -> Runtime : 같은 작업·턴과 저장된 진행 상태로 복구
-         Runtime -> GM : 필요한 응답만 재요청 / 같은 서버 발급 식별자
-         GM --> Runtime : 수정된 고정 구조 응답
-         Runtime -> Runtime : 계약·필수 규칙·플레이어 결과 재검증
+       loop GM 실패·구조/식별자 불일치·필수 후속 저장 실패
+         Runtime -> Runtime : GM_INTERVENTION_PENDING 유지·같은 작업 진행 상태 복구
+         Runtime -> GM : 미완료 단계만 같은 operation·turn으로 재시도
+         GM --> Runtime : 해당 단계의 응답
+         Runtime -> Runtime : 계약·식별자·필수 변경 재검증
        end
-     end
      note over Runtime, Map
-       대기 중 작업을 보존하고 공개 지도를 최종 반영하지 않는다.
+       일반 이동 예약의 최종 반영 경계와 GM 개입 사건의 이동 확정 경계를 구분한다.
+       GM 개입 사건은 사건 칸까지의 위치·이동량을 먼저 확정한다.
        이미 완료한 작업·판정·반영은 재시도에서 반복하지 않는다.
        칸별 평가는 칸별 DB 최종 반영을 뜻하지 않는다.
      end note
-     alt 응답 계약과 모든 필수 판정 해결
-       Runtime -> Map : 같은 이동 예약의 필수 판정 결과 전달·최종 반영 요청
-       Map -> Map : 실제 통과한 위치·공간 요소·시야·탐험 상태\n로컬 트랜잭션으로 원자 반영 (ADR-018)
+     alt 최종 판정·필수 후속 변경 저장 완료
+       Runtime -> Runtime : GM_INTERVENTION_PENDING 해제
+       Runtime -> UI : 확정 위치·소비 이동량·사건 결과 및 서술
+     else 미완료 또는 실패
+       Runtime -> Runtime : GM_INTERVENTION_PENDING 유지·같은 작업 재시도 가능
+       Runtime -> UI : 같은 차례 대기·복구 안내
+     end
+     else GM 개입 사건 없이 이동 완료
+       Runtime -> Map : 예약 이동의 위치·공간 결과 최종 반영 요청
+       Map -> Map : 실제 통과 위치·공간 요소·시야·탐험 상태 원자 반영 (ADR-018)
        Map --> Runtime : 실제 도달 위치·실제 이동 거리
        Runtime -> Encounter : 같은 작업으로 실제 이동 거리만 한 번 차감
        Encounter --> Runtime : 현재 참가자를 유지한 이동 예산
-       Runtime -> UI : 확정 위치·소비 이동량·사건 결과 및 서술
-     else 복구 불가능한 검증·판정 실패
-       Runtime -> Map : 예약 취소 / 공개 지도 변경 없음
-       Runtime -> UI : 오류와 복구 안내
+       Runtime -> UI : 확정 위치·소비 이동량·이동 결과
      end
    else 무효하거나 오래된 이동
      Runtime -> UI : 비용 없이 거부·최신 공개 상태 표시
@@ -63,7 +76,7 @@
    note over Player, UI
      같은 플레이어의 새 경로·다른 행동·명시적 턴 종료 입력을 기다린다.
      새 경로는 별도로 확인하며 남은 경로를 자동 실행하지 않는다.
-     GM 서술만으로 토큰을 옮기거나 턴을 종료하지 않는다.
+    GM 서술은 위치·이동량·턴 종료를 바꾸지 않는다.
    end note
  else 플레이어가 전투 행동 선택
  Player -> UI : 전투 행동 선택
@@ -93,4 +106,47 @@
    Runtime -> Encounter : 현재 턴 종료
  end
  end
+group 이동 중단 판정은 지도 UI와 /combat/actions가 공유
+  Player -> UI : 이동 제출
+  UI -> Runtime : 현재 turn UUID·서버 operation 식별자와 이동
+  Runtime -> Encounter : 차례·이동 예산·식별자 검증
+  Encounter --> Runtime : 검증된 허용량
+  Runtime -> Map : 사건 칸까지 예약 이동
+  Map --> Runtime : 사건과 중단 위치·실제 이동량
+  Runtime -> Map : 사건 칸까지 위치·이동량 최종 확정
+  Map -> Map : 실제 위치·이동량 원자 저장
+  Map --> Runtime : 확정 위치·실제 이동량
+  Runtime -> Encounter : 실제 이동량을 한 번 차감
+  Encounter --> Runtime : 이동 예산·같은 참가자와 플레이어 차례 유지
+  Runtime -> Runtime : 확정 이동 결과와 operation을 GM_INTERVENTION_PENDING으로 저장
+  Runtime -> GM : 동일 operation·turn 식별자로 판정 요청
+  GM --> Runtime : 고정 구조 판정·서술·기존 플레이어 굴림 필요 여부
+  Runtime -> Runtime : 응답 구조·operation·turn 식별자 검증
+  alt 기존 플레이어 굴림이 필요함
+    Runtime -> UI : 같은 작업의 필수 굴림 요청 표시
+    Player -> UI : 필수 굴림 결과 제출
+    UI -> Runtime : 서버 operation·turn 식별자와 굴림 결과
+    Runtime -> Runtime : 같은 operation·turn 및 굴림 상태 검증·저장
+    Runtime -> GM : 저장된 굴림 결과로 최종 판정 요청
+    GM --> Runtime : 최종 고정 구조 판정·서술
+    Runtime -> Runtime : 최종 응답 구조·operation·turn 식별자 검증
+  else 굴림이 필요 없음
+    Runtime -> Runtime : 검증된 최초 응답을 최종 판정으로 확정
+  end
+  loop GM 실패·구조/식별자 불일치·필수 후속 저장 실패
+    Runtime -> Runtime : GM_INTERVENTION_PENDING 유지·같은 작업 진행 상태 복구
+    Runtime -> GM : 미완료 단계만 같은 operation·turn으로 재시도
+    GM --> Runtime : 해당 단계 응답
+    Runtime -> Runtime : 계약·식별자·필수 변경 재검증
+  end
+  Runtime -> Runtime : 최종 판정·필수 후속 변경 저장 뒤 GM_INTERVENTION_PENDING 해제
+  Runtime -> UI : 결과 또는 같은 차례 재개 상태 전달
+  note over Runtime,GM
+    지도 UI와 /combat/actions 모두 이 판정·복구 경로를 사용한다.
+    서버가 발급한 작업·차례 식별자를 확인하고 작업당 한 번만 반영한다.
+    GM 서술은 위치·이동량·플레이어 차례·턴 종료를 변경하지 않는다.
+    중단된 나머지 경로는 자동 이동하지 않는다.
+    최종 판정·필수 후속 저장 전에는 다른 행동과 턴 종료를 허용하지 않는다.
+  end note
+end
 @enduml

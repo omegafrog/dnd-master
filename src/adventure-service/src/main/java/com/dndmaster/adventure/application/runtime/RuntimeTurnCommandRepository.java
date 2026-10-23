@@ -8,6 +8,7 @@ public interface RuntimeTurnCommandRepository {
     Optional<RuntimeTurnCommand> findByCommandId(UUID commandId);
     default Optional<RuntimeTurnCommand> findByIdempotencyKey(String idempotencyKey) { return Optional.empty(); }
     List<RuntimeTurnCommand> findByTurnId(UUID turnId);
+    default List<RuntimeTurnCommand> findPendingMovementByAdventure(UUID adventureId) { return List.of(); }
     void save(RuntimeTurnCommand command);
 
     default void saveAll(List<RuntimeTurnCommand> commands) {

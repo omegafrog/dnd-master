@@ -7,5 +7,6 @@ public interface CombatActionOperationRepository {
     Optional<CombatActionOperation> findByCommandId(UUID commandId);
     void save(CombatActionOperation operation);
 
+    default Optional<CombatActionOperation> findPendingMovementForEncounter(UUID encounterId) { return Optional.empty(); }
     default boolean hasPendingForEncounter(UUID encounterId) { return false; }
 }

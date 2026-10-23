@@ -5,7 +5,7 @@ import com.dndmaster.adventure.application.combat.CombatMapMoveResult;
 /** Adapter result; transient failures remain resumable, permanent failures require repair. */
 public record RuntimeTurnCommandExecution(Status status, String value, CombatMapMoveResult movementResult,
         MovementConflict movementConflict) {
-    public enum Status { DONE, TRANSIENT_FAILURE, PERMANENT_FAILURE }
+    public enum Status { DONE, PLAYER_INPUT_REQUIRED, TRANSIENT_FAILURE, PERMANENT_FAILURE }
     public record MovementConflict(int httpStatus, String code) { }
 
     public RuntimeTurnCommandExecution {
@@ -19,6 +19,10 @@ public record RuntimeTurnCommandExecution(Status status, String value, CombatMap
 
     public static RuntimeTurnCommandExecution done(String value) {
         return new RuntimeTurnCommandExecution(Status.DONE, value);
+    }
+
+    public static RuntimeTurnCommandExecution playerInputRequired(String value) {
+        return new RuntimeTurnCommandExecution(Status.PLAYER_INPUT_REQUIRED, value);
     }
 
     public static RuntimeTurnCommandExecution transientFailure(String value) {

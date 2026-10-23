@@ -172,4 +172,46 @@
    end
  end
  Runtime -> UI : 최종 위치·공개 영역·사건 표시
+group 전투 이동 중단 경로: 지도 UI와 /combat/actions
+  Player -> UI : 지도 경로 이동 또는 /combat/actions 이동 제출
+  UI -> Runtime : 서버 발급 turn UUID·operation 식별자와 이동 제출
+  Runtime -> Encounter : 같은 플레이어 차례·이동 예산·작업 식별자 검증
+  Encounter --> Runtime : 검증된 이동 허용량
+  Runtime -> Map : 사건 칸까지 이동 예약·진행
+  Map --> Runtime : 사건 사실·중단 위치·실제 이동량
+  Runtime -> Map : 사건 칸까지 실제 위치·이동량 최종 확정 요청
+  Map -> Map : 위치·공간 상태를 원자 저장
+  Map --> Runtime : 확정 위치·실제 이동량
+  Runtime -> Encounter : 실제 이동량을 작업당 한 번 차감
+  Encounter --> Runtime : 저장된 이동 예산·현재 참가자 유지
+  Runtime -> Runtime : 이동 결과와 operation의 GM_INTERVENTION_PENDING 상태 저장
+  Runtime -> GM : 같은 서버 작업·turn 식별자로 사건 판정 요청
+  GM --> Runtime : 고정 구조 판정·서술·기존 플레이어 굴림 필요 여부·전투 시작 여부
+  Runtime -> Runtime : 응답 구조·operation·turn 식별자 검증
+  alt 기존 플레이어 굴림이 필요함
+    Runtime -> UI : 같은 작업의 필수 굴림 요청 표시
+    Player -> UI : 필수 굴림 결과 제출
+    UI -> Runtime : 서버 operation·turn 식별자와 굴림 결과
+    Runtime -> Runtime : 같은 operation·turn 및 굴림 상태 검증·저장
+    Runtime -> GM : 저장된 굴림 결과로 최종 판정 요청
+    GM --> Runtime : 최종 고정 구조 판정·서술·전투 시작 여부
+    Runtime -> Runtime : 최종 응답 구조·operation·turn 식별자 검증
+  else 굴림이 필요 없음
+    Runtime -> Runtime : 검증된 최초 응답을 최종 판정으로 확정
+  end
+  loop GM 실패·구조/식별자 불일치·필수 후속 변경 저장 실패
+    Runtime -> Runtime : GM_INTERVENTION_PENDING 유지·미완료 단계 기록
+    Runtime -> GM : 같은 operation·turn으로 미완료 단계 재시도
+    GM --> Runtime : 해당 단계 응답
+    Runtime -> Runtime : 응답·필수 변경 재검증
+  end
+  Runtime -> Runtime : 최종 판정·필수 후속 변경 저장 뒤 GM_INTERVENTION_PENDING 해제
+  Runtime -> UI : 결과 또는 같은 차례 재개 상태 반환
+  note over Runtime,GM
+    재시도는 같은 작업·차례와 저장된 결과를 사용한다.
+    중복 이동·예산 차감·서술 적용을 막는다.
+    GM 서술은 위치·이동량·플레이어 차례를 변경하지 않는다.
+    중단된 경로를 자동 실행하지 않으며 다음 플레이어 입력을 기다린다.
+  end note
+end
 @enduml

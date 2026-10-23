@@ -426,14 +426,17 @@ public class AdventureApiConfiguration {
     MovementFollowUpPolicy movementFollowUpPolicy() {
         return trigger -> switch (trigger) {
             case "HOSTILE_OBSERVED" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT;
+            case "SPATIAL_FEATURE_REQUIRES_DECISION" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT;
             default -> throw new IllegalArgumentException("unknown movement follow-up trigger: " + trigger);
         };
     }
 
     @Bean
     RuntimeContinuationCommandOutcomePort runtimeContinuationCommandOutcomePort(RuntimeTurnCommandRepository commands,
-            ObjectMapper objectMapper) {
-        return new PostgresRuntimeContinuationCommandOutcomePort(commands, objectMapper);
+            ObjectMapper objectMapper,
+            org.springframework.beans.factory.ObjectProvider<RuntimeTurnApplicationService> runtimeTurnService) {
+        return new PostgresRuntimeContinuationCommandOutcomePort(commands, objectMapper,
+                request -> runtimeTurnService.getObject().adjudicateMovementFollowUp(request));
     }
 
     @Bean
@@ -1392,8 +1395,9 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    com.dndmaster.adventure.application.combat.CombatActionOperationRepository combatActionOperationRepository(DataSource dataSource) {
-        return new com.dndmaster.adventure.infrastructure.persistence.PostgresCombatActionOperationRepository(dataSource);
+    com.dndmaster.adventure.application.combat.CombatActionOperationRepository combatActionOperationRepository(
+            DataSource dataSource, ObjectMapper objectMapper) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresCombatActionOperationRepository(dataSource, objectMapper);
     }
 
     @Bean
@@ -1474,11 +1478,20 @@ public class AdventureApiConfiguration {
             @Qualifier("combatMapPort") CombatMapPort mapPort,
             com.dndmaster.adventure.application.combat.AiCombatDecisionPort decisionPort,
             com.dndmaster.adventure.application.combat.CombatEndPort combatEndPort,
-            RuntimeTurnApplicationService runtimeTurnApplicationService) {
-        return new com.dndmaster.adventure.application.combat.CombatActionApplicationService(
+            RuntimeTurnApplicationService runtimeTurnApplicationService,
+            MovementFollowUpPort movementFollowUpPort,
+            MovementFollowUpRuntimeConsumer movementFollowUpConsumer,
+            RuntimeTurnCommandRepository runtimeTurnCommandRepository,
+            ObjectMapper objectMapper,
+            org.springframework.transaction.PlatformTransactionManager transactionManager) {
+        var service = new com.dndmaster.adventure.application.combat.CombatActionApplicationService(
                 encounterRepository, operationRepository, eventRepository, rulesEngine,
                 dicePort, characterPort, aiPort, mapPort, decisionPort, combatEndPort,
                 runtimeTurnApplicationService::narrateConfirmedCombat);
+        service.setMovementFollowUpPorts(movementFollowUpPort, movementFollowUpConsumer,
+                runtimeTurnCommandRepository, objectMapper);
+        service.setMovementCommitTransactionManager(transactionManager);
+        return service;
     }
 
     @Bean

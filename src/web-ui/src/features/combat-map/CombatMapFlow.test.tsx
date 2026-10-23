@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { CharacterSheetView } from '../character/CharacterSheetView'
 import { RoleDiceRoller } from '../dice/RoleDiceRoller'
-import { HttpAdventurePlayApi, type AdventurePlayApi, type CombatMapView as CombatMapState, type ExplorationCycle, type ExplorationGroup } from '../saved-adventures/AdventurePlayApi'
+import { HttpAdventurePlayApi, type AdventurePlayApi, type CombatMapView as CombatMapState, type ExplorationCycle, type ExplorationGroup, type PendingCombatMovement } from '../saved-adventures/AdventurePlayApi'
 import { animateCommittedMovement, boundariesInStroke, CombatMapView } from './CombatMapView'
 import type { CombatAimMapInteraction } from './CombatMapView'
 import * as diagnostics from '../../shared/developmentDiagnostics'
@@ -1158,6 +1158,30 @@ it('keeps the confirmed path and shows the enemy observation interruption from A
   expect(screen.getByText('공개된 결과: HOSTILE_OBSERVED')).toBeInTheDocument()
   expect(screen.getByText('후속 진행: 모험 진행 판단 대기')).toBeInTheDocument()
   expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ path: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }), expect.anything(), expect.any(Number))
+})
+
+it('restores a pending movement ruling and submits the same player roll to its saved operation', async () => {
+  const api = fakeApi()
+  const pending: PendingCombatMovement = {
+    operationId: 'combat-operation-369', encounterVersion: 7, source: 'COMBAT_ACTION',
+    movementAdjudication: { turnId: 'combat-turn-369', judgment: '판정 대기', narration: '중단 지점에서 기다립니다.',
+      waitingForPlayerInput: true, playerInput: { required: true, reason: '통로를 확인합니다.', abilityOrSkill: 'Athletics', diceExpression: '1d20', modifier: 2 } },
+  }
+  api.pendingCombatMovement = vi.fn(async () => pending)
+  api.submitCombatMovementRoll = vi.fn(async () => ({ ...pending, movementAdjudication: {
+    ...pending.movementAdjudication!, waitingForPlayerInput: false, narration: '사건 판정이 저장되었습니다. 같은 차례를 이어갈 수 있습니다.',
+    playerInput: { ...pending.movementAdjudication!.playerInput, required: false },
+  } }))
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  const panel = await screen.findByRole('status', { name: '전투 중 이동 사건 판정 대기' })
+  await userEvent.type(within(panel).getByLabelText('주사위 결과'), '14')
+  await userEvent.click(within(panel).getByRole('button', { name: '굴림 제출' }))
+
+  await waitFor(() => expect(api.submitCombatMovementRoll).toHaveBeenCalledWith('a1', 'combat-operation-369',
+    'combat-turn-369', { result: 14, expectedVersion: 7 }, 'COMBAT_ACTION'))
+  await waitFor(() => expect(screen.queryByRole('status', { name: '전투 중 이동 사건 판정 대기' })).not.toBeInTheDocument())
+  expect(screen.getByText('사건 판정이 저장되었습니다. 같은 차례를 이어갈 수 있습니다.')).toBeInTheDocument()
 })
 
 it('restores a durable movement operation when local storage has no waiting state', async () => {

@@ -723,6 +723,92 @@
       "readiness_timeout_ms": 5000,
       "poll_interval_ms": 1000
     },
+    "combat-movement-interruption-unit": {
+      "command": [
+        "bash",
+        "-lc",
+        "./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.combat.CombatMovementPolicyTest --tests com.dndmaster.adventure.combat.CombatActionMovementFollowUpTest --tests com.dndmaster.adventure.CombatActionOperationRecoveryTest --tests com.dndmaster.adventure.CombatMapRuntimeTurnCommandAdapterTest --tests com.dndmaster.adventure.RuntimeTurnCommitOrchestratorTest --tests com.dndmaster.adventure.SessionEventTest --tests com.dndmaster.adventure.TypedRuntimeContinuationCommandAdapterTest --tests com.dndmaster.adventure.combat.CombatActionPolicyTest --tests com.dndmaster.adventure.combat.TurnResourcesPolicyTest && ./src/gradlew -p src :combat-map-service:test --tests com.dndmaster.combatmap.CombatMapMovementTest --tests com.dndmaster.combatmap.MovementPreviewServiceTest && npm --prefix src/web-ui run test -- --run src/features/combat-map/CombatMapFlow.test.tsx src/features/combat/CombatScreen.test.tsx"
+      ],
+      "required_env": [],
+      "config_inputs": [
+        "docs/agents/EXEC.md",
+        "docs/agents/execution.json",
+        "docs/contracts/architecture.md",
+        "docs/plans/combat-movement-spell-range/plans.md",
+        "src/gradlew",
+        "src/gradle/wrapper/gradle-wrapper.properties",
+        "src/settings.gradle.kts",
+        "src/build.gradle.kts",
+        "src/adventure-service/build.gradle.kts",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureApiConfiguration.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionResponse.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/MovementFollowUpCommand.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/CombatContinuationCommand.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/CombatMapRuntimeTurnCommandAdapter.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnApplicationService.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnCommitOrchestrator.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/TypedRuntimeContinuationCommandAdapter.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/persistence/PostgresCombatActionOperationRepository.java",
+        "src/adventure-service/src/main/resources/db/migration/V95__combat_movement_adjudication_response.sql",
+        "src/adventure-service/src/main/resources/db/migration/V96__combat_movement_pending_roll.sql",
+        "src/adventure-service/src/main/resources/db/migration/V97__runtime_movement_intervention_pending.sql",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/CombatActionOperationRecoveryTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/CombatMapRuntimeTurnCommandAdapterTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnCommitOrchestratorTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/SessionEventTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/TypedRuntimeContinuationCommandAdapterTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
+        "src/web-ui/package.json",
+        "src/web-ui/package-lock.json",
+        "src/web-ui/src/features/combat-map/CombatMapFlow.test.tsx",
+        "src/web-ui/src/features/combat-map/CombatMapView.tsx",
+        "src/web-ui/src/shared/developmentDiagnostics.ts",
+        "src/combat-map-service/build.gradle.kts",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/movement/CombatMapMovementService.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/domain/CombatMap.java",
+        "src/combat-map-service/src/test/java/com/dndmaster/combatmap/CombatMapMovementTest.java",
+        "src/combat-map-service/src/test/java/com/dndmaster/combatmap/MovementPreviewServiceTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionPolicyTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/TurnResourcesPolicyTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatMovementPolicyTest.java",
+        "src/web-ui/src/features/combat/CombatScreen.test.tsx"
+      ],
+      "readiness": [],
+      "prepare": [],
+      "verify_config": [
+        [
+          "test",
+          "-x",
+          "src/gradlew"
+        ],
+        [
+          "java",
+          "-version"
+        ],
+        [
+          "node",
+          "-e",
+          "if (Number(process.versions.node.split(\".\")[0]) < 24) process.exit(1)"
+        ],
+        [
+          "npm",
+          "--version"
+        ],
+        [
+          "test",
+          "-x",
+          "src/web-ui/node_modules/.bin/vitest"
+        ]
+      ],
+      "dependencies": [],
+      "timeout_ms": 600000,
+      "readiness_timeout_ms": 5000,
+      "poll_interval_ms": 250
+    },
     "enemy-sheet-contract-unit": {
       "command": [
         "./src/gradlew",

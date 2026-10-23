@@ -15,6 +15,7 @@ import java.util.UUID;
 
 /** Executes a RuntimeTurn's external mutations forward, then invokes the local commit boundary. */
 public final class RuntimeTurnCommitOrchestrator {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(RuntimeTurnCommitOrchestrator.class);
     private final RuntimeTurnRepository turnRepository;
     private final RuntimeTurnCommandRepository commandRepository;
     private final RuntimeTurnCommandAdapter commandAdapter;
@@ -69,6 +70,16 @@ public final class RuntimeTurnCommitOrchestrator {
                 .sorted(Comparator.comparingInt(RuntimeTurnCommand::executionOrder)
                         .thenComparing(RuntimeTurnCommand::commandId)).toList()) {
             movementResult = restoreMovementResult(command).orElse(movementResult);
+            if (command.executionStatus() == RuntimeTurnCommand.ExecutionStatus.GM_INTERVENTION_PENDING
+                    && "movement.follow-up".equals(command.commandType())) {
+                long pendingStarted = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                        "runtime_movement_intervention_pending", "turnId=" + turnId + " commandId=" + command.commandId()
+                                + " expected=final_ruling_saved actual=GM_INTERVENTION_PENDING");
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                        "runtime_movement_intervention_pending", "turnId=" + turnId + " commandId=" + command.commandId()
+                                + " expected=player_roll_or_final_ruling actual=player_roll_required recoveryAction=await_same_command", pendingStarted);
+                return new Result(Status.RETRY_REQUIRED, turn, command, movementResult);
+            }
             if (command.executionStatus() == RuntimeTurnCommand.ExecutionStatus.DONE) {
                 if (movementResult != null && movementResult.followUp() != null
                         && "combat-map.move".equals(command.commandType())
@@ -82,6 +93,12 @@ public final class RuntimeTurnCommitOrchestrator {
                     }
                     commandRepository.save(followUp);
                     RuntimeTurnCommandExecution followUpExecution = executeFollowUp(followUp, movementResult);
+                    if (followUpExecution.status() == RuntimeTurnCommandExecution.Status.PLAYER_INPUT_REQUIRED) {
+                        RuntimeTurnCommand pendingFollowUp = followUp.movementInterventionPending(followUpExecution.value());
+                        commandRepository.save(pendingFollowUp);
+                        return new Result(Status.RETRY_REQUIRED, turnRepository.findByTurnId(turnId).orElse(turn),
+                                pendingFollowUp, movementResult);
+                    }
                     if (followUpExecution.status() != RuntimeTurnCommandExecution.Status.DONE) {
                         RuntimeTurnCommand failedFollowUp = followUp.failed(followUpExecution.value());
                         commandRepository.save(failedFollowUp);
@@ -119,6 +136,12 @@ public final class RuntimeTurnCommitOrchestrator {
                     }
                     commandRepository.save(followUp);
                     RuntimeTurnCommandExecution followUpExecution = executeFollowUp(followUp, movementResult);
+                    if (followUpExecution.status() == RuntimeTurnCommandExecution.Status.PLAYER_INPUT_REQUIRED) {
+                        RuntimeTurnCommand pendingFollowUp = followUp.movementInterventionPending(followUpExecution.value());
+                        commandRepository.save(pendingFollowUp);
+                        return new Result(Status.RETRY_REQUIRED, turnRepository.findByTurnId(turnId).orElse(turn),
+                                pendingFollowUp, movementResult);
+                    }
                     if (followUpExecution.status() != RuntimeTurnCommandExecution.Status.DONE) {
                         RuntimeTurnCommand failedFollowUp = followUp.failed(followUpExecution.value());
                         commandRepository.save(failedFollowUp);
@@ -154,6 +177,63 @@ public final class RuntimeTurnCommitOrchestrator {
         return new Result(Status.COMMITTED, committed, null, movementResult);
     }
 
+    /** Persists a required player roll on the existing movement follow-up command, then resumes its final ruling. */
+    public Result submitMovementPlayerRoll(UUID turnId, int result) {
+        long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "runtime_movement_player_roll", "turnId=" + turnId + " expected=GM_INTERVENTION_PENDING actual=loading");
+        RuntimeTurn turn = turnRepository.findByTurnId(Objects.requireNonNull(turnId, "turn id must not be null"))
+                .orElseThrow(() -> new IllegalStateException("runtime turn not found"));
+        RuntimeTurnCommand command = commandRepository.findByTurnId(turnId).stream()
+                .filter(value -> "movement.follow-up".equals(value.commandType())
+                        && (value.executionStatus() == RuntimeTurnCommand.ExecutionStatus.GM_INTERVENTION_PENDING
+                            || value.executionStatus() == RuntimeTurnCommand.ExecutionStatus.DONE))
+                .findFirst().orElseThrow(() -> new IllegalStateException("movement intervention is no longer pending"));
+        try {
+            MovementFollowUpCommand pending = readDurableFollowUp(command);
+            if (command.executionStatus() == RuntimeTurnCommand.ExecutionStatus.DONE) {
+                if (pending.playerRoll() == null || pending.playerRoll() != result)
+                    throw new IllegalArgumentException("a different player roll is already saved for this movement");
+                return new Result(Status.COMMITTED, turn, null, movementResultForTurn(turnId));
+            }
+            CombatContinuationCommand initial = objectMapper.readValue(command.outcomeJson(), CombatContinuationCommand.class);
+            RuntimeCheckProposal check = initial.playerInput();
+            if (!initial.waitingForPlayerInput()) throw new IllegalArgumentException("movement check is no longer pending");
+            if (result < 1 || result > 20 || !"1d20".equalsIgnoreCase(check.diceExpression()))
+                throw new IllegalArgumentException("player roll result is outside the pending 1d20 check");
+            MovementFollowUpCommand finalFollowUp = pending.playerRoll() == null
+                    ? pending.afterPlayerRoll(check, result) : pending;
+            if (!check.equals(finalFollowUp.playerCheck()) || result != finalFollowUp.playerRoll())
+                throw new IllegalArgumentException("a different player roll is already saved for this movement");
+            RuntimeTurnCommand saved = command.pendingMovementRoll(objectMapper.writeValueAsString(finalFollowUp));
+            commandRepository.save(saved);
+            CombatMapMoveResult movement = movementResultForTurn(turnId);
+            RuntimeTurnCommandExecution execution = executeFollowUp(saved, movement);
+            if (execution.status() == RuntimeTurnCommandExecution.Status.DONE) {
+                commandRepository.save(saved.done(execution.value()));
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                        "runtime_movement_player_roll", "turnId=" + turnId + " commandId=" + command.commandId()
+                                + " expected=final_ruling_and_follow_up_saved actual=completed recoveryAction=resume_same_turn", started);
+                return new Result(Status.COMMITTED, turn, null, movement);
+            }
+            // Keep the same durable command and roll available for a retry after any final ruling failure.
+            commandRepository.save(saved.pendingMovementRoll(objectMapper.writeValueAsString(finalFollowUp)));
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "runtime_movement_player_roll", "turnId=" + turnId + " commandId=" + command.commandId()
+                            + " expected=GM_INTERVENTION_PENDING actual=preserved recoveryAction=retry_same_command", started);
+            return new Result(Status.RETRY_REQUIRED, turn, saved, movement);
+        } catch (IOException failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "runtime_movement_player_roll", "turnId=" + turnId + " expected=typed_pending_result actual=invalid"
+                            + " recoveryAction=retain_pending_same_command", started, failure);
+            throw new IllegalStateException("pending movement adjudication is corrupt", failure);
+        } catch (RuntimeException failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "runtime_movement_player_roll", "turnId=" + turnId + " expected=final_ruling_and_follow_up_saved actual=failed"
+                            + " recoveryAction=retry_same_command", started, failure);
+            throw failure;
+        }
+    }
+
     private RuntimeTurnCommandExecution executeFollowUp(RuntimeTurnCommand command,
             CombatMapMoveResult currentMovementResult) {
         try {
@@ -165,6 +245,7 @@ public final class RuntimeTurnCommitOrchestrator {
             }
             return switch (result.status()) {
                 case DONE -> RuntimeTurnCommandExecution.done(result.value());
+                case PLAYER_INPUT_REQUIRED -> RuntimeTurnCommandExecution.playerInputRequired(result.value());
                 case RETRY -> RuntimeTurnCommandExecution.transientFailure(result.value());
                 case PERMANENT_FAILURE -> RuntimeTurnCommandExecution.permanentFailure(result.value());
             };
@@ -179,13 +260,16 @@ public final class RuntimeTurnCommitOrchestrator {
 
     private void validateFollowUpIdentity(CombatMapMoveResult movement, UUID turnId,
             MovementFollowUpCommand followUp) {
-        if (movement == null || movement.operationId() == null || movement.hostileTokenId() == null) {
+        if (movement == null || movement.operationId() == null) {
             throw new CorruptMovementFollowUpException(
-                    "durable movement follow-up has no current hostile movement result");
+                    "durable movement follow-up has no current movement result");
         }
         UUID expectedCommandId = UUID.nameUUIDFromBytes(("movement-follow-up:" + movement.operationId())
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        if (!expectedCommandId.equals(followUp.commandId())) {
+        UUID expectedFinalCommandId = UUID.nameUUIDFromBytes(("movement-follow-up-final:" + movement.operationId())
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (!(expectedCommandId.equals(followUp.commandId())
+                || followUp.playerRoll() != null && expectedFinalCommandId.equals(followUp.commandId()))) {
             throw new CorruptMovementFollowUpException(
                     "durable movement follow-up command id is not derived from movement operation");
         }
@@ -193,16 +277,27 @@ public final class RuntimeTurnCommitOrchestrator {
             throw new CorruptMovementFollowUpException(
                     "durable movement follow-up operation id does not match movement result");
         }
-        if (!movement.hostileTokenId().equals(followUp.hostileTokenId())) {
+        if (!Objects.equals(movement.hostileTokenId(), followUp.hostileTokenId())) {
             throw new CorruptMovementFollowUpException(
                     "durable movement follow-up hostile token id does not match movement result");
+        }
+        if (movement.version() != followUp.mapVersion()
+                || !movement.traversedPath().equals(followUp.traversedPath())
+                || !Objects.equals(movement.finalPosition(), followUp.finalPosition())
+                || !movement.publicEvents().equals(followUp.publicEvents())) {
+            throw new CorruptMovementFollowUpException(
+                    "durable movement follow-up facts do not match the persisted movement result");
         }
         if (followUp.kind() != MovementFollowUpCommand.Kind.COMBAT) {
             throw new CorruptMovementFollowUpException("durable movement follow-up kind is not COMBAT");
         }
-        if (!"HOSTILE_OBSERVED".equals(followUp.trigger())) {
+        if (!java.util.Set.of("HOSTILE_OBSERVED", "SPATIAL_FEATURE_REQUIRES_DECISION").contains(followUp.trigger())) {
             throw new CorruptMovementFollowUpException(
-                    "durable movement follow-up trigger is not HOSTILE_OBSERVED");
+                    "durable movement follow-up trigger is unsupported");
+        }
+        if ("HOSTILE_OBSERVED".equals(followUp.trigger()) != (followUp.hostileTokenId() != null)) {
+            throw new CorruptMovementFollowUpException(
+                    "durable movement follow-up hostile token does not match trigger");
         }
         if (!turnId.equals(followUp.turnId())) {
             throw new CorruptMovementFollowUpException(
@@ -211,7 +306,17 @@ public final class RuntimeTurnCommitOrchestrator {
     }
 
     private MovementFollowUpCommand readDurableFollowUp(RuntimeTurnCommand command) {
-        return readStrictFollowUp(command.payloadJson(), command.commandId(), command.turnId());
+        MovementFollowUpCommand followUp = readStrictFollowUp(command.payloadJson(), null, command.turnId());
+        UUID expectedCommandId = UUID.nameUUIDFromBytes(("movement-follow-up:" + followUp.operationId())
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        UUID expectedFinalCommandId = UUID.nameUUIDFromBytes(("movement-follow-up-final:" + followUp.operationId())
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (!command.commandId().equals(expectedCommandId)
+                || !(followUp.commandId().equals(expectedCommandId)
+                    || followUp.playerRoll() != null && followUp.commandId().equals(expectedFinalCommandId))) {
+            throw new PermanentFollowUpFailure("durable movement follow-up command id does not match command");
+        }
+        return followUp;
     }
 
     private MovementFollowUpCommand readStrictFollowUp(String rawPayload, UUID commandId, UUID turnId) {
@@ -223,7 +328,7 @@ public final class RuntimeTurnCommitOrchestrator {
             if (parser.nextToken() != null) {
                 throw new PermanentFollowUpFailure("invalid durable movement follow-up payload: trailing JSON");
             }
-            if (!commandId.equals(followUp.commandId())) {
+            if (commandId != null && !commandId.equals(followUp.commandId())) {
                 throw new PermanentFollowUpFailure("durable movement follow-up command id does not match command");
             }
             if (!turnId.equals(followUp.turnId())) {
