@@ -189,7 +189,7 @@ export interface AdventurePlayApi {
   saveSessionKnowledgeSet(adventureId: string, playerId: string, knowledgeDocumentIds: string[]): Promise<SessionKnowledgeSet>
   getCombatMap(adventureId: string): Promise<CombatMapView>
   getExplorationGroups?(adventureId: string): Promise<ExplorationGroups>
-  submitCombatTokenPlacement?(adventureId: string, expectedVersion: number, placements: CombatTokenPlacement[]): Promise<ExplorationGroups>
+  submitCombatTokenPlacement?(adventureId: string, expectedVersion: number, expectedMapVersion: number, placements: CombatTokenPlacement[]): Promise<ExplorationGroups>
   saveExplorationGroups?(adventureId: string, expectedVersion: number, groups: Array<{ id: string; members: Array<{ characterSheetId: string; formation: 'FRONT' | 'MIDDLE' | 'REAR' }> }>): Promise<ExplorationGroups>
   startExplorationCycle?(adventureId: string, expectedVersion: number, commandId: string): Promise<ExplorationGroups>
   finishExplorationGroupTurn?(adventureId: string, groupId: string, expectedVersion: number, commandId: string): Promise<ExplorationGroups>
@@ -350,10 +350,10 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
     return request<ExplorationGroups>(`/api/v1/adventures/${adventureId}/exploration-groups`, { headers: this.authHeaders() })
   }
 
-  submitCombatTokenPlacement(adventureId: string, expectedVersion: number, placements: CombatTokenPlacement[]) {
+  submitCombatTokenPlacement(adventureId: string, expectedVersion: number, expectedMapVersion: number, placements: CombatTokenPlacement[]) {
     return request<ExplorationGroups>(`/api/v1/adventures/${adventureId}/exploration/combat-token-placement`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
-      body: JSON.stringify({ expectedVersion, placements }),
+      body: JSON.stringify({ expectedVersion, expectedMapVersion, placements }),
     })
   }
 

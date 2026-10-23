@@ -324,13 +324,14 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     })).size === placementTargets.length
 
   async function submitManualPlacement() {
-    if (!api.submitCombatTokenPlacement || explorationVersion === null || !placementRequired || !completeManualPlacement || explorationBusy) return
+    if (!api.submitCombatTokenPlacement || explorationVersion === null || map?.version === undefined
+      || !placementRequired || !completeManualPlacement || explorationBusy) return
     const placements: CombatTokenPlacement[] = placementTargets.map(({ id }) => ({ targetId: id, ...manualPlacements[id] }))
     const started = performance.now()
     setExplorationBusy(true)
     diagnosticEvent('combat_token_manual_placement_ui', { outcome: 'started', adventureId, direction: tokenTransition?.direction, targetCount: placements.length })
     try {
-      const updated = await api.submitCombatTokenPlacement(adventureId, explorationVersion, placements)
+      const updated = await api.submitCombatTokenPlacement(adventureId, explorationVersion, map.version, placements)
       setExplorationGroups(updated.groups)
       setExplorationVersion(updated.version)
       setExplorationCycle(updated.cycle ?? null)

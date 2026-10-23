@@ -139,7 +139,7 @@ it('lets the adventure owner choose every party position and submit the saved pe
     current: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
     explored: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }] }))
   api.getExplorationGroups = vi.fn(async () => ({ version: 8, groups, tokenTransition: transition }))
-  api.submitCombatTokenPlacement = vi.fn(async (_adventureId, _version, placements) => ({ version: 9, groups,
+  api.submitCombatTokenPlacement = vi.fn(async (_adventureId, _version, _mapVersion, placements) => ({ version: 9, groups,
     tokenTransition: { direction: 'ENTER', status: 'APPLIED', placements } }))
 
   render(<CombatMapView adventureId="a1" api={api} />)
@@ -149,7 +149,7 @@ it('lets the adventure owner choose every party position and submit the saved pe
   await userEvent.click(screen.getByRole('button', { name: '배치 0,0' }))
   await userEvent.click(screen.getByRole('button', { name: '전체 배치 제출' }))
 
-  await waitFor(() => expect(api.submitCombatTokenPlacement).toHaveBeenCalledWith('a1', 8, [
+  await waitFor(() => expect(api.submitCombatTokenPlacement).toHaveBeenCalledWith('a1', 8, 4, [
     { targetId: 'sheet-1', x: 2, y: 1 }, { targetId: 'sheet-2', x: 0, y: 0 },
   ]))
   expect(await screen.findByText('전체 배치를 저장했습니다.')).toBeInTheDocument()
@@ -1507,12 +1507,12 @@ it('submits the complete combat placement through the authenticated adventure ro
   }))
   vi.stubGlobal('fetch', fetchMock)
   try {
-    await new HttpAdventurePlayApi(() => 'player-token').submitCombatTokenPlacement!('a1', 8, [
+    await new HttpAdventurePlayApi(() => 'player-token').submitCombatTokenPlacement!('a1', 8, 4, [
       { targetId: 'sheet-1', x: 2, y: 1 }, { targetId: 'sheet-2', x: 0, y: 0 },
     ])
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/adventures/a1/exploration/combat-token-placement', expect.objectContaining({
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer player-token' },
-      body: JSON.stringify({ expectedVersion: 8, placements: [
+      body: JSON.stringify({ expectedVersion: 8, expectedMapVersion: 4, placements: [
         { targetId: 'sheet-1', x: 2, y: 1 }, { targetId: 'sheet-2', x: 0, y: 0 },
       ] }),
     }))

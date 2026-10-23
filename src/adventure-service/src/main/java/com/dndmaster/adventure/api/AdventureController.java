@@ -661,7 +661,8 @@ public class AdventureController {
     @org.springframework.transaction.annotation.Transactional
     ExplorationGroupsResponse submitCombatTokenPlacement(@PathVariable UUID adventureId,
             @RequestBody CombatTokenPlacementRequest request) {
-        if (request == null || request.expectedVersion() == null || request.placements() == null || request.placements().isEmpty())
+        if (request == null || request.expectedVersion() == null || request.expectedMapVersion() == null
+                || request.expectedMapVersion() < 0 || request.placements() == null || request.placements().isEmpty())
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_COMBAT_TOKEN_PLACEMENT");
         Adventure adventure = adventureRepository.findByIdForUpdate(new AdventureId(adventureId)).orElseThrow();
         UUID owner = playerResolver.playerId();
@@ -683,7 +684,9 @@ public class AdventureController {
                         + " encounterId=" + transition.encounterId() + " direction=" + transition.direction()
                         + " expectedPlacementCount=" + (transition.direction() == com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Direction.ENTER
                                 ? state.groups().stream().mapToInt(group -> group.members().size()).sum() : state.groups().size())
-                        + " actualPlacementCount=" + request.placements().size() + " expectedVersion=" + request.expectedVersion());
+                        + " actualPlacementCount=" + request.placements().size() + " expectedVersion=" + request.expectedVersion()
+                        + " expectedMapVersion=" + request.expectedMapVersion());
+        Long actualMapVersion = null;
         try {
             if (transition.status() == com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status.APPLIED) {
                 if (!transition.placements().equals(request.placements().stream()
@@ -706,7 +709,10 @@ public class AdventureController {
             var currentMap = combatMapViewPort.playerView(adventureId, owner)
                     .filter(view -> view.mapId().equals(transitionMapId))
                     .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "COMBAT_MAP_REQUIRED_FOR_TOKEN_TRANSITION"));
-            var updated = transition.withPlacements(request.placements(), currentMap.version());
+            actualMapVersion = currentMap.version();
+            if (actualMapVersion.longValue() != request.expectedMapVersion())
+                throw new ApiRequestGuard.ApiContractException(409, "STALE_COMBAT_MAP_VERSION");
+            var updated = transition.withPlacements(request.placements(), request.expectedMapVersion());
             state = state.withTokenTransition(updated);
             adventure.updateExplorationState(new OwnerPlayerId(owner), adventure.version(), state);
             adventureRepository.save(adventure);
@@ -730,12 +736,13 @@ public class AdventureController {
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
                     "combat_token_manual_placement", "adventureId=" + adventureId + " operationId=" + transition.operationId()
                             + " encounterId=" + transition.encounterId() + " actualPlacementCount=" + request.placements().size()
-                            + " recoveryAction=retry_same_operation_id", started, failure);
+                            + " expectedMapVersion=" + request.expectedMapVersion() + " actualMapVersion=" + actualMapVersion
+                            + " recoveryAction=refresh_map_and_retry_same_operation_id", started, failure);
             throw failure;
         }
     }
 
-    public record CombatTokenPlacementRequest(Long expectedVersion,
+    public record CombatTokenPlacementRequest(Long expectedVersion, Long expectedMapVersion,
             List<com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Placement> placements) { }
 
     private static Map<String, String> runtimeTurnFailure(RuntimeException exception) {
