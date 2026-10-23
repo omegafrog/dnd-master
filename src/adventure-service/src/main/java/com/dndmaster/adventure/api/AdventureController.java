@@ -582,13 +582,50 @@ public class AdventureController {
         if (linkedId != null) {
             if (!linkedId.equals(encounterId))
                 throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_CYCLE_ALREADY_LINKED_TO_COMBAT");
+            completeCombatTokenTransition(adventure, state, encounterId,
+                    com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Direction.ENTER);
             return;
         }
         var linked = cycle.linkCombatEncounter(encounterId);
-        adventure.updateExplorationState(new OwnerPlayerId(adventure.ownerPlayerId().value()), adventure.version(), state.withCycle(linked));
-        adventureRepository.save(adventure);
+        state = state.withCycle(linked);
+        state = completeCombatTokenTransition(adventure, state, encounterId,
+                com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Direction.ENTER);
         LOGGER.info("exploration_combat_handoff_linked adventureId={} cycleId={} phaseId={} encounterId={} result=linked",
                 adventureId, linked.id(), linked.currentPhaseCommandId(), encounterId);
+    }
+
+    private com.dndmaster.adventure.domain.runtime.ExplorationState completeCombatTokenTransition(Adventure adventure,
+            com.dndmaster.adventure.domain.runtime.ExplorationState state, UUID encounterId,
+            com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Direction direction) {
+        var transition = state.tokenTransition();
+        if (transition == null || !transition.encounterId().equals(encounterId) || transition.direction() != direction) {
+            var map = combatMapViewPort.playerView(adventure.id().value(), adventure.ownerPlayerId().value())
+                    .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "COMBAT_MAP_REQUIRED_FOR_TOKEN_TRANSITION"));
+            transition = new com.dndmaster.adventure.domain.runtime.CombatTokenTransition(UUID.randomUUID(), encounterId,
+                    map.mapId(), direction, map.version(), com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status.REQUESTED);
+            state = state.withTokenTransition(transition);
+            adventure.updateExplorationState(new OwnerPlayerId(adventure.ownerPlayerId().value()), adventure.version(), state);
+            adventureRepository.save(adventure);
+        }
+        if (transition.status() == com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status.APPLIED) return state;
+        var requestGroups = state.groups().stream().map(group -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.TokenTransitionGroup(
+                group.id(), group.mapTokenId(), group.members().stream().map(member ->
+                        new com.dndmaster.adventure.application.combat.CombatMapViewPort.TokenTransitionMember(
+                                member.characterSheetId(), member.formation().name())).toList())).toList();
+        var result = combatMapViewPort.transitionCombatTokens(new com.dndmaster.adventure.application.combat.CombatMapViewPort.TokenTransitionCommand(
+                transition.mapId(), adventure.ownerPlayerId().value(), transition.operationId(), direction.name(),
+                transition.expectedMapVersion(), requestGroups, transition.placements().stream().map(placement ->
+                        new com.dndmaster.adventure.application.combat.CombatMapViewPort.TokenTransitionPlacement(
+                                placement.targetId(), placement.x(), placement.y())).toList()));
+        var status = "APPLIED".equals(result.status())
+                ? com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status.APPLIED
+                : com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status.PLACEMENT_REQUIRED;
+        state = state.withTokenTransition(transition.withStatus(status));
+        adventure.updateExplorationState(new OwnerPlayerId(adventure.ownerPlayerId().value()), adventure.version(), state);
+        adventureRepository.save(adventure);
+        if (status == com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status.PLACEMENT_REQUIRED)
+            throw new ApiRequestGuard.ApiContractException(409, "COMBAT_TOKEN_PLACEMENT_REQUIRED");
+        return state;
     }
 
     private com.dndmaster.adventure.domain.runtime.ExplorationState resumeExplorationCycleAfterCombatIfEnded(
@@ -604,16 +641,102 @@ public class AdventureController {
         try {
             if (combatLifecycleService.findActiveEncounter(adventure.id().value()).isPresent())
                 throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_CYCLE_SUSPENDED_FOR_COMBAT");
-            var resumed = cycle.resumeAfterCombat(encounterId);
+            var transitionState = completeCombatTokenTransition(adventure, state, encounterId,
+                    com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Direction.EXIT);
+            if (transitionState.tokenTransition() == null
+                    || transitionState.tokenTransition().status() != com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status.APPLIED)
+                throw new ApiRequestGuard.ApiContractException(409, "COMBAT_TOKEN_PLACEMENT_REQUIRED");
+            var resumed = transitionState.cycle().resumeAfterCombat(encounterId);
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
                     "exploration_combat_handoff_resume", context + " result=resumed", started);
-            return state.withCycle(resumed);
+            return transitionState.withCycle(resumed);
         } catch (RuntimeException failure) {
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
                     "exploration_combat_handoff_resume", context + " recovery=retry_after_combat_ends", started, failure);
             throw failure;
         }
     }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/exploration/combat-token-placement")
+    @org.springframework.transaction.annotation.Transactional
+    ExplorationGroupsResponse submitCombatTokenPlacement(@PathVariable UUID adventureId,
+            @RequestBody CombatTokenPlacementRequest request) {
+        if (request == null || request.expectedVersion() == null || request.placements() == null || request.placements().isEmpty())
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_COMBAT_TOKEN_PLACEMENT");
+        Adventure adventure = adventureRepository.findByIdForUpdate(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner))
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        if (adventure.version() != request.expectedVersion())
+            throw new ApiRequestGuard.ApiContractException(409, "STALE_EXPLORATION_CYCLE");
+        if (request.placements().stream().anyMatch(placement -> placement == null || placement.targetId() == null
+                || placement.x() < 0 || placement.y() < 0)
+                || request.placements().stream().map(com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Placement::targetId)
+                        .distinct().count() != request.placements().size())
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_COMBAT_TOKEN_PLACEMENT");
+        var state = storedExplorationState(adventure);
+        var transition = state.tokenTransition();
+        if (transition == null)
+            throw new ApiRequestGuard.ApiContractException(409, "COMBAT_TOKEN_PLACEMENT_NOT_PENDING");
+        var started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "combat_token_manual_placement", "adventureId=" + adventureId + " operationId=" + transition.operationId()
+                        + " encounterId=" + transition.encounterId() + " direction=" + transition.direction()
+                        + " expectedPlacementCount=" + (transition.direction() == com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Direction.ENTER
+                                ? state.groups().stream().mapToInt(group -> group.members().size()).sum() : state.groups().size())
+                        + " actualPlacementCount=" + request.placements().size() + " expectedVersion=" + request.expectedVersion());
+        try {
+            if (transition.status() == com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status.APPLIED) {
+                if (!transition.placements().equals(request.placements().stream()
+                        .sorted(java.util.Comparator.comparing(com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Placement::targetId)).toList()))
+                    throw new ApiRequestGuard.ApiContractException(409, "COMBAT_TOKEN_PLACEMENT_NOT_PENDING");
+                return new ExplorationGroupsResponse(adventure.version(), state.groups(), state.cycle(), transition);
+            }
+            var expectedTargets = transition.direction() == com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Direction.ENTER
+                    ? state.groups().stream().flatMap(group -> group.members().stream())
+                            .map(com.dndmaster.adventure.domain.runtime.ExplorationGroup.Member::characterSheetId)
+                            .collect(java.util.stream.Collectors.toSet())
+                    : state.groups().stream().map(com.dndmaster.adventure.domain.runtime.ExplorationGroup::id)
+                            .collect(java.util.stream.Collectors.toSet());
+            var actualTargets = request.placements().stream().map(
+                    com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Placement::targetId)
+                    .collect(java.util.stream.Collectors.toSet());
+            if (!expectedTargets.equals(actualTargets))
+                throw new ApiRequestGuard.ApiContractException(400, "COMBAT_TOKEN_PLACEMENT_MUST_INCLUDE_EVERY_TARGET");
+            UUID transitionMapId = transition.mapId();
+            var currentMap = combatMapViewPort.playerView(adventureId, owner)
+                    .filter(view -> view.mapId().equals(transitionMapId))
+                    .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "COMBAT_MAP_REQUIRED_FOR_TOKEN_TRANSITION"));
+            var updated = transition.withPlacements(request.placements(), currentMap.version());
+            state = state.withTokenTransition(updated);
+            adventure.updateExplorationState(new OwnerPlayerId(owner), adventure.version(), state);
+            adventureRepository.save(adventure);
+            try {
+                state = completeCombatTokenTransition(adventure, state, updated.encounterId(), updated.direction());
+            } catch (ApiRequestGuard.ApiContractException pending) {
+                if (pending.status() != 409 || !"COMBAT_TOKEN_PLACEMENT_REQUIRED".equals(pending.code())) throw pending;
+                state = storedExplorationState(adventure);
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                        "combat_token_manual_placement", "adventureId=" + adventureId + " operationId=" + updated.operationId()
+                                + " encounterId=" + updated.encounterId() + " actualPlacementCount=" + request.placements().size()
+                                + " result=placement_required mapVersion=" + updated.expectedMapVersion(), started);
+                return new ExplorationGroupsResponse(adventure.version(), state.groups(), state.cycle(), state.tokenTransition());
+            }
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "combat_token_manual_placement", "adventureId=" + adventureId + " operationId=" + updated.operationId()
+                            + " encounterId=" + updated.encounterId() + " actualPlacementCount=" + request.placements().size()
+                            + " result=applied mapVersion=" + updated.expectedMapVersion(), started);
+            return new ExplorationGroupsResponse(adventure.version(), state.groups(), state.cycle(), state.tokenTransition());
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "combat_token_manual_placement", "adventureId=" + adventureId + " operationId=" + transition.operationId()
+                            + " encounterId=" + transition.encounterId() + " actualPlacementCount=" + request.placements().size()
+                            + " recoveryAction=retry_same_operation_id", started, failure);
+            throw failure;
+        }
+    }
+
+    public record CombatTokenPlacementRequest(Long expectedVersion,
+            List<com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Placement> placements) { }
 
     private static Map<String, String> runtimeTurnFailure(RuntimeException exception) {
         String raw = exception.getMessage() == null ? "" : exception.getMessage();
@@ -676,7 +799,7 @@ public class AdventureController {
         Adventure adventure = ownedAdventure(adventureId);
         Object stored = adventure.gameState().values().get("explorationState");
         var state = stored == null ? initialExplorationState(adventure) : objectMapper.convertValue(stored, com.dndmaster.adventure.domain.runtime.ExplorationState.class);
-        return new ExplorationGroupsResponse(adventure.version(), state.groups(), state.cycle());
+        return new ExplorationGroupsResponse(adventure.version(), state.groups(), state.cycle(), state.tokenTransition());
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/exploration-cycle/start")
@@ -770,15 +893,15 @@ public class AdventureController {
         if (!adventure.ownerPlayerId().value().equals(owner))
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         var state = storedExplorationState(adventure);
-        state = resumeExplorationCycleAfterCombatIfEnded(adventure, state);
-        if (state.cycle() == null) throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_CYCLE_NOT_STARTED");
-        if (request.interrupted()) throw new ApiRequestGuard.ApiContractException(409, "MOVEMENT_INTERRUPTION_MUST_COME_FROM_MAP_RESULT");
-        if (state.cycle().groupTurnFinished(groupId))
+        if (state.cycle() != null && state.cycle().groupTurnFinished(groupId))
             return new ExplorationGroupsResponse(adventure.version(), state.groups(), state.cycle());
         if (adventure.version() != request.expectedVersion())
             throw new ApiRequestGuard.ApiContractException(409, "STALE_EXPLORATION_CYCLE");
+        state = resumeExplorationCycleAfterCombatIfEnded(adventure, state);
+        if (state.cycle() == null) throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_CYCLE_NOT_STARTED");
+        if (request.interrupted()) throw new ApiRequestGuard.ApiContractException(409, "MOVEMENT_INTERRUPTION_MUST_COME_FROM_MAP_RESULT");
         var cycle = state.cycle().finishGroupTurn(groupId, false);
-        adventure.updateExplorationState(new OwnerPlayerId(owner), request.expectedVersion(), state.withCycle(cycle));
+        adventure.updateExplorationState(new OwnerPlayerId(owner), adventure.version(), state.withCycle(cycle));
         adventureRepository.save(adventure);
         return new ExplorationGroupsResponse(adventure.version(), state.groups(), cycle);
     }
@@ -794,14 +917,14 @@ public class AdventureController {
         if (!adventure.ownerPlayerId().value().equals(owner))
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         var state = storedExplorationState(adventure);
-        state = resumeExplorationCycleAfterCombatIfEnded(adventure, state);
-        if (state.cycle() == null) throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_CYCLE_NOT_STARTED");
-        if (state.cycle().movementEventResolved(eventId))
+        if (state.cycle() != null && state.cycle().movementEventResolved(eventId))
             return new ExplorationGroupsResponse(adventure.version(), state.groups(), state.cycle());
-        if (state.cycle().pendingMovementEvent() == null || !state.cycle().pendingMovementEvent().id().equals(eventId))
-            throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_MOVEMENT_EVENT_NOT_PENDING");
         if (adventure.version() != request.expectedVersion())
             throw new ApiRequestGuard.ApiContractException(409, "STALE_EXPLORATION_CYCLE");
+        state = resumeExplorationCycleAfterCombatIfEnded(adventure, state);
+        if (state.cycle() == null) throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_CYCLE_NOT_STARTED");
+        if (state.cycle().pendingMovementEvent() == null || !state.cycle().pendingMovementEvent().id().equals(eventId))
+            throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_MOVEMENT_EVENT_NOT_PENDING");
         long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
                 "exploration_movement_event_resolve", "adventureId=" + adventureId + " cycleId=" + state.cycle().id()
                         + " eventId=" + eventId + " pendingEventId=" + state.cycle().pendingMovementEvent().id()
@@ -809,7 +932,7 @@ public class AdventureController {
                         + " expectedVersion=" + request.expectedVersion());
         try {
             var cycle = state.cycle().resolveMovementEvent(eventId);
-            adventure.updateExplorationState(new OwnerPlayerId(owner), request.expectedVersion(), state.withCycle(cycle));
+            adventure.updateExplorationState(new OwnerPlayerId(owner), adventure.version(), state.withCycle(cycle));
             adventureRepository.save(adventure);
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
                     "exploration_movement_event_resolve", "adventureId=" + adventureId + " cycleId=" + cycle.id()
@@ -1220,13 +1343,25 @@ public class AdventureController {
     record ExplorationGroupsRequest(Long expectedVersion, List<ExplorationGroupInput> groups) { }
     record ExplorationGroupsResponse(long version,
             List<com.dndmaster.adventure.domain.runtime.ExplorationGroup> groups,
-            ExplorationCycleView cycle) {
+            ExplorationCycleView cycle, CombatTokenTransitionView tokenTransition) {
         ExplorationGroupsResponse(long version, List<com.dndmaster.adventure.domain.runtime.ExplorationGroup> groups) {
-            this(version, groups, (ExplorationCycleView) null);
+            this(version, groups, (ExplorationCycleView) null, null);
         }
         ExplorationGroupsResponse(long version, List<com.dndmaster.adventure.domain.runtime.ExplorationGroup> groups,
                 com.dndmaster.adventure.domain.runtime.ExplorationCycle cycle) {
-            this(version, groups, ExplorationCycleView.from(cycle));
+            this(version, groups, ExplorationCycleView.from(cycle), null);
+        }
+        ExplorationGroupsResponse(long version, List<com.dndmaster.adventure.domain.runtime.ExplorationGroup> groups,
+                com.dndmaster.adventure.domain.runtime.ExplorationCycle cycle,
+                com.dndmaster.adventure.domain.runtime.CombatTokenTransition transition) {
+            this(version, groups, ExplorationCycleView.from(cycle), CombatTokenTransitionView.from(transition));
+        }
+    }
+    record CombatTokenTransitionView(com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Direction direction,
+            com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status status,
+            List<com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Placement> placements) {
+        static CombatTokenTransitionView from(com.dndmaster.adventure.domain.runtime.CombatTokenTransition transition) {
+            return transition == null ? null : new CombatTokenTransitionView(transition.direction(), transition.status(), transition.placements());
         }
     }
     record ExplorationCycleView(UUID id, long cycleNumber, List<UUID> groupOrder, java.util.Set<UUID> completedGroups,

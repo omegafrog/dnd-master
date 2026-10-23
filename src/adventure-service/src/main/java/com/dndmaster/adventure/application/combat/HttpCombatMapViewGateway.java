@@ -103,6 +103,22 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     }
 
     @Override
+    public TokenTransitionResult transitionCombatTokens(TokenTransitionCommand command) {
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + command.mapId()
+                + "/combat-token-transition")).timeout(timeout).header("Content-Type", "application/json")
+                .header("X-Internal-Token", internalToken).POST(HttpRequest.BodyPublishers.ofString(write(command))).build();
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300)
+                throw new IllegalStateException("combat token transition failed");
+            var result = mapper.readValue(response.body(), TokenTransitionPayload.class);
+            return new TokenTransitionResult(result.status(), result.version(), result.tokens().stream()
+                    .map(token -> new ExplorationToken(token.id(), token.x(), token.y())).toList());
+        } catch (IOException exception) { throw new IllegalStateException("combat token transition transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat token transition interrupted", exception); }
+    }
+
+    @Override
     public Optional<View> preparationView(UUID adventureId, UUID ownerId) {
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/adventures/" + adventureId + "/combat-map/preparation-view?ownerId=" + ownerId))
                 .timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
@@ -296,6 +312,7 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     private record ExplorationTokensRequest(UUID ownerId, UUID commandId, long expectedVersion, List<UUID> preferredTokenIds, UUID originTokenId, int count) { }
     private record ExplorationTokenPayload(UUID id, int x, int y) { }
     private record ExplorationTokensResponse(UUID mapId, long version, List<ExplorationTokenPayload> tokens) { }
+    private record TokenTransitionPayload(String status, long version, List<ExplorationTokenPayload> tokens) { }
     private record StartCandidatePayload(int x, int y, double confidence, List<String> evidence, String source) {
         private StartCandidatePayload { evidence = evidence == null ? List.of() : List.copyOf(evidence); }
     }

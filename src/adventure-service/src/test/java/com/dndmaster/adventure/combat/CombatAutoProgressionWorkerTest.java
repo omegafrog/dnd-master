@@ -34,9 +34,72 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 class CombatAutoProgressionWorkerTest {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status.class,
+            names = {"REQUESTED", "PLACEMENT_REQUIRED"})
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    void combat_waits_for_acknowledged_group_to_character_map_transition(
+            com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status status,
+            org.springframework.boot.test.system.CapturedOutput output) {
+        UUID adventureId = UUID.randomUUID(), ownerId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID(), groupId = UUID.randomUUID(), groupTokenId = UUID.randomUUID();
+        var identity = new EnemyCharacterSheetIdentity(adventureId, UUID.randomUUID(), 1, UUID.randomUUID(),
+                List.of(UUID.randomUUID()), "goblin");
+        var encounter = CombatStartPolicy.prepareFromCommittedGmTurn(true, adventureId, List.of(
+                new CombatParticipant(UUID.randomUUID(), "Goblin", CombatParticipant.Controller.AI, 20, "enemy",
+                        com.dndmaster.adventure.domain.combat.TurnResources.initial(), null, null, "goblin")));
+        UUID encounterId = encounter.encounterId();
+        var group = new com.dndmaster.adventure.domain.runtime.ExplorationGroup(groupId, groupTokenId, List.of(
+                new com.dndmaster.adventure.domain.runtime.ExplorationGroup.Member(characterId,
+                        com.dndmaster.adventure.domain.runtime.ExplorationGroup.Formation.FRONT, 30)));
+        var cycle = com.dndmaster.adventure.domain.runtime.ExplorationCycle.start(UUID.randomUUID(),
+                java.util.Map.of(groupId, 10)).linkCombatEncounter(encounterId);
+        var transition = new com.dndmaster.adventure.domain.runtime.CombatTokenTransition(UUID.randomUUID(), encounterId,
+                UUID.randomUUID(), com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Direction.ENTER,
+                0, status);
+        var adventure = com.dndmaster.adventure.domain.adventure.Adventure.create(
+                new AdventureId(adventureId), com.dndmaster.adventure.domain.adventure.SessionId.generate(),
+                new com.dndmaster.adventure.domain.adventure.OwnerPlayerId(ownerId),
+                new com.dndmaster.adventure.domain.adventure.ScenarioId(UUID.randomUUID()),
+                new RuleSetId(UUID.randomUUID()), List.of(new com.dndmaster.adventure.domain.adventure.AdventurePartyMember(
+                        new CharacterSheetId(characterId), com.dndmaster.adventure.domain.adventure.ControlMode.DIRECT,
+                        true, true, true, true, true, true)), new com.dndmaster.adventure.domain.adventure.AdventureContext("복도", "", "", ""));
+        adventure.updateExplorationState(new com.dndmaster.adventure.domain.adventure.OwnerPlayerId(ownerId), 0,
+                new com.dndmaster.adventure.domain.runtime.ExplorationState(List.of(group), cycle, transition));
+        var adventures = mock(com.dndmaster.adventure.application.saved.AdventureRepository.class);
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        var encounters = new EncounterStore(encounter);
+        var workItems = new InMemoryCombatWorkItemRepository();
+        var request = new EnemySheetPreparationRequest(UUID.randomUUID(), adventureId,
+                List.of(new EnemySheetPreparationRequest.Enemy(identity,
+                        new com.dndmaster.adventure.application.runtime.CombatEnemyProposal("scene", "goblin", "Goblin", 1))));
+        UUID workItemId = UUID.randomUUID();
+        workItems.enqueue(CombatWorkItem.enemySheetPreparation(workItemId, encounterId, encounter.version(),
+                Instant.parse("2026-01-01T00:00:00Z"), request));
+        var previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        try {
+            var worker = new CombatAutoProgressionWorker("worker", workItems, encounters, decisions(UUID.randomUUID()),
+                    (ignoredCommand, ignoredPlan) -> null, ignoredCommand -> null, 10, null, null, null, null,
+                    adventures, new com.fasterxml.jackson.databind.ObjectMapper());
+            worker.processOnce(Instant.parse("2026-01-01T00:00:00Z"));
+        } finally {
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
+        assertEquals(CombatEncounter.Status.PREPARING, encounters.value.status());
+        assertEquals(CombatWorkItem.Status.PENDING, workItems.get(workItemId).status());
+        assertEquals(status == com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status.PLACEMENT_REQUIRED
+                        ? "COMBAT_TOKEN_PLACEMENT_REQUIRED" : "COMBAT_TOKEN_TRANSITION_NOT_ACKNOWLEDGED",
+                workItems.get(workItemId).failure());
+        assertTrue(output.getOut().contains("encounterId=" + encounterId));
+        assertTrue(output.getOut().contains("actualTransition=" + workItems.get(workItemId).failure()));
+    }
+
     @Test
     void unconfigured_combat_decision_port_does_not_silently_end_a_turn() {
         AiCombatDecisionPort port = context -> null;

@@ -9,6 +9,13 @@ public final class CombatMap {
     private long version; private UUID operationKey; private String operationFingerprint; private VisibilitySnapshot visibilitySnapshot;
     private Set<HostileObservationState> hostileObservations = Set.of();
     private TacticalRuntimeState runtimeState = TacticalRuntimeState.initial();
+    public enum Formation { FRONT, MIDDLE, REAR }
+    public record CombatMember(UUID characterId, Formation formation) {
+        public CombatMember { Objects.requireNonNull(characterId); Objects.requireNonNull(formation); }
+    }
+    public record CombatGroup(UUID groupId, UUID tokenId, List<CombatMember> members) {
+        public CombatGroup { Objects.requireNonNull(groupId); Objects.requireNonNull(tokenId); members = List.copyOf(members); if (members.isEmpty()) throw new IllegalArgumentException("group must have members"); }
+    }
     public CombatMap(MapId id, AdventureId adventureId, RuleSetId ruleSetId, GridSpec grid, List<CombatToken> tokens, Collection<GridPosition> obstacles, List<MapLayer> layers) {
         this(id, adventureId, ruleSetId, grid, null, tokens, obstacles, layers, 0, null, null);
     }
@@ -101,6 +108,147 @@ public final class CombatMap {
     }
     public java.util.Optional<CombatToken> token(TokenId tokenId) {
         return tokens.stream().filter(candidate -> candidate.id().equals(Objects.requireNonNull(tokenId))).findFirst();
+    }
+    public List<CombatToken> enterCombat(List<CombatGroup> groups, PlayerId owner) {
+        return enterCombat(groups, owner, Map.of());
+    }
+    public List<CombatToken> enterCombat(List<CombatGroup> groups, PlayerId owner, Map<UUID, GridPosition> suppliedPositions) {
+        requireGroups(groups);
+        suppliedPositions = suppliedPositions == null ? Map.of() : Map.copyOf(suppliedPositions);
+        if (!Objects.equals(ownerPlayerId, owner)) throw new CombatMapMovementDeniedException("map owner mismatch");
+        var sourceIds = groups.stream().map(group -> group.tokenId()).collect(java.util.stream.Collectors.toSet());
+        var groupTokens = tokens.stream().filter(token -> sourceIds.contains(token.id().value())
+                && token.type() == TokenType.PLAYER && token.ownerPlayerId().filter(owner::equals).isPresent()).toList();
+        long ownedPlayerTokenCount = tokens.stream().filter(token -> token.type() == TokenType.PLAYER
+                && token.ownerPlayerId().filter(owner::equals).isPresent()).count();
+        if (groupTokens.size() != groups.size() || ownedPlayerTokenCount != groupTokens.size())
+            throw new CombatMapMovementDeniedException("exploration group token set does not match map tokens");
+        var assignments = new ArrayList<Map.Entry<UUID, GridPosition>>();
+        Set<UUID> memberIds = groups.stream().flatMap(group -> group.members().stream()).map(CombatMember::characterId)
+                .collect(java.util.stream.Collectors.toSet());
+        if (!suppliedPositions.isEmpty() && !suppliedPositions.keySet().equals(memberIds))
+            throw new CombatMapTransitionPlacementRequiredException();
+        var occupied = new HashSet<GridPosition>();
+        tokens.stream().filter(token -> !sourceIds.contains(token.id().value())).map(CombatToken::position).forEach(occupied::add);
+        for (CombatGroup group : groups) {
+            GridPosition origin = groupTokens.stream().filter(token -> token.id().value().equals(group.tokenId()))
+                    .findFirst().orElseThrow().position();
+            int[] direction = combatFacing(origin);
+            Map<Formation, List<CombatMember>> rows = group.members().stream().collect(java.util.stream.Collectors.groupingBy(
+                    CombatMember::formation, () -> new java.util.EnumMap<>(Formation.class), java.util.stream.Collectors.toCollection(ArrayList::new)));
+            for (Formation formation : Formation.values()) {
+                List<CombatMember> row = rows.getOrDefault(formation, List.of()).stream()
+                        .sorted(java.util.Comparator.comparing(CombatMember::characterId)).toList();
+                int depth = switch (formation) { case FRONT -> 0; case MIDDLE -> 1; case REAR -> 2; };
+                for (int index = 0; index < row.size(); index++) {
+                    int lateral = index == 0 ? 0 : (index % 2 == 1 ? -(index + 1) / 2 : index / 2);
+                    int x = origin.x() - depth * direction[0] + lateral * -direction[1];
+                    int y = origin.y() - depth * direction[1] + lateral * direction[0];
+                    GridPosition cell = suppliedPositions.getOrDefault(row.get(index).characterId(), new GridPosition(x, y));
+                    if (!transitionReachable(origin, cell, occupied) || !occupied.add(cell))
+                        throw new CombatMapTransitionPlacementRequiredException();
+                    assignments.add(Map.entry(row.get(index).characterId(), cell));
+                }
+            }
+        }
+        List<CombatToken> replacements = assignments.stream().map(entry -> new CombatToken(
+                new TokenId(combatTokenIdentity(entry.getKey())),
+                TokenType.PLAYER, entry.getValue(), TokenController.PLAYER, owner)).toList();
+        tokens = java.util.stream.Stream.concat(tokens.stream().filter(token -> token.type() != TokenType.PLAYER
+                || token.ownerPlayerId().filter(owner::equals).isEmpty()), replacements.stream()).toList();
+        return replacements;
+    }
+    public List<CombatToken> exitCombat(List<CombatGroup> groups, PlayerId owner) {
+        return exitCombat(groups, owner, Map.of());
+    }
+    public List<CombatToken> exitCombat(List<CombatGroup> groups, PlayerId owner, Map<UUID, GridPosition> suppliedPositions) {
+        requireGroups(groups);
+        suppliedPositions = suppliedPositions == null ? Map.of() : Map.copyOf(suppliedPositions);
+        if (!Objects.equals(ownerPlayerId, owner)) throw new CombatMapMovementDeniedException("map owner mismatch");
+        Set<UUID> memberIds = groups.stream().flatMap(group -> group.members().stream())
+                .map(CombatMember::characterId)
+                .collect(java.util.stream.Collectors.toSet());
+        var players = tokens.stream().filter(token -> token.type() == TokenType.PLAYER
+                && token.ownerPlayerId().filter(owner::equals).isPresent()).toList();
+        Set<UUID> tokenIds = memberIds.stream().map(CombatMap::combatTokenIdentity).collect(java.util.stream.Collectors.toSet());
+        if (players.size() != tokenIds.size()
+                || !players.stream().map(token -> token.id().value()).collect(java.util.stream.Collectors.toSet()).equals(tokenIds))
+            throw new CombatMapTransitionPlacementRequiredException();
+        Set<UUID> groupIds = groups.stream().map(CombatGroup::groupId).collect(java.util.stream.Collectors.toSet());
+        if (!suppliedPositions.isEmpty() && !suppliedPositions.keySet().equals(groupIds))
+            throw new CombatMapTransitionPlacementRequiredException();
+        var occupied = tokens.stream().filter(token -> token.type() != TokenType.PLAYER
+                || token.ownerPlayerId().filter(owner::equals).isEmpty()).map(CombatToken::position)
+                .collect(java.util.stream.Collectors.toCollection(HashSet::new));
+        var restored = new ArrayList<CombatToken>();
+        for (CombatGroup group : groups) {
+            GridPosition position;
+            if (!suppliedPositions.isEmpty()) {
+                CombatMember source = group.members().stream().min(java.util.Comparator.comparing(CombatMember::characterId))
+                        .orElseThrow(CombatMapTransitionPlacementRequiredException::new);
+                CombatToken sourceToken = players.stream().filter(candidate -> candidate.id().value().equals(combatTokenIdentity(source.characterId())))
+                        .findFirst().orElseThrow(CombatMapTransitionPlacementRequiredException::new);
+                position = suppliedPositions.get(group.groupId());
+                if (!transitionReachable(sourceToken.position(), position, occupied))
+                    throw new CombatMapTransitionPlacementRequiredException();
+            } else {
+                CombatMember front = group.members().stream().filter(member -> member.formation() == Formation.FRONT)
+                        .min(java.util.Comparator.comparing(CombatMember::characterId)).orElseThrow(CombatMapTransitionPlacementRequiredException::new);
+                CombatToken token = players.stream().filter(candidate -> candidate.id().value().equals(combatTokenIdentity(front.characterId())))
+                        .findFirst().orElseThrow(CombatMapTransitionPlacementRequiredException::new);
+                position = token.position();
+                if (!transitionCell(position)) throw new CombatMapTransitionPlacementRequiredException();
+            }
+            if (!occupied.add(position)) throw new CombatMapTransitionPlacementRequiredException();
+            restored.add(new CombatToken(new TokenId(group.tokenId()), TokenType.PLAYER, position, TokenController.PLAYER, owner));
+        }
+        tokens = java.util.stream.Stream.concat(tokens.stream().filter(token -> !(token.type() == TokenType.PLAYER
+                && token.ownerPlayerId().filter(owner::equals).isPresent())), restored.stream()).toList();
+        return List.copyOf(restored);
+    }
+    private static void requireGroups(List<CombatGroup> groups) {
+        Objects.requireNonNull(groups);
+        Set<UUID> groupIds = new HashSet<>(), tokenIds = new HashSet<>(), memberIds = new HashSet<>();
+        for (CombatGroup group : groups) {
+            if (!groupIds.add(group.groupId()) || !tokenIds.add(group.tokenId())) throw new IllegalArgumentException("group identities must be unique");
+            for (CombatMember member : group.members()) if (!memberIds.add(member.characterId())) throw new IllegalArgumentException("character may belong to only one group");
+        }
+    }
+    private int[] combatFacing(GridPosition origin) {
+        CombatToken enemy = tokens.stream().filter(token -> token.type() == TokenType.ENEMY || token.type() == TokenType.BOSS)
+                .min(java.util.Comparator.<CombatToken>comparingInt(token -> GridDistance.cellsBetween(origin, 0,
+                                token.position(), token.elevation(), grid.distanceUnit()))
+                        .thenComparing(token -> token.id().value())).orElse(null);
+        if (enemy == null) return new int[] {0, -1};
+        int dx = Integer.compare(enemy.position().x(), origin.x()), dy = Integer.compare(enemy.position().y(), origin.y());
+        return dx == 0 && dy == 0 ? new int[] {0, -1} : new int[] {dx, dy};
+    }
+    private static UUID combatTokenIdentity(UUID characterId) {
+        return UUID.nameUUIDFromBytes(("player-" + characterId).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+    private boolean transitionReachable(GridPosition origin, GridPosition target, Set<GridPosition> occupied) {
+        if (!transitionCell(target)) return false;
+        Set<GridPosition> visited = new HashSet<>(Set.of(origin));
+        var queue = new java.util.ArrayDeque<GridPosition>(); queue.add(origin);
+        while (!queue.isEmpty()) {
+            GridPosition current = queue.remove();
+            if (current.equals(target)) return true;
+            for (int dx = -1; dx <= 1; dx++) for (int dy = -1; dy <= 1; dy++) {
+                if (dx == 0 && dy == 0) continue;
+                GridPosition next = new GridPosition(current.x() + dx, current.y() + dy);
+                if (!occupied.contains(next) && transitionCell(next) && transitionBetween(current, next) && visited.add(next)) queue.add(next);
+            }
+        }
+        return false;
+    }
+    private boolean transitionCell(GridPosition cell) {
+        return grid.contains(cell) && isPlayable(cell) && !obstacles.contains(cell)
+                && doors.stream().noneMatch(door -> door.position().equals(cell) && !door.open());
+    }
+    private boolean transitionBetween(GridPosition from, GridPosition to) {
+        if (!from.adjacentTo(to) || publicBoundaries().stream().anyMatch(boundary -> boundary.blocks(from, to))) return false;
+        return from.x() == to.x() || from.y() == to.y()
+                || transitionCell(new GridPosition(to.x(), from.y())) || transitionCell(new GridPosition(from.x(), to.y()));
     }
     public List<CombatToken> ensurePlayerTokenCount(PlayerId playerId, int count) {
         List<UUID> preferred = tokens.stream().filter(token -> token.type() == TokenType.PLAYER

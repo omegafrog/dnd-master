@@ -10,13 +10,16 @@ import java.util.Set;
 import java.util.UUID;
 
 /** Group membership and formation stored in Adventure's durable world state. */
-public record ExplorationState(List<ExplorationGroup> groups, ExplorationCycle cycle) {
-    public ExplorationState(List<ExplorationGroup> groups) { this(groups, null); }
+public record ExplorationState(List<ExplorationGroup> groups, ExplorationCycle cycle, CombatTokenTransition tokenTransition) {
+    public ExplorationState(List<ExplorationGroup> groups) { this(groups, null, null); }
+    public ExplorationState(List<ExplorationGroup> groups, ExplorationCycle cycle) { this(groups, cycle, null); }
 
     @JsonCreator public ExplorationState(@JsonProperty("groups") List<ExplorationGroup> groups,
-            @JsonProperty("cycle") ExplorationCycle cycle) {
+            @JsonProperty("cycle") ExplorationCycle cycle,
+            @JsonProperty("tokenTransition") CombatTokenTransition tokenTransition) {
         this.groups = List.copyOf(Objects.requireNonNull(groups, "groups must not be null"));
         this.cycle = cycle;
+        this.tokenTransition = tokenTransition;
         Set<UUID> groupIds = new HashSet<>(), members = new HashSet<>(), tokens = new HashSet<>();
         for (ExplorationGroup group : this.groups) {
             if (!groupIds.add(group.id()) || !tokens.add(group.mapTokenId()))
@@ -26,7 +29,8 @@ public record ExplorationState(List<ExplorationGroup> groups, ExplorationCycle c
         }
     }
 
-    public ExplorationState withCycle(ExplorationCycle cycle) { return new ExplorationState(groups, cycle); }
+    public ExplorationState withCycle(ExplorationCycle cycle) { return new ExplorationState(groups, cycle, tokenTransition); }
+    public ExplorationState withTokenTransition(CombatTokenTransition transition) { return new ExplorationState(groups, cycle, transition); }
 
     public ExplorationState split(UUID groupId, UUID newGroupId, UUID newMapTokenId,
             List<ExplorationGroup.Member> movedMembers) {

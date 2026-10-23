@@ -3,6 +3,7 @@ package com.dndmaster.adventure.application.combat;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
+import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService;
 import com.dndmaster.adventure.domain.combat.CombatEncounter;
 import com.dndmaster.adventure.domain.combat.CombatParticipant;
@@ -29,6 +30,8 @@ public final class CombatAutoProgressionWorker {
     private final AdventureAiRequestApplicationService aiRequestService;
     private final EnemyCharacterSheetRepository enemyCharacterSheetRepository;
     private final com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService;
+    private final AdventureRepository adventureRepository;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     public CombatAutoProgressionWorker(String workerId, CombatWorkItemRepository workItems,
                                        CombatEncounterRepository encounters, AiCombatDecisionPort decisions,
@@ -74,6 +77,20 @@ public final class CombatAutoProgressionWorker {
                                        AdventureAiRequestApplicationService aiRequestService,
                                        EnemyCharacterSheetRepository enemyCharacterSheetRepository,
                                        com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService) {
+        this(workerId, workItems, encounters, decisions, actionExecutor, turnEndExecutor, maxSteps, scheduler,
+                aiRequestService, enemyCharacterSheetRepository, runtimeTurnService, null, null);
+    }
+
+    public CombatAutoProgressionWorker(String workerId, CombatWorkItemRepository workItems,
+                                       CombatEncounterRepository encounters, AiCombatDecisionPort decisions,
+                                       CombatAiActionExecutor actionExecutor,
+                                       CombatAiTurnEndExecutor turnEndExecutor, int maxSteps,
+                                       CombatWorkItemScheduler scheduler,
+                                       AdventureAiRequestApplicationService aiRequestService,
+                                       EnemyCharacterSheetRepository enemyCharacterSheetRepository,
+                                       com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService,
+                                       AdventureRepository adventureRepository,
+                                       com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.workerId = Objects.requireNonNull(workerId);
         this.workItems = Objects.requireNonNull(workItems);
         this.encounters = Objects.requireNonNull(encounters);
@@ -86,6 +103,8 @@ public final class CombatAutoProgressionWorker {
         this.aiRequestService = aiRequestService;
         this.enemyCharacterSheetRepository = enemyCharacterSheetRepository;
         this.runtimeTurnService = runtimeTurnService;
+        this.adventureRepository = adventureRepository;
+        this.objectMapper = objectMapper;
     }
 
     @Scheduled(fixedDelayString = "${adventure.combat.auto-progression.poll-delay-ms:250}")
@@ -196,6 +215,14 @@ public final class CombatAutoProgressionWorker {
     }
 
     private void processEnemySheetPreparation(CombatWorkItem item, CombatEncounter encounter, Instant now) {
+        String handoffBlock = combatTokenHandoffBlock(encounter);
+        if (handoffBlock != null) {
+            int delaySeconds = 1;
+            workItems.save(item.retry(item.leaseToken(), now.plusSeconds(delaySeconds), handoffBlock));
+            devLog("dev_combat_token_handoff_wait encounterId={} workItemId={} expectedTransition=APPLIED actualTransition={} delaySeconds={} nextAction=retry_before_combat_activation",
+                    encounter.encounterId(), item.workItemId(), handoffBlock, delaySeconds);
+            return;
+        }
         try {
             if (enemyCharacterSheetRepository == null || item.enemySheetPreparationRequest() == null) {
                 throw new IllegalStateException("ENEMY_SHEET_PREPARATION_NOT_CONFIGURED");
@@ -228,6 +255,25 @@ public final class CombatAutoProgressionWorker {
             LOGGER.warn("enemy_sheet_preparation_retry encounterId={} workItemId={} attempt={} reason={}",
                     item.encounterId(), item.workItemId(), item.attemptCount(), failureReason(failure));
         }
+    }
+
+    private String combatTokenHandoffBlock(CombatEncounter encounter) {
+        if (adventureRepository == null || objectMapper == null) return null;
+        var adventure = adventureRepository.findById(new com.dndmaster.adventure.domain.adventure.AdventureId(
+                encounter.adventureId())).orElse(null);
+        if (adventure == null) return "ADVENTURE_NOT_AVAILABLE";
+        Object stored = adventure.gameState().values().get("explorationState");
+        if (stored == null) return null;
+        var state = objectMapper.convertValue(stored,
+                com.dndmaster.adventure.domain.runtime.ExplorationState.class);
+        if (state.cycle() == null) return null;
+        var transition = state.tokenTransition();
+        if (transition == null || !encounter.encounterId().equals(transition.encounterId())
+                || transition.direction() != com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Direction.ENTER)
+            return "COMBAT_TOKEN_TRANSITION_NOT_ACKNOWLEDGED";
+        return transition.status() == com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status.APPLIED
+                ? null : transition.status() == com.dndmaster.adventure.domain.runtime.CombatTokenTransition.Status.PLACEMENT_REQUIRED
+                        ? "COMBAT_TOKEN_PLACEMENT_REQUIRED" : "COMBAT_TOKEN_TRANSITION_NOT_ACKNOWLEDGED";
     }
 
     private static CombatEncounter throwIllegalState(String reason) { throw new IllegalStateException(reason); }

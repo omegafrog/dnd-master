@@ -1089,7 +1089,7 @@
       "command": [
         "bash",
         "-lc",
-        "./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.MapMovementCoordinatorTest --tests com.dndmaster.adventure.ExplorationCycleTest --tests com.dndmaster.adventure.combat.CombatEncounterPolicyTest --tests com.dndmaster.adventure.application.combat.CombatStartParticipantFactoryDiagnosticsTest --tests com.dndmaster.adventure.api.ExplorationEnvironmentControllerTest --tests com.dndmaster.adventure.infrastructure.integration.HttpTypedRuntimeGmAgentPortTest :combat-map-service:test --tests com.dndmaster.combatmap.SpatialFeatureApplicationServiceTest :ai-game-master-service:test --tests com.dndmaster.aigamemaster.api.TypedAgentContractControllerTest && npm --prefix src/web-ui run test -- --run src/features/combat-map/CombatMapFlow.test.tsx"
+        "./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.MapMovementCoordinatorTest --tests com.dndmaster.adventure.ExplorationCycleTest --tests com.dndmaster.adventure.combat.CombatEncounterPolicyTest --tests com.dndmaster.adventure.combat.CombatAutoProgressionWorkerTest --tests com.dndmaster.adventure.application.combat.CombatStartParticipantFactoryDiagnosticsTest --tests com.dndmaster.adventure.api.ExplorationEnvironmentControllerTest --tests com.dndmaster.adventure.infrastructure.integration.HttpTypedRuntimeGmAgentPortTest :combat-map-service:test --tests com.dndmaster.combatmap.SpatialFeatureApplicationServiceTest --tests com.dndmaster.combatmap.CombatTokenTransitionTest --tests com.dndmaster.combatmap.CombatMapViewServiceTest :ai-game-master-service:test --tests com.dndmaster.aigamemaster.api.TypedAgentContractControllerTest && npm --prefix src/web-ui run test -- --run src/features/combat-map/CombatMapFlow.test.tsx"
       ],
       "required_env": [],
       "config_inputs": [
@@ -1107,12 +1107,15 @@
         "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatParticipant.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatStartPolicy.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactory.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatAutoProgressionWorker.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureApiConfiguration.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/MapMovementCoordinatorTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/ExplorationCycleTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatEncounterPolicyTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/application/combat/CombatStartParticipantFactoryDiagnosticsTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/api/ExplorationEnvironmentControllerTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatAutoProgressionWorkerTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPortTest.java",
         "src/web-ui/package.json",
         "src/web-ui/package-lock.json",
@@ -1134,7 +1137,16 @@
         "docs/contracts/diagrams/spatial-movement.state.svg",
         "src/combat-map-service/build.gradle.kts",
         "src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/spatial/SpatialFeatureApplicationService.java",
-        "src/combat-map-service/src/test/java/com/dndmaster/combatmap/SpatialFeatureApplicationServiceTest.java"
+        "src/combat-map-service/src/test/java/com/dndmaster/combatmap/SpatialFeatureApplicationServiceTest.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/CombatTokenTransition.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/ExplorationState.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatMapViewPort.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/HttpCombatMapViewGateway.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/domain/CombatMap.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/domain/CombatMapTransitionPlacementRequiredException.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/application/view/CombatMapViewService.java",
+        "src/combat-map-service/src/main/java/com/dndmaster/combatmap/api/CombatMapController.java",
+        "src/combat-map-service/src/test/java/com/dndmaster/combatmap/CombatTokenTransitionTest.java"
       ],
       "prepare": [
         [

@@ -12,6 +12,9 @@ public interface CombatMapViewPort {
             List<UUID> preferredTokenIds, UUID originTokenId, int count) {
         throw new UnsupportedOperationException("exploration token lifecycle unavailable");
     }
+    default TokenTransitionResult transitionCombatTokens(TokenTransitionCommand command) {
+        throw new UnsupportedOperationException("combat token transition is unavailable");
+    }
     default Optional<View> preparationView(UUID adventureId, UUID ownerId) { return playerView(adventureId, ownerId); }
     default boolean hasPreparedMap(UUID adventureId, UUID ownerId) { return false; }
 
@@ -67,6 +70,22 @@ public interface CombatMapViewPort {
         public Token(UUID id, String type, int x, int y) { this(id, type, x, y, 0); }
     }
     record ExplorationToken(UUID id, int x, int y) {}
+    record TokenTransitionCommand(UUID mapId, UUID ownerId, UUID operationId, String direction,
+            long expectedVersion, List<TokenTransitionGroup> groups, List<TokenTransitionPlacement> placements) {
+        public TokenTransitionCommand(UUID mapId, UUID ownerId, UUID operationId, String direction,
+                long expectedVersion, List<TokenTransitionGroup> groups) {
+            this(mapId, ownerId, operationId, direction, expectedVersion, groups, List.of());
+        }
+        public TokenTransitionCommand { groups = List.copyOf(groups); placements = placements == null ? List.of() : List.copyOf(placements); }
+    }
+    record TokenTransitionGroup(UUID groupId, UUID tokenId, List<TokenTransitionMember> members) {
+        public TokenTransitionGroup { members = List.copyOf(members); }
+    }
+    record TokenTransitionMember(UUID characterId, String formation) {}
+    record TokenTransitionPlacement(UUID targetId, int x, int y) {}
+    record TokenTransitionResult(String status, long version, List<ExplorationToken> tokens) {
+        public TokenTransitionResult { tokens = tokens == null ? List.of() : List.copyOf(tokens); }
+    }
     record Obstacle(int x, int y) {}
     record Door(int x, int y, boolean open) {}
     record Boundary(int x, int y, String orientation, String kind, boolean open) {}
