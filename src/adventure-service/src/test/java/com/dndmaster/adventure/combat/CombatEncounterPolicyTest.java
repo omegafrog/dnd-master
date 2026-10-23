@@ -191,6 +191,24 @@ class CombatEncounterPolicyTest {
     }
 
     @Test
+    void legacy_exploration_cycle_without_awareness_preserves_participant_defaults_and_starts_combat() {
+        UUID groupId = UUID.randomUUID();
+        var cycle = com.dndmaster.adventure.domain.runtime.ExplorationCycle.start(UUID.randomUUID(),
+                java.util.Map.of(groupId, 10));
+        var roster = List.of(
+                new CombatParticipant(HERO, "Hero", CombatParticipant.Controller.PLAYER, 10, null),
+                new CombatParticipant(GOBLIN, "Goblin", CombatParticipant.Controller.AI, 15, "enemy",
+                        TurnResources.initial(), GOBLIN_STATS));
+
+        var participants = CombatStartParticipantFactory.applyExplorationAwareness(roster, cycle,
+                java.util.Map.of(GOBLIN, GOBLIN));
+        var encounter = CombatStartPolicy.startFromCommittedGmTurn(true, ADVENTURE, participants);
+
+        assertEquals(CombatEncounter.Status.ACTIVE, encounter.status());
+        assertFalse(encounter.participants().stream().anyMatch(CombatParticipant::surprised));
+    }
+
+    @Test
     void hostileAwarenessIsAppliedPerMapTokenWithinTheSameSide() {
         UUID groupId = UUID.randomUUID(), partialHero = UUID.randomUUID();
         UUID awareEnemy = UUID.randomUUID(), unawareEnemy = UUID.randomUUID();

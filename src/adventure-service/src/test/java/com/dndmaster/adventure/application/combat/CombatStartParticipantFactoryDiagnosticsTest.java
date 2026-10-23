@@ -38,23 +38,21 @@ class CombatStartParticipantFactoryDiagnosticsTest {
     }
 
     @Test
-    void enabled_logs_report_counts_result_and_unmatched_crosswalk() {
+    void enabled_logs_report_unchanged_result_when_cycle_has_no_awareness_evidence() {
         System.setProperty(DevelopmentDiagnostics.FLAG, "true");
         UUID memberId = UUID.randomUUID();
         UUID groupId = UUID.randomUUID();
-        UUID unknownParticipantId = UUID.randomUUID();
         var cycle = ExplorationCycle.start(UUID.randomUUID(), Map.of(groupId, 10));
         var result = CombatStartParticipantFactory.applyExplorationAwareness(
                 List.of(new CombatParticipant(memberId, "Hero", CombatParticipant.Controller.PLAYER, 10, null)),
-                cycle, Map.of(UUID.randomUUID(), unknownParticipantId));
+                cycle, Map.of());
 
         String messages = diagnostics.list.stream().map(ILoggingEvent::getFormattedMessage)
                 .collect(java.util.stream.Collectors.joining("\n"));
-        assertTrue(messages.contains("dev_exploration_awareness_transfer_begin participantCount=1 cyclePresent=true crosswalkCount=1"));
-        assertTrue(messages.contains("dev_exploration_awareness_transfer_success participantCount=1 hostileCount=0 crosswalkCount=0 unmatchedCrosswalkCount=1"));
-        assertTrue(messages.contains("awareRelationshipCount=0 awareParticipantCount=0 surprisedParticipantCount=1"));
-        assertTrue(messages.contains("result=applied"));
-        assertTrue(result.getFirst().surprised());
+        assertTrue(messages.contains("dev_exploration_awareness_transfer_begin participantCount=1 cyclePresent=true crosswalkCount=0"));
+        assertTrue(messages.contains("dev_exploration_awareness_transfer_alternate branch=no_awareness_evidence participantCount=1 crosswalkCount=0"));
+        assertTrue(messages.contains("result=unchanged"));
+        assertFalse(result.getFirst().surprised());
     }
 
     @Test

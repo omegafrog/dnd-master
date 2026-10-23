@@ -48,6 +48,12 @@ public final class CombatStartParticipantFactory {
             java.util.Map<UUID, UUID> hostileMapTokenToParticipantId, long startedAt) {
         Objects.requireNonNull(participants, "combat participants must not be null");
         Objects.requireNonNull(hostileMapTokenToParticipantId, "hostile map token crosswalk must not be null");
+        if (!hasExplorationAwarenessEvidence(cycle)) {
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) LOGGER.info(
+                    "dev_exploration_awareness_transfer_alternate branch=no_awareness_evidence participantCount={} crosswalkCount={} durationMs={} result=unchanged",
+                    participants.size(), hostileMapTokenToParticipantId.size(), elapsedMs(startedAt));
+            return participants;
+        }
         var currentHostileParticipantIds = participants.stream()
                 .filter(participant -> participant.enemyKind() != null || participant.statBlock() != null)
                 .map(CombatParticipant::participantId).collect(java.util.stream.Collectors.toSet());
@@ -114,6 +120,24 @@ public final class CombatStartParticipantFactory {
                 result.size() - result.stream().filter(CombatParticipant::surprised).count(),
                 result.stream().filter(CombatParticipant::surprised).count(), elapsedMs(startedAt));
         return result;
+    }
+
+    private static boolean hasExplorationAwarenessEvidence(
+            com.dndmaster.adventure.domain.runtime.ExplorationCycle cycle) {
+        var durable = cycle.threatAwareness();
+        if (!durable.awareCharactersByHostileTokenId().isEmpty() || !durable.awareHostileTokenIds().isEmpty()) return true;
+        var event = cycle.pendingMovementEvent();
+        if (event != null && (!event.discoveredByCharacterSheetIds().isEmpty()
+                || !event.awareCharacterSheetIds().isEmpty() || !event.awareEnemyTokenIds().isEmpty()
+                || !event.awareCharactersByHostileTokenId().isEmpty() || event.enemiesAware())) return true;
+        var proposal = cycle.pendingEnvironmentProposal();
+        if (proposal == null) return false;
+        if (!proposal.awareCharacterSheetIds().isEmpty()) return true;
+        if (proposal.threatDiscovery() == null) return false;
+        var discovery = proposal.threatDiscovery();
+        return !discovery.discovererCharacterSheetIds().isEmpty() || !discovery.awareEnemyTokenIds().isEmpty()
+                || !discovery.awareCharactersByHostileTokenId().isEmpty() || discovery.enemyDiscoveredFirst()
+                || discovery.enemyHeardNotification() || discovery.bothSidesNotHidden();
     }
 
     private static long elapsedMs(long startedAt) { return (System.nanoTime() - startedAt) / 1_000_000; }
