@@ -68,7 +68,7 @@ class CombatActionMovementFollowUpTest {
     }
 
     @Test
-    void action_submission_reuses_committed_movement_and_saved_typed_result_after_lost_ack() {
+    void action_submission_reuses_committed_movement_and_saved_typed_result_after_lost_ack() throws Exception {
         previousDiagnosticsFlag = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
         System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "false");
         diagnosticsLogger = (Logger) LoggerFactory.getLogger(CombatActionApplicationService.class);
@@ -234,9 +234,34 @@ class CombatActionMovementFollowUpTest {
                 operations.findByCommandId(action.operationId()).orElseThrow().status());
         assertEquals(14, operations.findByCommandId(action.operationId()).orElseThrow().diceTotal());
 
-        CombatActionResponse recovered = service.submitMovementPlayerRoll(adventureId, action.operationId(),
+        int adjudicationsBeforeCompletionWrite = adjudications.get();
+        operations.failBeforeNextCommittedSave = true;
+        assertThrows(com.dndmaster.adventure.application.combat.CombatExternalFailureException.class,
+                () -> service.submitMovementPlayerRoll(adventureId, action.operationId(),
+                        pending.movementAdjudication().turnId(), 14, encounters.value.version()));
+        CombatActionOperation pendingBeforeCompletionRecord = operations.findByCommandId(action.operationId()).orElseThrow();
+        assertEquals(CombatActionOperation.Status.GM_INTERVENTION_PENDING, pendingBeforeCompletionRecord.status());
+        assertEquals(14, pendingBeforeCompletionRecord.diceTotal());
+        RuntimeTurnCommand savedFinalRuling = runtimeCommands.findByTurnId(adjudicatedTurnIds.getFirst()).stream()
+                .filter(command -> command.commandType().startsWith("movement.continuation.")
+                        && command.outcomeJson().contains("The check is resolved."))
+                .findFirst().orElseThrow();
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, savedFinalRuling.executionStatus());
+        CombatContinuationCommand persistedRuling = mapper.readValue(savedFinalRuling.outcomeJson(), CombatContinuationCommand.class);
+        assertEquals("The check is resolved.", persistedRuling.judgment());
+        assertFalse(persistedRuling.waitingForPlayerInput());
+        assertEquals(adjudicationsBeforeCompletionWrite + 1, adjudications.get(),
+                "the final ruling is produced once and remains durably available after the operation completion write fails");
+        assertEquals(1, mapMoves.get(), "completion record retry must not repeat map movement");
+        assertEquals(2L, encounters.value.version(), "completion record retry must not change the encounter again");
+
+        CombatActionApplicationService recoveredService = movementService(encounters, operations, combatEvents, maps,
+                publisher, consumer, runtimeCommands, mapper);
+        CombatActionResponse recovered = recoveredService.submitMovementPlayerRoll(adventureId, action.operationId(),
                 pending.movementAdjudication().turnId(), 14, encounters.value.version());
-        CombatActionResponse replayed = service.submitMovementPlayerRoll(adventureId, action.operationId(),
+        assertEquals(adjudicationsBeforeCompletionWrite + 1, adjudications.get(),
+                "retry must reuse the saved final ruling without another GM call");
+        CombatActionResponse replayed = recoveredService.submitMovementPlayerRoll(adventureId, action.operationId(),
                 pending.movementAdjudication().turnId(), 14, encounters.value.version());
 
         assertEquals(recovered, replayed);
@@ -248,7 +273,7 @@ class CombatActionMovementFollowUpTest {
         assertFalse(recovered.movementAdjudication().combatStartRequested());
         assertTrue(recovered.movementAdjudication().narration().contains("may continue their turn"));
         assertEquals(4, adjudications.get());
-        assertEquals(6, publisherAttempts.get());
+        assertEquals(7, publisherAttempts.get(), "completion retry may republish the same idempotent follow-up command");
         assertEquals(1, adjudicatedTurnIds.stream().distinct().count());
         assertEquals(UUID.nameUUIDFromBytes(("combat-turn:" + encounter.encounterId() + ":"
                 + encounter.round() + ":" + heroId).getBytes(java.nio.charset.StandardCharsets.UTF_8)),
@@ -286,6 +311,10 @@ class CombatActionMovementFollowUpTest {
         assertTrue(diagnosticMessages.stream().anyMatch(message -> message.contains("operation=combat_action_movement_player_roll")
                 && message.contains("outcome=failed") && message.contains("turnId=" + adjudicatedTurnIds.getFirst())
                 && message.contains("expected=final_ruling_and_follow_up_saved actual=failed")
+                && message.contains("recoveryAction=retry_same_operation")));
+        assertTrue(diagnosticMessages.stream().anyMatch(message -> message.contains("operation=combat_action_movement_player_roll")
+                && message.contains("outcome=failed") && message.contains("turnId=" + adjudicatedTurnIds.getFirst())
+                && message.contains("expected=COMMITTED actual=GM_INTERVENTION_PENDING")
                 && message.contains("recoveryAction=retry_same_operation")));
         assertTrue(diagnosticMessages.stream().anyMatch(message -> message.contains("operation=combat_action_movement_player_roll")
                 && message.contains("outcome=completed") && message.contains("expected=final_ruling_and_follow_up_saved actual=committed")
@@ -531,9 +560,14 @@ class CombatActionMovementFollowUpTest {
     private static final class OperationStore implements CombatActionOperationRepository {
         private final Map<UUID, CombatActionOperation> values = new HashMap<>();
         private boolean failAfterNextMapStepSave;
+        private boolean failBeforeNextCommittedSave;
         @Override public Optional<CombatActionOperation> findByCommandId(UUID id) { return Optional.ofNullable(values.get(id)); }
         @Override public void save(CombatActionOperation operation) {
-            values.put(operation.commandId(), operation);
+            if (failBeforeNextCommittedSave && operation.status() == CombatActionOperation.Status.COMMITTED) {
+                failBeforeNextCommittedSave = false;
+                throw new SimulatedProcessInterruption();
+            }
+            values.put(operation.commandId(), snapshot(operation));
             if (failAfterNextMapStepSave && operation.step("map") != null
                     && operation.step("map").status() == com.dndmaster.adventure.application.combat.CombatActionStep.Status.DONE) {
                 failAfterNextMapStepSave = false;
@@ -543,6 +577,13 @@ class CombatActionMovementFollowUpTest {
         @Override public boolean hasPendingForEncounter(UUID encounterId) {
             return values.values().stream().anyMatch(operation -> operation.encounterId().equals(encounterId)
                     && operation.status() != CombatActionOperation.Status.COMMITTED);
+        }
+        private static CombatActionOperation snapshot(CombatActionOperation operation) {
+            CombatActionOperation copy = CombatActionOperation.restore(operation.commandId(), operation.fingerprint(),
+                    operation.encounterId(), operation.actorId(), operation.reservedCost(), operation.steps(),
+                    operation.status(), operation.response(), operation.failure(), operation.movementFollowUp());
+            if (operation.diceTotal() != null) copy.recordDiceTotal(operation.diceTotal());
+            return copy;
         }
     }
 

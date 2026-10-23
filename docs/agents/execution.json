@@ -727,7 +727,7 @@
       "command": [
         "bash",
         "-lc",
-        "./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.combat.CombatMovementPolicyTest --tests com.dndmaster.adventure.combat.CombatActionMovementFollowUpTest --tests com.dndmaster.adventure.CombatActionOperationRecoveryTest --tests com.dndmaster.adventure.CombatMapRuntimeTurnCommandAdapterTest --tests com.dndmaster.adventure.RuntimeTurnCommitOrchestratorTest --tests com.dndmaster.adventure.SessionEventTest --tests com.dndmaster.adventure.TypedRuntimeContinuationCommandAdapterTest --tests com.dndmaster.adventure.combat.CombatActionPolicyTest --tests com.dndmaster.adventure.combat.TurnResourcesPolicyTest && ./src/gradlew -p src :combat-map-service:test --tests com.dndmaster.combatmap.CombatMapMovementTest --tests com.dndmaster.combatmap.MovementPreviewServiceTest && npm --prefix src/web-ui run test -- --run src/features/combat-map/CombatMapFlow.test.tsx src/features/combat/CombatScreen.test.tsx"
+        "./src/gradlew -p src :adventure-service:test --tests com.dndmaster.adventure.combat.CombatMovementPolicyTest --tests com.dndmaster.adventure.combat.CombatActionMovementFollowUpTest --tests com.dndmaster.adventure.CombatActionOperationRecoveryTest --tests com.dndmaster.adventure.CombatMapRuntimeTurnCommandAdapterTest --tests com.dndmaster.adventure.RuntimeTurnCommitOrchestratorTest --tests com.dndmaster.adventure.SessionEventTest --tests com.dndmaster.adventure.TypedRuntimeContinuationCommandAdapterTest --tests com.dndmaster.adventure.combat.CombatActionPolicyTest --tests com.dndmaster.adventure.combat.TurnResourcesPolicyTest --tests com.dndmaster.adventure.RuntimeTurnPostgresIntegrationTest --tests com.dndmaster.adventure.api.CombatControllerMovementPendingTest && ./src/gradlew -p src :combat-map-service:test --tests com.dndmaster.combatmap.CombatMapMovementTest --tests com.dndmaster.combatmap.MovementPreviewServiceTest && npm --prefix src/web-ui run test -- --run src/features/combat-map/CombatMapFlow.test.tsx src/features/combat/CombatScreen.test.tsx"
       ],
       "required_env": [],
       "config_inputs": [
@@ -743,15 +743,24 @@
         "src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureApiConfiguration.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperationRepository.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionResponse.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/MovementFollowUpCommand.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/CombatContinuationCommand.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/CombatMapRuntimeTurnCommandAdapter.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/InMemoryRuntimeTurnCommandRepository.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpPort.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeContinuationHandlerRegistry.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnApplicationService.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnCommandExecution.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnCommitOrchestrator.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/TypedRuntimeContinuationCommandAdapter.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnCommand.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnCommandRepository.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/persistence/PostgresRuntimeTurnCommandRepository.java",
+        "src/adventure-service/src/main/java/com/dndmaster/adventure/api/CombatController.java",
         "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/persistence/PostgresCombatActionOperationRepository.java",
         "src/adventure-service/src/main/resources/db/migration/V95__combat_movement_adjudication_response.sql",
         "src/adventure-service/src/main/resources/db/migration/V96__combat_movement_pending_roll.sql",
@@ -759,6 +768,8 @@
         "src/adventure-service/src/test/java/com/dndmaster/adventure/CombatActionOperationRecoveryTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/CombatMapRuntimeTurnCommandAdapterTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnCommitOrchestratorTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnPostgresIntegrationTest.java",
+        "src/adventure-service/src/test/java/com/dndmaster/adventure/api/CombatControllerMovementPendingTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/SessionEventTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/TypedRuntimeContinuationCommandAdapterTest.java",
         "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
@@ -802,6 +813,12 @@
           "test",
           "-x",
           "src/web-ui/node_modules/.bin/vitest"
+        ],
+        [
+          "docker",
+          "info",
+          "--format",
+          "{{.ServerVersion}}"
         ]
       ],
       "dependencies": [],

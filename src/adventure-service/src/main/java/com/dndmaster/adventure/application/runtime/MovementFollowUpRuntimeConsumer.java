@@ -9,11 +9,18 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Consumes the durable movement event and records its typed Runtime continuation. */
 public final class MovementFollowUpRuntimeConsumer {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MovementFollowUpRuntimeConsumer.class);
+    private static final List<String> ADJUDICATION_FIELDS = List.of("commandId", "turnId", "operationId",
+            "hostileTokenId", "trigger", "kind", "judgment", "narration", "playerInput",
+            "waitingForPlayerInput", "combatStartRequested");
     private final SessionEventRepository events;
     private final RuntimeTurnCommandRepository commands;
     private final ObjectMapper objectMapper;
@@ -96,7 +103,26 @@ public final class MovementFollowUpRuntimeConsumer {
                 commands.save(continuation.failed(outcome.value(), outcome.value()));
                 return MovementFollowUpPort.Result.permanentFailure(outcome.value());
             }
-            CombatContinuationCommand adjudication = objectMapper.readValue(outcome.value(), CombatContinuationCommand.class);
+            String actualStructure = structureSummary(outcome.value());
+            long schemaStarted = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                    "runtime_movement_gm_response_schema", "commandId=" + continuation.commandId()
+                            + " turnId=" + source.turnId() + " expectedStructure=CombatContinuationCommand"
+                            + " actualStructure=" + actualStructure);
+            final CombatContinuationCommand adjudication;
+            try {
+                adjudication = objectMapper.readValue(outcome.value(), CombatContinuationCommand.class);
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                        "runtime_movement_gm_response_schema", "commandId=" + continuation.commandId()
+                                + " turnId=" + source.turnId() + " expectedStructure=CombatContinuationCommand"
+                                + " actualStructure=validated recoveryAction=persist_same_command", schemaStarted);
+            } catch (JsonProcessingException malformed) {
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                        "runtime_movement_gm_response_schema", "commandId=" + continuation.commandId()
+                                + " turnId=" + source.turnId() + " expectedStructure=CombatContinuationCommand"
+                                + " actualStructure=" + actualStructure + " recoveryAction=retain_pending_same_command",
+                        schemaStarted, malformed);
+                throw malformed;
+            }
             if (adjudication.waitingForPlayerInput()) {
                 commands.save(continuation.movementInterventionPending(outcome.value()));
                 return MovementFollowUpPort.Result.playerInputRequired(outcome.value());
@@ -115,6 +141,27 @@ public final class MovementFollowUpRuntimeConsumer {
             return MovementFollowUpPort.Result.permanentFailure(failure.getMessage());
         } catch (RuntimeException failure) {
             return MovementFollowUpPort.Result.retry(failure.getMessage());
+        }
+    }
+
+    private String structureSummary(String payload) {
+        try {
+            JsonNode root = objectMapper.readTree(payload);
+            if (root == null) return "root=missing";
+            if (!root.isObject()) return "root=" + root.getNodeType() + " payloadChars=" + payload.length();
+            List<String> present = new java.util.ArrayList<>();
+            List<String> missing = new java.util.ArrayList<>();
+            for (String field : ADJUDICATION_FIELDS) {
+                JsonNode value = root.get(field);
+                if (value == null) missing.add(field);
+                else present.add(field + ":" + value.getNodeType());
+            }
+            int unknownFields = 0;
+            var names = root.fieldNames();
+            while (names.hasNext()) if (!ADJUDICATION_FIELDS.contains(names.next())) unknownFields++;
+            return "root=OBJECT present=" + present + " missing=" + missing + " unknownFieldCount=" + unknownFields;
+        } catch (IOException malformed) {
+            return "root=INVALID_JSON payloadChars=" + payload.length();
         }
     }
 

@@ -27,6 +27,7 @@ import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnCommandRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresCombatActionOperationRepository;
 import com.dndmaster.adventure.infrastructure.persistence.RuntimeTurnPersistenceException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Connection;
@@ -199,6 +200,108 @@ class RuntimeTurnPostgresIntegrationTest {
         commandRepository.save(command);
         assertEquals(command, commandRepository.findByCommandId(command.commandId()).orElseThrow());
         assertEquals(List.of(command), commandRepository.findByTurnId(active.turnId()));
+    }
+
+    @Test
+    void reloadsPendingMovementRollAndInitialRulingFromPostgres() throws Exception {
+        AdventureId adventureId = AdventureId.generate();
+        SessionId sessionId = SessionId.generate();
+        var ownerId = UUID.randomUUID();
+        new PostgresAdventureRepository(dataSource).save(Adventure.create(adventureId, sessionId,
+                new OwnerPlayerId(ownerId), new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                new CharacterSheetId(UUID.randomUUID()), new AdventureContext("start", null, null, null)));
+        RuntimeTurn turn = new RuntimeTurn(UUID.randomUUID(), UUID.randomUUID(), adventureId, sessionId.value(),
+                UUID.randomUUID(), 1, "move", new EvidencePack(List.of(), List.of(), List.of()),
+                new RuntimePlan("scene", null, "judgment", "narration", null, List.of(), List.of()), null,
+                new AdventureContext("scene", null, "move", "judgment"), List.of(), 0, List.of(), List.of()).asRequested();
+        repository.save(turn);
+        UUID commandId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        var check = new com.dndmaster.adventure.application.runtime.RuntimeCheckProposal(true, "확인 판정",
+                "Athletics", UUID.randomUUID(), com.dndmaster.adventure.application.runtime.RuntimeCheckProposal.RollMethod.PLAYER,
+                "1d20", 2, 12, List.of("book:check"), "계속 진행", "다시 시도합니다.");
+        var followUp = new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(commandId, operationId,
+                hostileTokenId, turn.turnId(), com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                "HOSTILE_OBSERVED", 4, List.of(), null, List.of("HOSTILE_OBSERVED")).afterPlayerRoll(check, 14);
+        ObjectMapper mapper = new ObjectMapper();
+        String rollPayload = mapper.writeValueAsString(followUp);
+        var ruling = new com.dndmaster.adventure.application.runtime.CombatContinuationCommand(commandId,
+                turn.turnId(), operationId, hostileTokenId, "HOSTILE_OBSERVED",
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                "판정 대기", "굴림을 제출해 주세요.", check, true, false);
+        String initialRuling = mapper.writeValueAsString(ruling);
+        RuntimeTurnCommand pending = RuntimeTurnCommand.create(turn.turnId(), commandId, adventureId.value(),
+                sessionId.value(), ownerId, "external", "movement.follow-up", rollPayload, 1)
+                .movementInterventionPending(initialRuling);
+        commandRepository.save(pending);
+
+        RuntimeTurnCommandRepository reloadedRepository = new PostgresRuntimeTurnCommandRepository(dataSource);
+        RuntimeTurnCommand restored = reloadedRepository.findPendingMovementByAdventure(adventureId.value()).getFirst();
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.GM_INTERVENTION_PENDING, restored.executionStatus());
+        assertEquals(commandId, restored.commandId());
+        assertEquals(turn.turnId(), restored.turnId());
+        assertEquals(rollPayload, restored.payloadJson());
+        assertEquals(initialRuling, restored.outcomeJson());
+        assertEquals(1, restored.attemptCount());
+        assertEquals(followUp, mapper.readValue(restored.payloadJson(),
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.class));
+        assertEquals(ruling, mapper.readValue(restored.outcomeJson(),
+                com.dndmaster.adventure.application.runtime.CombatContinuationCommand.class));
+    }
+
+    @Test
+    void reloadsPendingCombatActionRollAndTypedRulingThroughFreshRepository() throws Exception {
+        AdventureId adventureId = AdventureId.generate();
+        SessionId sessionId = SessionId.generate();
+        UUID ownerId = UUID.randomUUID();
+        new PostgresAdventureRepository(dataSource).save(Adventure.create(adventureId, sessionId,
+                new OwnerPlayerId(ownerId), new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                new CharacterSheetId(UUID.randomUUID()), new AdventureContext("start", null, null, null)));
+        UUID encounterId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        try (Connection connection = dataSource.getConnection(); var insert = connection.prepareStatement(
+                "INSERT INTO combat_encounter(encounter_id, adventure_id, status, round, current_participant_id, version) VALUES (?, ?, 'ACTIVE', 1, ?, 7)")) {
+            insert.setObject(1, encounterId);
+            insert.setObject(2, adventureId.value());
+            insert.setObject(3, actorId);
+            insert.executeUpdate();
+        }
+        UUID operationId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        UUID turnId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        UUID mapOperationId = UUID.randomUUID();
+        var check = new com.dndmaster.adventure.application.runtime.RuntimeCheckProposal(true, "확인 판정",
+                "Athletics", UUID.randomUUID(), com.dndmaster.adventure.application.runtime.RuntimeCheckProposal.RollMethod.PLAYER,
+                "1d20", 2, 12, List.of("book:check"), "계속 진행", "다시 시도합니다.");
+        var ruling = new com.dndmaster.adventure.application.runtime.CombatContinuationCommand(commandId, turnId,
+                operationId, hostileTokenId, "HOSTILE_OBSERVED",
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                "판정 대기", "굴림을 제출해 주세요.", check, true, false);
+        var response = new com.dndmaster.adventure.application.combat.CombatActionResponse(encounterId, operationId,
+                7, "GM_INTERVENTION_PENDING", null, "판정 대기", List.of(), "굴림을 제출해 주세요.", ruling);
+        var followUp = new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(commandId, operationId,
+                hostileTokenId, turnId, com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                "HOSTILE_OBSERVED", 4, List.of(), null, List.of("HOSTILE_OBSERVED")).afterPlayerRoll(check, 14);
+        var operation = new com.dndmaster.adventure.application.combat.CombatActionOperation(commandId, "fingerprint",
+                encounterId, actorId, new com.dndmaster.adventure.domain.combat.TurnResourceCost(4, false, false, false),
+                List.of(new com.dndmaster.adventure.application.combat.CombatActionStep("map", mapOperationId.toString(),
+                        com.dndmaster.adventure.application.combat.CombatActionStep.Status.DONE)));
+        operation.awaitingMovementAdjudication(response, followUp);
+        operation.recordDiceTotal(14);
+        new PostgresCombatActionOperationRepository(dataSource, new ObjectMapper()).save(operation);
+
+        var restored = new PostgresCombatActionOperationRepository(dataSource, new ObjectMapper())
+                .findPendingMovementForEncounter(encounterId).orElseThrow();
+        assertEquals(com.dndmaster.adventure.application.combat.CombatActionOperation.Status.GM_INTERVENTION_PENDING,
+                restored.status());
+        assertEquals(14, restored.diceTotal());
+        assertEquals(14, restored.movementFollowUp().playerRoll());
+        assertEquals(check, restored.movementFollowUp().playerCheck());
+        assertEquals(ruling, restored.response().movementAdjudication());
+        assertEquals("굴림을 제출해 주세요.", restored.response().narration());
+        assertEquals(mapOperationId, restored.mapOperationId());
     }
 
     private record DriverManagerDataSource(String url, String username, String password) implements DataSource {

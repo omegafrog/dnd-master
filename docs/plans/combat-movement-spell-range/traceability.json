@@ -1979,8 +1979,8 @@
         "잘못되거나 작업·차례가 불일치하는 GM 응답은 확정 상태를 바꾸지 않는다. 같은 기존 작업으로 미완료 단계만 재개하며 위치·이동량·비용·굴림·GM 결과를 중복 적용하지 않는다.",
         "사건 판정·서술이 끝나도 플레이어 차례를 유지한다. 새 경로 확인, 다른 허용 행동 또는 명시적 턴 종료만 다음 상태 변경을 확정한다. 남은 경로 자동 이동과 GM 서술 기반 토큰 이동·턴 종료는 없다.",
         "금지 사례: 지도 확정 직후·이동 예산 저장 직후·작업 완료 기록 직전의 장애 복구에서 실제 거리의 이동량 차감을 누락하거나 두 번 차감하고, 위치·이동 예산·완료 결과가 서로 어긋나거나 GM 서술을 다시 적용한다. 경로 확인 전에 위치·안개를 바꾸거나 중단 지점 이후 이동량을 소비한다.",
-        "개발용 진단 검증 (Architecture Spec §9.1·INV-01): 이 계획이 바꾸는 각 시작·완료·대체 경로·재시도·실패 분기에서 기존 `DevelopmentDiagnostics`와 `dev_` 로그 형식을 확인한다. `ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED`가 꺼졌을 때 상세 로그가 없고, 켜졌을 때 command/operation/turn ID, 입력·경로·이벤트 개수, 기대/실제 상태, 선택한 복구 분기, 소요 시간, 실패 종류와 다음 복구 동작이 드러나야 한다. 프롬프트·응답 원문, 인증 정보, 불필요한 플레이어 입력, 비공개 지도 정보를 기록하지 않고 실제 동작을 바꾸지 않아야 한다. 테스트는 시작·완료·대체/재시도·실패 로그의 식별자·기대/실제 값·다음 복구 동작을 확인하고 원문·비밀값이 없는지 확인한다.",
-        "실제 도달 위치·이동량을 확정한 뒤 최초 GM 요청 전에 같은 `CombatActionOperation`을 `GM_INTERVENTION_PENDING`으로 저장한다. 대기 중에는 일반 전투 행동 및 턴 종료를 거부한다. 기존 플레이어 굴림이 요구되면 그 굴림만 같은 작업에 제출하도록 허용하고, 굴림 결과를 저장해 AI Game Master의 최종 구조화 판정으로 전달한다. 최종 판정과 필수 후속 변경을 검증·저장한 뒤에만 대기를 해제하고 같은 플레이어 차례를 재개한다.",
+        "개발용 진단 검증 (Architecture Spec §9.1·INV-01): 이 계획이 바꾸는 각 시작·완료·대체 경로·재시도·실패 분기에서 기존 `DevelopmentDiagnostics`와 `dev_` 로그 형식을 확인한다. `ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED`가 꺼졌을 때 상세 로그가 없고, 켜졌을 때 command/operation/turn ID, 입력·경로·이벤트 개수, 기대/실제 상태, 선택한 복구 분기, 소요 시간, 실패 종류와 다음 복구 동작이 드러나야 한다. GM 응답 스키마나 목록 검증 실패에는 기대 구조와 실제 구조를 함께 기록하고, 해당 분기의 테스트에서 두 구조 요약·식별자·다음 복구 동작을 확인한다. 프롬프트·응답 원문, 인증 정보, 불필요한 플레이어 입력, 비공개 지도 정보를 기록하지 않고 실제 동작을 바꾸지 않아야 한다. 테스트는 시작·완료·대체/재시도·실패 로그의 식별자·기대/실제 값·다음 복구 동작을 확인하고 원문·비밀값이 없는지 확인한다.",
+        "두 진입 경로는 각자 기존 내구 작업 저장 경계를 사용한다. 지도 UI는 `RuntimeTurn`과 `RuntimeTurnCommand`를, `/combat/actions`는 `CombatActionOperation`을 사용한다. 구현 엔티티는 달라도 실제 이동 결과를 한 번 확정하고, 같은 서버 발급 작업·차례 식별자에 GM 대기·플레이어 굴림·최종 판정·필수 후속 저장을 묶으며, 완료 전까지 대기를 유지하고 저장 결과를 재사용하는 동일한 복구 불변식을 지킨다. 최초 GM 요청 전에 해당 경로의 기존 작업을 `GM_INTERVENTION_PENDING`으로 저장한다. 대기 중에는 일반 전투 행동 및 턴 종료를 거부한다. 기존 플레이어 굴림이 요구되면 그 굴림만 같은 작업에 제출하도록 허용하고, 굴림 결과를 저장해 AI Game Master의 최종 구조화 판정으로 전달한다. 최종 판정과 필수 후속 변경을 검증·저장한 뒤에만 대기를 해제하고 같은 플레이어 차례를 재개한다.",
         "초기·최종 GM 응답 실패나 식별자·스키마 검증 거부는 `GM_INTERVENTION_PENDING`을 해제하지 않는다. 이미 확정한 이동 결과와 같은 차례를 유지하고 같은 작업의 재시도·복구만 허용하며, 이동·이동량·굴림·최종 판정·서술을 중복 적용하지 않는다.",
         "굴림이 필요하지 않으면 최초 GM 응답을 최종 구조화 판정으로 취급한다. 해당 응답과 필수 후속 변경을 검증·저장한 뒤에만 대기를 해제한다. 필수 후속 변경 저장이 실패하면 같은 이동 작업의 대기 상태를 유지한다.",
         "세 저장 경계와 두 진입 경로를 조합한 장애 복구 여섯 사례를 모두 실행한다. 각 사례는 영속 저장소를 유지한 채 새 처리 서비스 인스턴스에서 장애 전 상태를 다시 읽고 같은 서버 작업 식별자로 재시도한다. 위치·거리·남은 이동량·공개 결과·현재 플레이어 차례는 한 번만 확정하고 이동 예산은 한 번만 차감하며 캐릭터 자원은 바뀌지 않는지 검증한다."
@@ -1990,10 +1990,10 @@
       ],
       "verification_cases": [
         "필수 플레이어 굴림 흐름은 `GM_INTERVENTION_PENDING` 저장·복원, 같은 작업에 대한 굴림 연결, 굴림 전/후 다른 행동·턴 종료 거부, 최종 GM 판정 실패 또는 검증 불일치 뒤 대기 잠금 유지와 같은 작업 재시도, 최종 판정 저장 후 같은 차례 재개를 확인한다. 새 작업 식별자나 일반 선택 입력 계약을 만들지 않는다.",
-        "장애 복구 수용 조건: 지도 확정 직후, 이동 예산 저장 직후, 작업 완료 기록 직전의 세 경계에서 중단되어도 저장 상태를 다시 읽고 동일 서버 작업 식별자로 재시도하여 실제 도달 위치·실제 거리·이동 예산·완료 기록이 한 번 적용된 결과로 일치해야 한다. 지도 UI 이동과 `/combat/actions` 이동 제출 모두 같은 조건을 충족하며 이동량 차감 누락·이중 차감·서술 재적용을 허용하지 않는다.",
+        "장애 복구 수용 조건: 지도 확정 직후, 이동량 저장 직후, 최종 판정 저장 후 `COMMITTED` 완료 기록 직전의 세 경계에서 중단되어도 저장 상태를 다시 읽고 동일 서버 작업 식별자로 재시도하여 실제 도달 위치·실제 거리·이동량·완료 기록이 한 번 적용된 결과로 일치해야 한다. 지도 UI 이동과 `/combat/actions` 이동 제출 모두 같은 조건을 충족하며 이동량 차감 누락·이중 차감·GM 판정 재호출·서술 재적용을 허용하지 않는다.",
         "장애 복구는 표의 세 저장 경계와 두 진입 경로를 조합한 여섯 사례를 모두 실행한다. 각 사례는 저장소를 유지한 채 새 처리 서비스 인스턴스를 구성해 장애 전 상태를 다시 읽고, 같은 서버 작업 식별자로 재시도한다. 각 사례에서 실제 위치·거리·남은 이동량·공개 결과·현재 플레이어 차례가 한 번만 확정되고, 이동 예산도 한 번만 차감되며 캐릭터 자원은 바뀌지 않는지 검증한다.",
         "`CombatActionMovementFollowUpTest`와 `CombatMapRuntimeTurnCommandAdapterTest`에서 표에 적은 여섯 저장 경계×진입 경로 조합을 장애 주입으로 실행한다. 각 사례는 영속 저장소를 공유하는 새 처리 서비스 인스턴스로 복구해 저장된 작업 UUID·지도 결과·굴림·GM 결과를 재사용하고 효과를 중복 적용하지 않는지 확인한다. `SessionEventTest`는 지도 UI 경로의 저장된 작업 조회와 typed 결과 식별 검증·재생을, `CombatActionOperationRecoveryTest`는 서버 작업 UUID·단계 기록 복원을, `CombatMapFlow.test.tsx`는 같은 명령 재제출과 중단 응답 복원을 확인한다. 다른 동작이 만든 같은 encounter version을 중단된 operation 결과로 추정하지 않는다.",
-        "개발용 진단 검증 (Architecture Spec §9.1·INV-01): 이 계획이 바꾸는 각 시작·완료·대체 경로·재시도·실패 분기에서 기존 `DevelopmentDiagnostics`와 `dev_` 로그 형식을 확인한다. `ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED`가 꺼졌을 때 상세 로그가 없고, 켜졌을 때 command/operation/turn ID, 입력·경로·이벤트 개수, 기대/실제 상태, 선택한 복구 분기, 소요 시간, 실패 종류와 다음 복구 동작이 드러나야 한다. 프롬프트·응답 원문, 인증 정보, 불필요한 플레이어 입력, 비공개 지도 정보를 기록하지 않고 실제 동작을 바꾸지 않아야 한다. 테스트는 시작·완료·대체/재시도·실패 로그의 식별자·기대/실제 값·다음 복구 동작을 확인하고 원문·비밀값이 없는지 확인한다.",
+        "개발용 진단 검증 (Architecture Spec §9.1·INV-01): 이 계획이 바꾸는 각 시작·완료·대체 경로·재시도·실패 분기에서 기존 `DevelopmentDiagnostics`와 `dev_` 로그 형식을 확인한다. `ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED`가 꺼졌을 때 상세 로그가 없고, 켜졌을 때 command/operation/turn ID, 입력·경로·이벤트 개수, 기대/실제 상태, 선택한 복구 분기, 소요 시간, 실패 종류와 다음 복구 동작이 드러나야 한다. GM 응답 스키마나 목록 검증 실패에는 기대 구조와 실제 구조를 함께 기록하고, 해당 분기의 테스트에서 두 구조 요약·식별자·다음 복구 동작을 확인한다. 프롬프트·응답 원문, 인증 정보, 불필요한 플레이어 입력, 비공개 지도 정보를 기록하지 않고 실제 동작을 바꾸지 않아야 한다. 테스트는 시작·완료·대체/재시도·실패 로그의 식별자·기대/실제 값·다음 복구 동작을 확인하고 원문·비밀값이 없는지 확인한다.",
         "지도 화면 복구 검증 (`CombatMapFlow.test.tsx`): 확인 응답 유실 뒤 같은 이동 명령 식별자로 다시 제출하는지, 필수 플레이어 굴림의 최종 GM 판정이 저장된 뒤 서버가 돌려준 중단 위치·공개 사건과 같은 차례를 표시하는지, 재접속 뒤 저장된 중단 결과를 다시 표시하고 임시 저장 상태를 지우는지 확인한다.",
         "`ui ~ entity` E2E: 해당 없음 — 경로 실행·중단 지점·이동량·전용 응답은 정책·계약·통합 검사로 검증한다. 실제 에이전트 포함 브라우저 E2E는 원본 자료·지도 준비·자연어 승인까지 포함해 모든 선행 구현 뒤 #375에서 한 번 실행한다.",
         "단위/정책: 이동 10피트 뒤 행동, 이동 5피트 뒤 추가 행동, 이동 15피트 순으로 이어 써서 행동 전·사이·후 이동을 확인하고 사용량 30피트·잔여량 0피트·속도 30피트가 저장되는지 확인한다. CombatScreen이 속도·사용·잔여 값을 snapshot과 맞게 표시하는지 확인한다. 확인 전 읽기 전용, 칸별 안개·실제 이동량과 중단 위치, 저장된 이동 결과의 재시도·복구.",
@@ -3960,7 +3960,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -3984,7 +3984,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -4030,7 +4030,7 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatMovementPolicyTest.java",
@@ -4041,7 +4041,7 @@
               "sha256": "b4c7abe1fbdbf584a29c826cd5a2ccee7e15211c7bb3f51a096fde9f143d4593"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#AC-07",
@@ -4052,7 +4052,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -4076,7 +4076,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -4122,14 +4122,14 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             },
             {
               "path": "src/web-ui/src/features/combat-map/CombatMapFlow.test.tsx",
               "sha256": "8addfec7b0ce911923b7a4cbef310d20acfcb934d2440e234b1df71fb327b626"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#AC-08",
@@ -4140,7 +4140,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -4164,7 +4164,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -4189,6 +4189,22 @@
             {
               "path": "src/adventure-service/src/main/resources/db/migration/V95__combat_movement_adjudication_response.sql",
               "sha256": "7ad5d661554fc075d29c33bb8e6d657db9bacd79792b66d89a7b3b2656094389"
+            },
+            {
+              "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnCommand.java",
+              "sha256": "f451b2775bb14b4d9fdb3bb24ab375cc2ad213375b6bf9c6cfd04efa536230dc"
+            },
+            {
+              "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnCommandRepository.java",
+              "sha256": "53345064579b90daa93b18c57c523f702c2d1c7c271fb5eccdd27e96368d94f2"
+            },
+            {
+              "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/persistence/PostgresRuntimeTurnCommandRepository.java",
+              "sha256": "d59b0724ad2db994a530ce8a1ce2ce02b71426fe702ae55d7b9b091c28237a33"
+            },
+            {
+              "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/api/CombatController.java",
+              "sha256": "a8872701d833cfd95c6799dff5d00bdd9ef5c25ffb2cc56adb9499b8d1594dbc"
             }
           ],
           "verification": [
@@ -4210,7 +4226,7 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             },
             {
               "path": "src/web-ui/src/features/combat-map/CombatMapFlow.test.tsx",
@@ -4218,10 +4234,18 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnCommitOrchestratorTest.java",
-              "sha256": "495f0a4f90bbd15db98709cca6de86dd09dd3b774a929084290e9d7129c68856"
+              "sha256": "57839386492c56c1f198c4bf5c45225a8b695af02c62c54e91645892615936fe"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnPostgresIntegrationTest.java",
+              "sha256": "5c259e8098d930821b5cb256435d4f5fc58fe5c548b10354832dbf55a470005b"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/CombatControllerMovementPendingTest.java",
+              "sha256": "ca53688d6197411c7033f255f3b418d0d53b40e8822439b0e0a1e9dcd3f968fc"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#AC-16",
@@ -4232,7 +4256,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -4256,7 +4280,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -4302,14 +4326,14 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             },
             {
               "path": "src/web-ui/src/features/combat-map/CombatMapFlow.test.tsx",
               "sha256": "8addfec7b0ce911923b7a4cbef310d20acfcb934d2440e234b1df71fb327b626"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-05",
@@ -4320,7 +4344,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -4344,7 +4368,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -4390,7 +4414,7 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatMovementPolicyTest.java",
@@ -4401,7 +4425,7 @@
               "sha256": "b4c7abe1fbdbf584a29c826cd5a2ccee7e15211c7bb3f51a096fde9f143d4593"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-08",
@@ -4412,7 +4436,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -4436,7 +4460,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -4482,14 +4506,14 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             },
             {
               "path": "src/web-ui/src/features/combat-map/CombatMapFlow.test.tsx",
               "sha256": "8addfec7b0ce911923b7a4cbef310d20acfcb934d2440e234b1df71fb327b626"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-16",
@@ -4500,7 +4524,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -4524,7 +4548,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -4549,6 +4573,22 @@
             {
               "path": "src/adventure-service/src/main/resources/db/migration/V95__combat_movement_adjudication_response.sql",
               "sha256": "7ad5d661554fc075d29c33bb8e6d657db9bacd79792b66d89a7b3b2656094389"
+            },
+            {
+              "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnCommand.java",
+              "sha256": "f451b2775bb14b4d9fdb3bb24ab375cc2ad213375b6bf9c6cfd04efa536230dc"
+            },
+            {
+              "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnCommandRepository.java",
+              "sha256": "53345064579b90daa93b18c57c523f702c2d1c7c271fb5eccdd27e96368d94f2"
+            },
+            {
+              "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/persistence/PostgresRuntimeTurnCommandRepository.java",
+              "sha256": "d59b0724ad2db994a530ce8a1ce2ce02b71426fe702ae55d7b9b091c28237a33"
+            },
+            {
+              "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/api/CombatController.java",
+              "sha256": "a8872701d833cfd95c6799dff5d00bdd9ef5c25ffb2cc56adb9499b8d1594dbc"
             }
           ],
           "verification": [
@@ -4570,7 +4610,7 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             },
             {
               "path": "src/web-ui/src/features/combat-map/CombatMapFlow.test.tsx",
@@ -4578,10 +4618,18 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnCommitOrchestratorTest.java",
-              "sha256": "495f0a4f90bbd15db98709cca6de86dd09dd3b774a929084290e9d7129c68856"
+              "sha256": "57839386492c56c1f198c4bf5c45225a8b695af02c62c54e91645892615936fe"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnPostgresIntegrationTest.java",
+              "sha256": "5c259e8098d930821b5cb256435d4f5fc58fe5c548b10354832dbf55a470005b"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/CombatControllerMovementPendingTest.java",
+              "sha256": "ca53688d6197411c7033f255f3b418d0d53b40e8822439b0e0a1e9dcd3f968fc"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-18",
@@ -4592,7 +4640,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -4616,7 +4664,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -4662,14 +4710,14 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnCommitOrchestratorTest.java",
-              "sha256": "495f0a4f90bbd15db98709cca6de86dd09dd3b774a929084290e9d7129c68856"
+              "sha256": "57839386492c56c1f198c4bf5c45225a8b695af02c62c54e91645892615936fe"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#BR-19",
@@ -4680,7 +4728,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -4704,7 +4752,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -4750,7 +4798,7 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             },
             {
               "path": "src/web-ui/src/features/combat-map/CombatMapFlow.test.tsx",
@@ -4758,10 +4806,10 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnCommitOrchestratorTest.java",
-              "sha256": "495f0a4f90bbd15db98709cca6de86dd09dd3b774a929084290e9d7129c68856"
+              "sha256": "57839386492c56c1f198c4bf5c45225a8b695af02c62c54e91645892615936fe"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#EX-08",
@@ -4772,7 +4820,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -4796,7 +4844,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -4842,14 +4890,14 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnCommitOrchestratorTest.java",
-              "sha256": "495f0a4f90bbd15db98709cca6de86dd09dd3b774a929084290e9d7129c68856"
+              "sha256": "57839386492c56c1f198c4bf5c45225a8b695af02c62c54e91645892615936fe"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#G-03",
@@ -4860,7 +4908,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -4884,7 +4932,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -4930,10 +4978,10 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#ST-UC-002-01",
@@ -4944,7 +4992,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -4968,7 +5016,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -5014,14 +5062,22 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnCommitOrchestratorTest.java",
-              "sha256": "495f0a4f90bbd15db98709cca6de86dd09dd3b774a929084290e9d7129c68856"
+              "sha256": "57839386492c56c1f198c4bf5c45225a8b695af02c62c54e91645892615936fe"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnPostgresIntegrationTest.java",
+              "sha256": "5c259e8098d930821b5cb256435d4f5fc58fe5c548b10354832dbf55a470005b"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/CombatControllerMovementPendingTest.java",
+              "sha256": "ca53688d6197411c7033f255f3b418d0d53b40e8822439b0e0a1e9dcd3f968fc"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#ST-UC-002-02",
@@ -5032,7 +5088,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -5056,7 +5112,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -5102,7 +5158,7 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             },
             {
               "path": "src/web-ui/src/features/combat-map/CombatMapFlow.test.tsx",
@@ -5110,10 +5166,18 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnCommitOrchestratorTest.java",
-              "sha256": "495f0a4f90bbd15db98709cca6de86dd09dd3b774a929084290e9d7129c68856"
+              "sha256": "57839386492c56c1f198c4bf5c45225a8b695af02c62c54e91645892615936fe"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnPostgresIntegrationTest.java",
+              "sha256": "5c259e8098d930821b5cb256435d4f5fc58fe5c548b10354832dbf55a470005b"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/CombatControllerMovementPendingTest.java",
+              "sha256": "ca53688d6197411c7033f255f3b418d0d53b40e8822439b0e0a1e9dcd3f968fc"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#ST-UC-002-03",
@@ -5124,7 +5188,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -5148,7 +5212,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -5194,7 +5258,7 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             },
             {
               "path": "src/web-ui/src/features/combat-map/CombatMapFlow.test.tsx",
@@ -5202,10 +5266,18 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnCommitOrchestratorTest.java",
-              "sha256": "495f0a4f90bbd15db98709cca6de86dd09dd3b774a929084290e9d7129c68856"
+              "sha256": "57839386492c56c1f198c4bf5c45225a8b695af02c62c54e91645892615936fe"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnPostgresIntegrationTest.java",
+              "sha256": "5c259e8098d930821b5cb256435d4f5fc58fe5c548b10354832dbf55a470005b"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/CombatControllerMovementPendingTest.java",
+              "sha256": "ca53688d6197411c7033f255f3b418d0d53b40e8822439b0e0a1e9dcd3f968fc"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/product-spec.md#UC-002",
@@ -5216,7 +5288,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -5240,7 +5312,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -5286,14 +5358,22 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
             },
             {
               "path": "src/web-ui/src/features/combat-map/CombatMapFlow.test.tsx",
               "sha256": "8addfec7b0ce911923b7a4cbef310d20acfcb934d2440e234b1df71fb327b626"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnPostgresIntegrationTest.java",
+              "sha256": "5c259e8098d930821b5cb256435d4f5fc58fe5c548b10354832dbf55a470005b"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/CombatControllerMovementPendingTest.java",
+              "sha256": "ca53688d6197411c7033f255f3b418d0d53b40e8822439b0e0a1e9dcd3f968fc"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         },
         {
           "requirement_id": "docs/specs/combat-movement-spell-range/architecture-spec.md#INV-01",
@@ -5304,7 +5384,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java",
-              "sha256": "6cf317bc830b465365a3e5d2db6f168d3cf252ad0e28d6cf90bbc0b1be14f91a"
+              "sha256": "e71baf0e859e1918b493190d211d7a6be56d9cf615be3849773094a0bdbe0657"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionOperation.java",
@@ -5328,7 +5408,7 @@
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/MovementFollowUpRuntimeConsumer.java",
-              "sha256": "1cbdaf0938e363695dc6b09157cbf57c4f0e8c9310a807636e74ad963780b509"
+              "sha256": "4b0bec0b1e181341cd6d860ce4679b0e87d5b26f72cd354e9795ee2065637a7e"
             },
             {
               "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/PostgresRuntimeContinuationCommandOutcomePort.java",
@@ -5353,6 +5433,22 @@
             {
               "path": "src/adventure-service/src/main/resources/db/migration/V95__combat_movement_adjudication_response.sql",
               "sha256": "7ad5d661554fc075d29c33bb8e6d657db9bacd79792b66d89a7b3b2656094389"
+            },
+            {
+              "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnCommand.java",
+              "sha256": "f451b2775bb14b4d9fdb3bb24ab375cc2ad213375b6bf9c6cfd04efa536230dc"
+            },
+            {
+              "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnCommandRepository.java",
+              "sha256": "53345064579b90daa93b18c57c523f702c2d1c7c271fb5eccdd27e96368d94f2"
+            },
+            {
+              "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/persistence/PostgresRuntimeTurnCommandRepository.java",
+              "sha256": "d59b0724ad2db994a530ce8a1ce2ce02b71426fe702ae55d7b9b091c28237a33"
+            },
+            {
+              "path": "src/adventure-service/src/main/java/com/dndmaster/adventure/api/CombatController.java",
+              "sha256": "a8872701d833cfd95c6799dff5d00bdd9ef5c25ffb2cc56adb9499b8d1594dbc"
             }
           ],
           "verification": [
@@ -5374,28 +5470,39 @@
             },
             {
               "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/combat/CombatActionMovementFollowUpTest.java",
-              "sha256": "8047d4ddb50dd32ef40d090c9f184d6e9c30d6e03c485b83e1f00643b2b2f05e"
+              "sha256": "847fd1da327b2ee50ecb0d1bef009e0cd6fe43a0fd23ddfa5a9f8af327cdfe68"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnPostgresIntegrationTest.java",
+              "sha256": "5c259e8098d930821b5cb256435d4f5fc58fe5c548b10354832dbf55a470005b"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/api/CombatControllerMovementPendingTest.java",
+              "sha256": "ca53688d6197411c7033f255f3b418d0d53b40e8822439b0e0a1e9dcd3f968fc"
+            },
+            {
+              "path": "src/adventure-service/src/test/java/com/dndmaster/adventure/RuntimeTurnCommitOrchestratorTest.java",
+              "sha256": "57839386492c56c1f198c4bf5c45225a8b695af02c62c54e91645892615936fe"
             }
           ],
-          "receipt": "runtime/execution/combat-movement-interruption-unit-5600d0dd-5bc2-471f-b974-271633fdd9b8/receipt.json"
+          "receipt": "runtime/execution/combat-movement-interruption-unit-1e280035-a915-40c7-848d-78a289998d1d/receipt.json"
         }
       ]
     }
   },
   "review": {
     "plan_set_id": "combat-movement-spell-range",
-    "reviewer_id": "/root/implement_plan369_gm_pending/plan369_fresh_review_current",
+    "reviewer_id": "/root/implement_plan369_gm_pending/plan369_postseal_review",
     "author_ids": [
       "/root",
-      "/root/implement_plan_369",
-      "/root/implement_plan369_gm_pending"
+      "/root/implement_plan_369"
     ],
     "fork_turns": "none",
     "verdict": "pass",
     "inputs": {
       "CONTEXT-MAP.md": "38ad518112129eedbbd581013513cee47f81bc2d98a5637d674f40d6a3bdc273",
       "CONTEXT.md": "261a2fdf4a90e23e63249320de0be34c1fbdfa31f981fb6370688d195ea84a6f",
-      "docs/contracts/architecture.md": "5ef2edc0d5751b877b47bf5b93f6f7b41c3125eb7d00c82369fe952902edcd7e",
+      "docs/contracts/architecture.md": "0a20666343749cd822e72203654873fc0f100f24e6281155270c2498e0701e00",
       "docs/contracts/product.md": "4b02a8137f13d91b9c257981be90cf75b2a63da60fc91af5734561996352d50e",
       "docs/specs/combat-movement-spell-range/architecture-spec.md": "6a45ff296754999a1f2ec07a5d52b9d4889f51c42610c0f48c3eda5ef3931022",
       "docs/specs/combat-movement-spell-range/diagrams/architecture/combat-movement-interruption.state.puml": "af82d5c9c3bbad5aaab0de3f33a3b9a22b5b0305a736850ab173271ed9d4a701",
@@ -5428,14 +5535,14 @@
       "docs/specs/combat-movement-spell-range/request.md": "2c28458945ed8046d9627b254c76ee5d14ba1f2e0511f5867a76530073d2c283",
       "docs/specs/combat-movement-spell-range/runtime-decisions.md": "14045ea9a6651661e03dc27850a0997f1ac1a0fabcb7bdced7fade5b2379a8c2",
       "docs/specs/combat-movement-spell-range/system-targets.yaml": "7dcba96904d001b4adb76bdbf2ec82533fade389752fdd20d2d0ba3ca459d6d6",
-      "docs/plans/combat-movement-spell-range/traceability.json#planning": "b780265d9314018ec6a32d5e706af2dbe364aff3f8dae6639575682e05005dd3",
+      "docs/plans/combat-movement-spell-range/traceability.json#planning": "117d49d19b9f94393aa6e9bef43ec6c5566de134e01d645be232aaed92c37f18",
       "docs/plans/combat-movement-spell-range/plans/plan-363#canonical": "e07e1b431fe62bef41b1b65c7172417170e4ec01eb7f6c7bf9b580580c8ee77a",
       "docs/plans/combat-movement-spell-range/plans/plan-364#canonical": "1aa4553e9cb35f5b5e7ac2ffc9162ad048ad00adbfc99d94bff35a69d4ee5b27",
       "docs/plans/combat-movement-spell-range/plans/plan-365#canonical": "2799eb03b634a31c5940ff57846c7a2e25ad342b71bd59e4a2713b0725787057",
       "docs/plans/combat-movement-spell-range/plans/plan-366#canonical": "37bd545a2534505b48e3563acba7859a570e99f69aaa8b4410b9ec0ef2550c30",
       "docs/plans/combat-movement-spell-range/plans/plan-367#canonical": "b4710a095d1fd5f2ba5cfc4f00999c069f3f1c06a465e69d8ee9b8460efb31ee",
       "docs/plans/combat-movement-spell-range/plans/plan-368#canonical": "767db3b1a78064a166b31a87cc03779cbe7aae1a24617e36cbda9ca4b59cd059",
-      "docs/plans/combat-movement-spell-range/plans/plan-369#canonical": "706939cdb1bc9c8ad34e1e63965ad5409ab70fc43244c495842670f332851dc3",
+      "docs/plans/combat-movement-spell-range/plans/plan-369#canonical": "6cb442f29c97e2a4d95eee774dea2dace04cf94778aa3dfc7ccd2419a44a48c0",
       "docs/plans/combat-movement-spell-range/plans/movement-policy-resolution#canonical": "47434c73d124b3cc70c1db37a03f7508352bdb9f0446c04eb3040908b7dcae01",
       "docs/plans/combat-movement-spell-range/plans/plan-370#canonical": "71bc33ac5cee45750aa86ba17edf051786ae70e468b17d1f95ab5d5c08def144",
       "docs/plans/combat-movement-spell-range/plans/plan-371#canonical": "4b32c5bcc60e7f605e87a5a7170d984e33553ac8f56b5e15e46e278982d9fb70",

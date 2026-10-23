@@ -774,12 +774,26 @@ public final class CombatActionApplicationService {
                             + " expected=final_ruling_and_follow_up_saved actual=committed recoveryAction=replay_final_response", started);
             return response;
         } catch (RuntimeException | Error failure) {
-            operation.failed(failure);
+            String failureState = "expected=final_ruling_and_follow_up_saved actual=failed";
+            if (operation.status() == CombatActionOperation.Status.COMMITTED) {
+                CombatActionOperation durable = operationRepository.findByCommandId(operationId).orElse(null);
+                if (durable != null && durable.status() == CombatActionOperation.Status.COMMITTED) {
+                    com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                            "combat_action_movement_player_roll", "commandId=" + operation.commandId() + " operationId="
+                                    + operation.mapOperationId() + " turnId=" + pendingTurnId
+                                    + " expected=final_ruling_and_follow_up_saved actual=committed recoveryAction=replay_final_response", started);
+                    return durable.response();
+                }
+                operation.awaitingMovementAdjudication(pending, operation.movementFollowUp());
+                failureState = "expected=COMMITTED actual=GM_INTERVENTION_PENDING";
+            } else {
+                operation.failed(failure);
+            }
             operationRepository.save(operation);
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
                     "combat_action_movement_player_roll", "commandId=" + operation.commandId() + " operationId="
                             + operation.mapOperationId() + " turnId=" + pendingTurnId
-                            + " expected=final_ruling_and_follow_up_saved actual=failed recoveryAction=retry_same_operation", started, failure);
+                            + " " + failureState + " recoveryAction=retry_same_operation", started, failure);
             throw failure instanceof CombatCommandRejectedException rejected ? rejected : new CombatExternalFailureException(failure);
         }
     }

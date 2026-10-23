@@ -38,9 +38,95 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.slf4j.LoggerFactory;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
 
 class RuntimeTurnCommitOrchestratorTest {
+    @Test
+    void malformed_gm_response_logs_expected_and_actual_schema_without_response_values() throws Exception {
+        String priorDiagnostics = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        Logger diagnosticLogger = (Logger) LoggerFactory.getLogger(MovementFollowUpRuntimeConsumer.class);
+        ListAppender<ILoggingEvent> diagnostics = new ListAppender<>();
+        diagnostics.start();
+        diagnosticLogger.addAppender(diagnostics);
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        UUID turnId = UUID.randomUUID();
+        UUID adventureId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        var source = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), adventureId, sessionId, ownerId,
+                "external", "combat-map.move", "{}", 0).done("{}");
+        var followUp = com.dndmaster.adventure.application.combat.MovementFollowUpCommand.hostileObserved(
+                operationId, turnId, hostileTokenId);
+        UUID continuationId = UUID.nameUUIDFromBytes(("movement-continuation:" + followUp.commandId())
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        fixture.followUpPublisher().publish(followUp, adventureId, sessionId, ownerId);
+        var consumer = new MovementFollowUpRuntimeConsumer(fixture.events, fixture.commands, fixture.objectMapper,
+                (command, continuation) -> com.dndmaster.adventure.application.runtime.RuntimeContinuationOutcome
+                        .applied("{\"privateMarker\":\"never-log-this-value\"}"));
+        try {
+            var result = consumer.consume(source, followUp);
+            assertEquals(MovementFollowUpPort.Result.Status.PERMANENT_FAILURE, result.status());
+            String log = diagnostics.list.stream().map(ILoggingEvent::getFormattedMessage).reduce("", (a, b) -> a + "\n" + b);
+            assertTrue(log.contains("operation=runtime_movement_gm_response_schema")
+                    && log.contains("commandId=" + continuationId) && log.contains("turnId=" + turnId)
+                    && log.contains("expectedStructure=CombatContinuationCommand")
+                    && log.contains("actualStructure=root=OBJECT") && log.contains("missing=[commandId")
+                    && log.contains("recoveryAction=retain_pending_same_command"));
+            assertTrue(!log.contains("never-log-this-value"));
+        } finally {
+            diagnosticLogger.detachAppender(diagnostics);
+            if (priorDiagnostics == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", priorDiagnostics);
+        }
+    }
+
+    @Test
+    void gm_adjudication_diagnostics_identify_failed_durable_work_without_prompt_text() {
+        String priorDiagnostics = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        Logger diagnosticLogger = (Logger) LoggerFactory.getLogger(RuntimeTurnApplicationService.class);
+        ListAppender<ILoggingEvent> diagnostics = new ListAppender<>();
+        diagnostics.start();
+        diagnosticLogger.addAppender(diagnostics);
+        UUID turnId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID adventureId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, commandId, adventureId, sessionId, ownerId,
+                "external", "movement.continuation.combat", "{\"privateMarker\":\"never-log-me\"}", 1);
+        var continuation = new com.dndmaster.adventure.application.runtime.MovementFollowUpRuntimeConsumer.Continuation(
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT, "HOSTILE_OBSERVED",
+                operationId, turnId, UUID.randomUUID(), 4, List.of(), null, List.of("HOSTILE_OBSERVED"), null, null);
+        var service = new RuntimeTurnApplicationService(mock(AdventureRepository.class), mock(RuntimeBindingRepository.class),
+                mock(ScenarioPackageRepository.class), mock(RuntimeTurnRepository.class), mock(RuntimeEvidenceSearchPort.class),
+                mock(RuntimePlanningPort.class), mock(NarrationSafetyPort.class), mock(SessionKnowledgeSetRepository.class));
+        try {
+            assertThrows(IllegalStateException.class, () -> service.adjudicateMovementFollowUp(
+                    new com.dndmaster.adventure.application.runtime.RuntimeContinuationCommandPort.ContinuationCommand(
+                            command, continuation)));
+            String log = diagnostics.list.stream().map(ILoggingEvent::getFormattedMessage).reduce("", (a, b) -> a + "\n" + b);
+            assertTrue(log.contains("operation=combat_movement_gm_adjudication")
+                    && log.contains("commandId=" + commandId) && log.contains("turnId=" + turnId)
+                    && log.contains("expected=typed_response actual=failed")
+                    && log.contains("recoveryAction=retry_same_durable_operation"));
+            assertTrue(!log.contains("never-log-me"));
+        } finally {
+            diagnosticLogger.detachAppender(diagnostics);
+            if (priorDiagnostics == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", priorDiagnostics);
+        }
+    }
+
     @Test
     void failed_required_map_entry_keeps_adventure_uncommitted_and_turn_resumable() {
         RuntimeTurnFixture fixture = new RuntimeTurnFixture();
@@ -408,6 +494,13 @@ class RuntimeTurnCommitOrchestratorTest {
 
     @Test
     void map_player_roll_is_durably_reused_when_final_ruling_retries() throws Exception {
+        String priorDiagnostics = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        Logger diagnosticLogger = (Logger) LoggerFactory.getLogger(RuntimeTurnCommitOrchestrator.class);
+        Level previousLevel = diagnosticLogger.getLevel();
+        ListAppender<ILoggingEvent> diagnostics = new ListAppender<>();
+        diagnostics.start();
+        diagnosticLogger.addAppender(diagnostics);
         RuntimeTurnFixture fixture = new RuntimeTurnFixture();
         RuntimeTurn ready = fixture.readyTurn();
         fixture.turns.save(ready.beginCommit());
@@ -454,6 +547,8 @@ class RuntimeTurnCommitOrchestratorTest {
                 fixture.commands, ignored -> { throw new AssertionError("saved map move must not run again"); },
                 fixture.followUpPublisher()::publish, consumer);
 
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.RETRY_REQUIRED, orchestrator.resume(fixture.turnId, () -> {}).status());
+
         assertEquals(RuntimeTurnCommitOrchestrator.Status.RETRY_REQUIRED,
                 orchestrator.submitMovementPlayerRoll(fixture.turnId, 14).status());
         RuntimeTurnCommand afterFailure = fixture.commands.findByCommandId(followUp.commandId()).orElseThrow();
@@ -483,6 +578,18 @@ class RuntimeTurnCommitOrchestratorTest {
                         ignored -> { throw new AssertionError("saved map move must not run again"); },
                         fixture.followUpPublisher()::publish, consumer)
                         .submitMovementPlayerRoll(fixture.turnId, 13));
+        String log = diagnostics.list.stream().map(ILoggingEvent::getFormattedMessage).reduce("", (a, b) -> a + "\n" + b);
+        assertTrue(log.contains("operation=runtime_movement_intervention_pending")
+                && log.contains("expected=final_ruling_saved actual=GM_INTERVENTION_PENDING")
+                && log.contains("commandId=" + followUp.commandId()));
+        assertTrue(log.contains("operation=runtime_movement_player_roll")
+                && log.contains("expected=final_ruling_and_follow_up_saved actual=completed")
+                && log.contains("turnId=" + fixture.turnId));
+        assertTrue(!log.contains("굴림을 제출해 주세요."));
+        diagnosticLogger.detachAppender(diagnostics);
+        diagnosticLogger.setLevel(previousLevel);
+        if (priorDiagnostics == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", priorDiagnostics);
     }
 
     @Test
@@ -594,7 +701,7 @@ class RuntimeTurnCommitOrchestratorTest {
     }
 
     @Test
-    void map_ui_reuses_the_saved_typed_result_when_follow_up_completion_ack_is_lost() throws Exception {
+    void map_ui_reuses_saved_final_ruling_when_turn_completion_record_write_fails() throws Exception {
         RuntimeTurnFixture fixture = new RuntimeTurnFixture();
         UUID operationId = UUID.randomUUID();
         UUID hostileTokenId = UUID.randomUUID();
@@ -613,24 +720,18 @@ class RuntimeTurnCommitOrchestratorTest {
         RuntimeTurnCommand move = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
         String movementOutcome = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(movement);
         AtomicInteger adjudications = new AtomicInteger();
-        java.util.concurrent.atomic.AtomicBoolean loseCompletionAck = new java.util.concurrent.atomic.AtomicBoolean(true);
-        var commandRepository = new com.dndmaster.adventure.application.runtime.RuntimeTurnCommandRepository() {
-            @Override public java.util.Optional<RuntimeTurnCommand> findByCommandId(UUID id) {
-                return fixture.commands.findByCommandId(id);
+        java.util.concurrent.atomic.AtomicBoolean failBeforeCommittedTurnSave = new java.util.concurrent.atomic.AtomicBoolean(true);
+        RuntimeTurnRepository turnRepository = new RuntimeTurnRepository() {
+            @Override public java.util.Optional<RuntimeTurn> findByTurnId(UUID id) { return fixture.turns.findByTurnId(id); }
+            @Override public java.util.Optional<RuntimeTurn> findByCommandId(UUID id) { return fixture.turns.findByCommandId(id); }
+            @Override public List<RuntimeTurn> findAllByAdventureId(com.dndmaster.adventure.domain.adventure.AdventureId id) {
+                return fixture.turns.findAllByAdventureId(id);
             }
-            @Override public java.util.Optional<RuntimeTurnCommand> findByIdempotencyKey(String key) {
-                return fixture.commands.findByIdempotencyKey(key);
-            }
-            @Override public List<RuntimeTurnCommand> findByTurnId(UUID turnId) {
-                return fixture.commands.findByTurnId(turnId);
-            }
-            @Override public void save(RuntimeTurnCommand command) {
-                if ("movement.follow-up".equals(command.commandType())
-                        && command.executionStatus() == RuntimeTurnCommand.ExecutionStatus.DONE
-                        && loseCompletionAck.getAndSet(false)) {
-                    throw new IllegalStateException("simulated stop after typed result persistence");
+            @Override public void save(RuntimeTurn turn) {
+                if (turn.lifecycle() == RuntimeTurnLifecycle.COMMITTED && failBeforeCommittedTurnSave.getAndSet(false)) {
+                    throw new IllegalStateException("simulated failure before RuntimeTurn COMMITTED record write");
                 }
-                fixture.commands.save(command);
+                fixture.turns.save(turn);
             }
         };
         var consumer = new com.dndmaster.adventure.application.runtime.MovementFollowUpRuntimeConsumer(
@@ -649,20 +750,25 @@ class RuntimeTurnCommitOrchestratorTest {
                 });
         com.dndmaster.adventure.application.runtime.RuntimeTurnCommandAdapter firstAdapter = ignored ->
                 RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, movementOutcome, movement);
-        var firstInstance = new RuntimeTurnCommitOrchestrator(fixture.turns, commandRepository, firstAdapter,
+        var firstInstance = new RuntimeTurnCommitOrchestrator(turnRepository, fixture.commands, firstAdapter,
                 fixture.followUpPublisher()::publish, consumer);
 
         assertThrows(IllegalStateException.class, () -> firstInstance.commit(fixture.readyTurn(), List.of(move), () -> {}));
         assertEquals(1, adjudications.get());
+        RuntimeTurnCommand persistedFinalRuling = fixture.commands.findByTurnId(fixture.turnId).stream()
+                .filter(command -> "movement.follow-up".equals(command.commandType())).findFirst().orElseThrow();
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, persistedFinalRuling.executionStatus());
+        assertTrue(persistedFinalRuling.outcomeJson().contains("다음 행동을 선택해 주세요."));
+        assertEquals(RuntimeTurnLifecycle.COMMITTING, fixture.turns.findByTurnId(fixture.turnId).orElseThrow().lifecycle());
 
-        var restartedInstance = new RuntimeTurnCommitOrchestrator(fixture.turns, commandRepository,
+        var restartedInstance = new RuntimeTurnCommitOrchestrator(turnRepository, fixture.commands,
                 ignored -> { throw new AssertionError("saved movement must not run after restart"); },
                 fixture.followUpPublisher()::publish, consumer);
         assertEquals(RuntimeTurnCommitOrchestrator.Status.COMMITTED,
                 restartedInstance.resume(fixture.turnId, () -> {}).status());
         assertEquals(1, adjudications.get());
-        assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, fixture.commands.findByTurnId(fixture.turnId).stream()
-                .filter(command -> "movement.follow-up".equals(command.commandType())).findFirst().orElseThrow().executionStatus());
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, persistedFinalRuling.executionStatus());
+        assertEquals(RuntimeTurnLifecycle.COMMITTED, fixture.turns.findByTurnId(fixture.turnId).orElseThrow().lifecycle());
     }
 
     @Test

@@ -122,7 +122,7 @@ Codex 연결 경로를 검증하는 경우에만 같은 체크아웃에서 사�
 
 ## 적 전투 수치 출력 계약 검증
 
-전투 이동 중 사건의 판정·서술·플레이어 입력 대기, 직접 행동 재시도 복구, 지도 화면의 명령 재전송·차례 재개·저장된 중단 결과 복원은 `combat-movement-interruption-unit` 프로필로 검증한다. 이 프로필은 실행 전에 Java, Gradle, Node.js 24 이상, npm, 설치된 Vitest 실행 파일을 확인한다. 이동을 행동 전·사이·후에 나누어 제출해 저장된 속도·사용량·잔여량이 화면 표시와 일치하는지 확인하고, 이동 경로·미리보기 제한 및 질주 이동량 정책이 두 진입 경로에서 유지되는지 검사한다. `CombatMapFlow.test.tsx`와 `CombatScreen.test.tsx`의 UI 단위 검사도 포함한다. 기존 `adventure-focused-unit`의 지도 권한 테스트와 별도 기록을 남긴다.
+전투 이동 중 사건의 판정·서술·플레이어 입력 대기, 직접 행동 재시도 복구, 지도 화면의 명령 재전송·차례 재개·저장된 중단 결과 복원은 `combat-movement-interruption-unit` 프로필로 검증한다. 이 프로필은 실행 전에 Java, Gradle, Node.js 24 이상, npm, 설치된 Vitest 실행 파일과 Docker를 확인한다. PostgreSQL 통합 검사는 Testcontainers와 Flyway로 명령을 저장한 뒤 새 저장소 인스턴스에서 판정 대기 상태와 플레이어 굴림을 다시 읽는다. 컨트롤러 검사는 직접 행동 제출과 굴림 제출 응답을 확인한다. 이동을 행동 전·사이·후에 나누어 제출해 저장된 속도·사용량·잔여량이 화면 표시와 일치하는지 확인하고, 이동 경로·미리보기 제한 및 질주 이동량 정책이 두 진입 경로에서 유지되는지 검사한다. `CombatMapFlow.test.tsx`와 `CombatScreen.test.tsx`의 UI 단위 검사도 포함한다. 기존 `adventure-focused-unit`의 지도 권한 테스트와 별도 기록을 남긴다.
 
 ```bash
 node .codex/scripts/harness-exec.mjs --root "$PWD" --profile combat-movement-interruption-unit
