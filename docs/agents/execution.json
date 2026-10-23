@@ -145,6 +145,15 @@
         [
           "java",
           "-version"
+        ],
+        [
+          "bash",
+          "-lc",
+          "node -e 'const [major] = process.versions.node.split(\".\").map(Number); if (major < 24) process.exit(1)'"
+        ],
+        [
+          "npm",
+          "--version"
         ]
       ],
       "dependencies": [],
@@ -711,6 +720,15 @@
           "test",
           "-x",
           "src/gradlew"
+        ],
+        [
+          "node",
+          "-e",
+          "if (Number(process.versions.node.split('.')[0]) < 24) process.exit(1)"
+        ],
+        [
+          "npm",
+          "--version"
         ],
         [
           "test",

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "revision": 106,
+  "revision": 108,
   "updated_at": "2026-10-23",
-  "change_summary": "Seal plan-369 recovery implementation source snapshot; the contract already requires pre-completion failures to preserve GM_INTERVENTION_PENDING and replay persisted results on the same server operation.",
+  "change_summary": "Update plan-369 traceability to the latest successful post-restoration harness receipt.",
   "source_roots": [
     "src",
     ".github",
@@ -301,7 +301,7 @@
       "reason": "폐기된 검색 설계에는 현행 상태와 전이가 없다."
     }
   ],
-  "no_contract_change": "The change implements the already documented behavior in docs/contracts/architecture.md:51-53: failed downstream persistence keeps the CombatActionOperation pending and same-command retry reuses saved typed results. No domain rule, owner, state, or interface changed.",
+  "no_contract_change": "No canonical business or architecture contract semantics changed; receipt provenance was refreshed.",
   "hashes": {
     "@model": "3c3a6904e40cecfe8381791efe1e23d9f44e776375a416f5698d2b38a7be1303",
     ".github/pull_request_template.md": "4a773c8b13e402f6e7b2c5fe02d78f74cf2dc094045b7952f45b3021eb62f552",
@@ -312,7 +312,7 @@
     "CONTEXT.md": "261a2fdf4a90e23e63249320de0be34c1fbdfa31f981fb6370688d195ea84a6f",
     "docs/agents/BROWSER.md": "40ca720ba1ff22d1f350a9ba460bdca201257d2ae75782f4223c681504f4f186",
     "docs/agents/EXEC.md": "5fe5b26b5f410d53de9d57e6ae2d660dd0e6a72327cf1392b430009f9e0b9656",
-    "docs/agents/execution.json": "a119f1a0ba034786cb0774ffe36bccae92353b21538b1aed8ae367e6f5dc960f",
+    "docs/agents/execution.json": "8ea2dcca95a9b03802770ea536178f991606c5684f5d801cebabeda1af53b95d",
     "docs/agents/implementation-guidance.md": "2e68cac4b5bc186c6fd408458b056dbbb88aa7f782ddcaf0379aed2c5e5810a8",
     "docs/agents/plan-status.md": "da3a90debca2185a8015e3df913acd49a64ef13b8eafc34acb84904940a10ae4",
     "docs/agents/testing-guidance.md": "ae5a4cf5657181bfe215bec55185e772a2f9886042a84abf5209cc89e7dc1783",
@@ -371,9 +371,9 @@
     "docs/plans/combat-movement-spell-range/map-entry-flow.md": "82a867389d52f4c1019ce279b9dd9fa97e537491792c65b26d4637e2bd872906",
     "docs/plans/combat-movement-spell-range/movement-policy-resolution-draft.md": "df83e669ec81eeaa15c96cca81016cbbaa7d626e2238ca4f43b233a9baf2f4e7",
     "docs/plans/combat-movement-spell-range/plan-369-draft.md": "25eb42ac0ec6355eb2407313a1b8f7ce1ea4172cf1b6217908830781ba6b59d3",
-    "docs/plans/combat-movement-spell-range/plans.md": "7ecd9bd234c9b75344381c58d5c9f858b97fc419321b7ced35c9f675390f2b31",
+    "docs/plans/combat-movement-spell-range/plans.md": "2e92bd1991bb9b248328dd401f749b07af66b451e9197bef2c2ebc894f42feb1",
     "docs/plans/combat-movement-spell-range/rulebook-action-extraction.md": "821e856fe9f70233dcf4fa234d74cbd08efcfe7fae4ab74a8fc5a6b19c0d0cc4",
-    "docs/plans/combat-movement-spell-range/traceability.json": "8273db35d890acc9952b1690ecebf9c30951401681eb02fa6b2d749ed6cf29b8",
+    "docs/plans/combat-movement-spell-range/traceability.json": "1a8edac63075f5c575290fd05f25e4b53635d50c81c0f908e391e8a4ac16504f",
     "docs/plans/document-preprocessing-pivot.md": "98788bbd0ad536b93250561d667945e6012365c277f3b426822b5fd5e6acc4c6",
     "docs/plans/gm-context-compaction/plans.md": "f03a210e67086da62ed8c2641ca36dce9cf30d87490a96fa969702a8fd3ed538",
     "docs/plans/hybrid-rag-evidence-selection/plans.md": "d04bfc0f239d5dcaa44ecbd942b43a63838f9f22deaf3b756a4bb83cd69844d5",
