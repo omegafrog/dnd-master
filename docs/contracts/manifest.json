@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "revision": 65,
+  "revision": 67,
   "updated_at": "2026-10-23",
-  "change_summary": "Expanded plan-368 receiving criteria for the already implemented per-hostile awareness handoff and refreshed canonical traceability.",
+  "change_summary": "Synchronize #368 dependency and BR-44/45 traceability with approved specifications",
   "source_roots": [
     "src",
     ".github",
@@ -301,7 +301,7 @@
       "reason": "폐기된 검색 설계에는 현행 상태와 전이가 없다."
     }
   ],
-  "no_contract_change": "Only plan-traceability criteria and issue mirrors changed; the reviewed Product/Architecture contract wording and diagrams remain accurate and unchanged.",
+  "no_contract_change": "Only ticket dependency, acceptance criteria traceability, and verification-case metadata changed; existing contract wording and diagrams remain accurate",
   "hashes": {
     "@model": "54537ebc81dcd515399470ca544adf583339dd963d8c0c6890e8c5ff69d8de80",
     ".github/pull_request_template.md": "4a773c8b13e402f6e7b2c5fe02d78f74cf2dc094045b7952f45b3021eb62f552",
@@ -369,9 +369,9 @@
     "docs/plans/combat-movement-spell-range/dice-in-adventure.md": "df3945350d04c2f64a10cec51c5e4c201dd1d783baee688b23aa7cb5165cc6b5",
     "docs/plans/combat-movement-spell-range/enemy-ability-preparation.md": "410f27e50154cf3bd0758002cba6808dd77c74c852f61f66db12c0d0b2826c4b",
     "docs/plans/combat-movement-spell-range/map-entry-flow.md": "82a867389d52f4c1019ce279b9dd9fa97e537491792c65b26d4637e2bd872906",
-    "docs/plans/combat-movement-spell-range/plans.md": "d061110a127892723e0149d709911fb8cd7dc8207c6b6e7a7bf09151c92374e4",
+    "docs/plans/combat-movement-spell-range/plans.md": "d53289cf573c6c53a8fc0ea74a8e8a0d0239f9112dca1fe181c81292020b6826",
     "docs/plans/combat-movement-spell-range/rulebook-action-extraction.md": "821e856fe9f70233dcf4fa234d74cbd08efcfe7fae4ab74a8fc5a6b19c0d0cc4",
-    "docs/plans/combat-movement-spell-range/traceability.json": "63593568a8c7f97c8bbfe5451cf35e325f3766ad7a19aecad131d69b3c00618d",
+    "docs/plans/combat-movement-spell-range/traceability.json": "19702f64cf3c28f25d99282b1ee62377c2457bef5fa86e919eb4e280c32c3ef7",
     "docs/plans/document-preprocessing-pivot.md": "98788bbd0ad536b93250561d667945e6012365c277f3b426822b5fd5e6acc4c6",
     "docs/plans/gm-context-compaction/plans.md": "f03a210e67086da62ed8c2641ca36dce9cf30d87490a96fa969702a8fd3ed538",
     "docs/plans/hybrid-rag-evidence-selection/plans.md": "d04bfc0f239d5dcaa44ecbd942b43a63838f9f22deaf3b756a4bb83cd69844d5",
