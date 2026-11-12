@@ -11,7 +11,14 @@ public interface InitialSituationGmPort {
 
     record Request(UUID ownerPlayerId, UUID sessionId, UUID endpointId, String provider, String model,
             String reasoning, String operationKey, String prompt, JsonNode outputSchema, boolean useSubagents,
-            List<StageTask> stageTasks, boolean openingSituationRequired, int requiredSituationCount) {
+            List<StageTask> stageTasks, boolean openingSituationRequired, int requiredSituationCount,
+            String imageDataUri) {
+        public Request(UUID ownerPlayerId, UUID sessionId, UUID endpointId, String provider, String model,
+                String reasoning, String operationKey, String prompt, JsonNode outputSchema, boolean useSubagents,
+                List<StageTask> stageTasks, boolean openingSituationRequired, int requiredSituationCount) {
+            this(ownerPlayerId, sessionId, endpointId, provider, model, reasoning, operationKey, prompt,
+                    outputSchema, useSubagents, stageTasks, openingSituationRequired, requiredSituationCount, "");
+        }
         public Request(UUID ownerPlayerId, UUID sessionId, UUID endpointId, String provider, String model,
                 String reasoning, String operationKey, String prompt, JsonNode outputSchema, boolean useSubagents,
                 List<StageTask> stageTasks) {
@@ -30,6 +37,9 @@ public interface InitialSituationGmPort {
         }
         public Request {
             stageTasks = stageTasks == null ? List.of() : List.copyOf(stageTasks);
+            imageDataUri = imageDataUri == null ? "" : imageDataUri.trim();
+            if (!imageDataUri.isBlank() && !imageDataUri.startsWith("data:image/"))
+                throw new IllegalArgumentException("map image must be an image data URI");
             if (requiredSituationCount < 0) throw new IllegalArgumentException("required situation count must not be negative");
             if (useSubagents && stageTasks.isEmpty()) throw new IllegalArgumentException("stage tasks are required for delegated preparation");
             if (stageTasks.stream().map(StageTask::stageId).distinct().count() != stageTasks.size())

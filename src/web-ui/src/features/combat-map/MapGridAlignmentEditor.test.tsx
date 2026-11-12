@@ -332,7 +332,7 @@ it('converts a grid drag through the zoomed image coordinates', async () => {
 
 it('keeps crop and zoomed pointer samples on their source image coordinates', async () => {
   const apply = vi.fn().mockResolvedValue(undefined)
-  render(<MapGridAlignmentEditor image="/public.png" crop={{ x: 300, y: 100, width: 500, height: 400 }} grid={{ width: 28, height: 19 }} initial={{ ...initial, originX: 600, originY: 500, cellSize: 36 }} onApply={apply} onCancel={() => {}} />)
+  render(<MapGridAlignmentEditor image="/public.png" crop={{ x: 300, y: 100, width: 500, height: 400 }} initial={{ ...initial, originX: 600, originY: 500, cellSize: 36 }} onApply={apply} onCancel={() => {}} />)
   const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
   const image = screen.getByAltText('공개된 지도 이미지')
   vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 100, top: 200, width: 672, height: 538 } as DOMRect)
@@ -344,31 +344,37 @@ it('keeps crop and zoomed pointer samples on their source image coordinates', as
   const user = userEvent.setup()
   await user.click(screen.getByRole('button', { name: '확대' }))
   await user.click(screen.getByRole('button', { name: '확대' }))
-  await user.click(screen.getByRole('button', { name: '지도 이동' }))
-  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 300, clientY: 400 }))
-  fireEvent(canvas, new MouseEvent('pointermove', { bubbles: true, clientX: 324, clientY: 384 }))
-  fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, clientX: 324, clientY: 384 }))
-  await user.click(screen.getByRole('button', { name: '격자 맞추기' }))
 
   const sample = (x: number, y: number) => {
-    const at = { clientX: 100 + 1 + 24 + (x - 300) * 2.01, clientY: 200 + 1 - 16 + (y - 100) * 2.01 }
+    const at = { clientX: 100 + 1 - 167.5 + (x - 300) * 2.01, clientY: 200 + 1 - 134 + (y - 100) * 2.01 }
     fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, ...at }))
     return () => fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, ...at }))
   }
   const releaseFirst = sample(419.5, 216.5)
-  const magnifierImage = screen.getByLabelText('확대경').querySelector('img')!
-  const translation = magnifierImage.style.transform.match(/translate\((-?[\d.]+)px, (-?[\d.]+)px\)/)!
-  expect(magnifierImage).toHaveStyle({ left: '50%', top: '50%' })
-  expect(Number(translation[1])).toBeCloseTo(-1048.75, 4)
-  expect(Number(translation[2])).toBeCloseTo(-541.25, 4)
   releaseFirst()
   sample(527.5, 324.5)()
   await user.click(screen.getByRole('button', { name: '적용' }))
-  expect(apply.mock.calls[0][0].originX).toBeCloseTo(383.5, 3)
-  expect(apply.mock.calls[0][0].originY).toBeCloseTo(288.5, 3)
-  expect((419.5 - apply.mock.calls[0][0].originX) / apply.mock.calls[0][0].cellSize).toBeCloseTo(1, 3)
-  expect((216.5 - apply.mock.calls[0][0].originY) / apply.mock.calls[0][0].cellSize).toBeCloseTo(-2, 3)
+  expect(apply.mock.calls[0][0].originX).toBeCloseTo(419.5, 3)
+  expect(apply.mock.calls[0][0].originY).toBeCloseTo(216.5, 3)
+  expect((419.5 - apply.mock.calls[0][0].originX) / apply.mock.calls[0][0].cellSize).toBeCloseTo(0, 3)
+  expect((216.5 - apply.mock.calls[0][0].originY) / apply.mock.calls[0][0].cellSize).toBeCloseTo(0, 3)
   expect(apply.mock.calls[0][0].cellSize).toBeCloseTo(36, 3)
   expect(apply.mock.calls[0][0]).toMatchObject({ mapId: 'map-1', expectedVersion: 3, imageRevision: 'image-v1' })
   expect(apply.mock.calls[0][0].commandId).toEqual(expect.any(String))
+})
+
+it('centers the magnifier on the selected source-image point inside a crop', () => {
+  render(<MapGridAlignmentEditor image="/public.png" crop={{ x: 300, y: 100, width: 500, height: 400 }} initial={initial} onApply={vi.fn()} onCancel={() => {}} />)
+  const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
+  const image = screen.getByAltText('공개된 지도 이미지')
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 500, height: 400 } as DOMRect)
+  Object.defineProperties(canvas, { clientWidth: { value: 500 }, clientHeight: { value: 400 }, clientLeft: { value: 0 }, clientTop: { value: 0 } })
+  Object.assign(canvas, { setPointerCapture: vi.fn() })
+  Object.defineProperty(image, 'naturalWidth', { value: 1403 })
+  Object.defineProperty(image, 'naturalHeight', { value: 992 })
+  fireEvent.load(image)
+  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 119.5, clientY: 116.5 }))
+
+  const magnifierImage = screen.getByLabelText('확대경').querySelector('img')!
+  expect(magnifierImage).toHaveStyle({ left: '50%', top: '50%', transform: 'translate(-998.75px, -491.25px)' })
 })

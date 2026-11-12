@@ -1,0 +1,63 @@
+---
+status: planned
+source_issue: https://github.com/omegafrog/dnd-master/issues/375
+---
+## 상태
+
+Planned
+
+## 의존성
+
+#367, #369, #371, #372, #373, #374, #395
+
+## 구현 목적
+
+자연어로 선언한 이동·능력도 사용자가 확인한 기존 행동 흐름으로 연결해 지도 입력과 같은 규칙·저장 경계를 따르게 한다.
+
+## 범위
+
+- `workspace_root`: `/home/jiwoo/workspace/.harness-worktrees/dnd-master/35f35f96-87e3-4e88-8277-f6e5e0aa8a5b`
+- `workspace_branch`: `harness/implement-combat-movement-spell-range/35f35f96-87e3-4e88-8277-f6e5e0aa8a5b`
+
+- 계획 식별자: plan-375.
+- 자연어 이동·주문·원거리 공격·투척은 기존 정형 행동의 서버 명령으로 변환하되, 입력만으로 실행을 확정하지 않는다.
+- 지도상 위치·경로·범위가 필요한 행동은 기존 미리보기와 명시적 사용자 확인 경계를 사용한다.
+- 자연어 전투 이동은 #369의 중단 사건 전용 GM 계약, 실제 위치·이동량 보존, 같은 차례 재개 정책을 재사용한다.
+- Adventure Runtime과 Combat Map의 기존 권한·멱등성·숨김 정보 경계를 재사용하고 별도 저장 상태를 만들지 않는다.
+
+## 수용 기준
+
+- 요구사항 추적: AC-16, AC-19, AC-20, BR-18, BR-19, BR-21, EX-10, G-07, UC-002.
+- 소유 경계: 모험 행동 입력 경계(AdventureController)의 자연어 처리와 전투 행동 처리 서비스(CombatActionApplicationService)·지도 이동 조정기(MapMovementCoordinator); 시행 지점: 이동·주문·원거리 공격·투척의 자연어 입력도 사용자 확인과 공통 규칙 검증을 거쳐 지도 입력과 같은 저장 상태를 만듦.
+- UC-002, BR-18/19, AC-16/20, EX-10, G-07을 충족한다.
+- 자연어 이동에서 서버 명령 생성·미리보기·확인·실행이 단계별로 분리되어 사용자가 확인하기 전에는 지도·전투 상태가 바뀌지 않는다.
+- 이동·주문·원거리 공격·투척 각각에서 자연어 입력과 동등한 지도 입력이 같은 명령 종류·규칙 검증·정보 공개 경계를 사용하며, 사거리·대상·이동량·자원 결과가 일치한다.
+- 정형 지도 입력과 자연어 입력이 같은 규칙 검증, 중단 처리, 저장 결과, 권한 및 정보 공개 정책을 사용한다.
+- GM의 서술은 플레이어 행동 명령이 아니며 자연어 선언만으로 토큰 위치 또는 턴 종료를 바꾸지 않는다.
+- 금지 사례: 자연어 선언이 직접 지도 조작과 다른 규칙 검증·권한·저장 결과를 만든다.
+
+## 테스트 계약
+
+- 개발용 진단 검증 (Architecture Spec §9.1·INV-01): 이 계획이 바꾸는 각 시작·완료·대체 경로·재시도·실패 분기에서 기존 `DevelopmentDiagnostics`(개발 진단 기능)와 `dev_` 개발 로그 형식을 확인한다. `ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED`(개발용 상세 진단 로그 설정)가 꺼졌을 때 상세 로그가 없고, 켜졌을 때 식별자·입력 크기/개수·기대/실제 값·선택 분기·소요 시간·실패 종류와 다음 복구 동작이 드러나며, 프롬프트·응답·인증 정보·불필요한 플레이어 입력·비공개 지도 정보를 기록하지 않고 실제 동작도 바꾸지 않는지 검사한다.
+
+- 단위·계약 검사와 현재 소스·테스트 해시에 연결된 실행 기록은 기존 `adventure-focused-unit` 프로필로 확보한다. 이 기록은 아래 필수 실제 브라우저 E2E 결과를 대신하지 않는다.
+- `adventure-runtime-server`는 서버 준비 전용 선행 절차다. 브라우저 E2E를 실행하거나 그 통과를 증명하지 않는다. 이미 실행 중인 서비스는 EXEC 절차에 따라 재사용하며, 테스트 후에도 유지한다. 새 실행 프로필이나 Playwright 런타임 테스트 스크립트를 만들지 않고 EXEC·ADR-024에 따라 headed Chromium의 실제 화면과 실제 사용자 PC 에이전트 응답을 한 단계씩 확인한다.
+- 필수 E2E 결과는 별도로 세션 출력 디렉터리에 기록한다. 화면 캡처, 다시 조회한 서버 상태·저장 결과, 원본 네 파일의 가독성·역할 연결, 사용자 격자 조정 대기와 재개, 저장된 22열×23행, 실제 도달 칸·사용 이동량·같은 플레이어 차례·다음 입력 대기 및 지도 입력 비교의 증거를 포함한다. 기존 상세 E2E 시나리오 전체를 실행해야 하며 단위 검사 실행 기록이나 서버 준비만으로 완료하지 않는다.
+- 완료 조건: 현재 소스에 연결된 `adventure-focused-unit` 검사 통과와 필수 실제 브라우저 E2E 통과 증거가 모두 있을 때만 `tests.status=passed` 및 `required_outcome=achieved`로 기록한다. E2E 실패 또는 미실행이면 Done을 막는다. 2026-10-28 사용자가 앞선 재실행에 이어 이미지 입력 변경을 반영한 E2E 1회를 추가로 명시 요청했다. 이번 실행 뒤 자동 재시도는 하지 않는다. 시간 제한 없이 진행하고, 실패하면 자동 재전송하지 않고 멈춰 사용자에게 묻고, 실행 중인 서비스를 유지한다.
+
+- 단위/정책: 자연어에서 행동 선택으로의 변환, 지도 UI 확인 경계, 결과 일관성. 자연어 행동 종류별 비교: 이동·주문·원거리 공격·투척의 같은 유효/무효 조건을 지도 직접 입력과 자연어 입력에 적용해 명령 종류, 검증 결과, 공개 정보, 위치·자원 결과가 일치하는지 확인한다. 확인 전 상태 불변과 재확인 중복 방지도 확인한다. 요구사항 식별자: AC-16, AC-19, AC-20, BR-18, BR-19, BR-21, EX-10, G-07, UC-002. 소유 경계와 실행 진입점: 모험 행동 입력 경계(AdventureController)의 자연어 처리와 전투 행동 처리 서비스(CombatActionApplicationService)·지도 이동 조정기(MapMovementCoordinator); 이동·주문·원거리 공격·투척의 자연어 입력도 사용자 확인과 공통 규칙 검증을 거쳐 지도 입력과 같은 저장 상태를 만듦. 추적 수용 조건: 자연어 행동은 같은 능력 정의·범위·대상·이동 검증을 사용한다. 반례: 자연어 선언이 직접 지도 조작과 다른 규칙 검증·권한·저장 결과를 만든다. 검증 사례: 단위/정책: 자연어에서 행동 선택으로의 변환, 지도 UI 확인 경계, 결과 일관성. 자연어 행동 종류별 비교: 이동·주문·원거리 공격·투척의 같은 유효/무효 조건을 지도 직접 입력과 자연어 입력에 적용해 명령 종류, 검증 결과, 공개 정보, 위치·자원 결과가 일치하는지 확인한다. 확인 전 상태 불변과 재확인 중복 방지도 확인한다. 입력 경계 검증: 자연어 해석은 행동 후보만 만들며 확인 전 명령을 확정하지 않고, 확인된 이동 명령만 공통 이동·사건 처리 경계를 호출하며, 주문·공격·투척도 지도 확정 입력과 같은 범위·대상·자원 검증 경계를 호출한다.
+- `ui ~ entity` E2E: 필수 E2E — 변경 위험: 원본 룰북·시나리오·지도·핸드아웃 연결, 지도의 자르기·격자 저장, 상황 진입, 자연어 행동 승인과 실제 에이전트 사건 후 같은 차례 복귀가 함께 맞아야 한다. 단위·계약 검사는 실제 파일 연결, 브라우저 화면에서 저장된 격자, 실제 지도 위치·이동량·차례 상태의 일치를 증명하지 못한다. 최소 시나리오: `/home/jiwoo/workspace/dnd-master/docs/assets`의 `DnD_BasicRules_2018.pdf`, `892902-A_Most_Potent_Brew.pdf`, `892902-A_Potent_Brew_Map.pdf`, `892902-A_Most_Potent_Brew_Player_Handout.pdf` 네 파일이 존재하고 읽히는지 확인하고 각각 기본 룰북, `MAIN_SCENARIO`, `MAP`, `HANDOUT`으로 연결한다. headed Chromium에서 Potent Brew 지도를 제목·여백 없이 자르고 사용자가 격자를 맞춰 저장하도록 격자 화면에서 대기한다. 사용자가 재개하면 저장값이 정확히 22열×23행인지 확인하고 새 모험을 시작해 지도 필요 상황에 진입한다. 자연어 이동 후보를 생성해 사용자가 명시적으로 승인하고, 실제 에이전트가 처리하는 사건에서 멈춘 뒤 화면과 다시 조회한 서버 상태에서 도달 칸·소비한 이동량·같은 플레이어 차례·다음 입력 대기를 확인한다. 사건 해결 후 새 경로를 지도에서 직접 확인해 이동하고 같은 위치·이동량·턴 규칙을 적용하는지 확인한다. 주문·원거리 공격·투척의 자연어와 지도 입력 일치는 해당 저비용 계약·통합 검사에서 각각 확인한다. 검증 oracle: 네 원본 파일의 존재·가독성·역할 연결, 22열×23행 저장, 실제 이동 위치·사용량·같은 플레이어 차례와 지도 입력 비교를 확인한다. 파일 누락·읽기 실패·역할 연결 오류·22×23 불일치는 대체 자료나 격자값으로 보정해 통과하지 않고 실패시킨다. 서버 상태·화면·저장 결과 중 하나라도 막히면 요청을 재전송하지 않고 상태를 기록해 사용자에게 묻는다. 서버 준비 전용 프로필 `adventure-runtime-server`(실제 브라우저 실행·통과 증거와 별도), 시간 제한 없음(사용자가 중단할 때까지), 전체 시도 1회(자동 재시도 없음).
+
+## 관련 명세
+
+- Product Spec: docs/specs/combat-movement-spell-range/product-spec.md
+- Architecture Spec: docs/specs/combat-movement-spell-range/architecture-spec.md
+
+## 다이어그램
+
+- 제품: UC-002 미리보기와 실행 — ![UC-002 미리보기와 실행](https://github.com/omegafrog/dnd-master/blob/harness/spec-me/cff78917-af41-4451-87e5-df5ba5376d49/docs/specs/combat-movement-spell-range/diagrams/product/UC-002.activity.svg?raw=true)
+- 제품: UC-005 탐험 이동 흐름 — ![UC-005 탐험 이동 흐름](https://github.com/omegafrog/dnd-master/blob/harness/spec-me/cff78917-af41-4451-87e5-df5ba5376d49/docs/specs/combat-movement-spell-range/diagrams/product/UC-005.activity.svg?raw=true)
+
+## E2E 실행 기록
+
+- `E2E-PLAN375-IMAGE-INPUT-20261028-06-SETUP-001`: 사용자 추가 승인 1회 실행. 모험 준비 중 `character-story-overlays` 요청이 HTTP 500 / `DELIVERY_FAILED`로 실패해 첫 상황 생성 전에 중단했다. 보존된 사용자 PC 로그에서 Codex app-server의 `method=error`, `CodexTurnFailedException`(4,679ms), `errorCode=unclassified`, `errorCategory=OTHER`, `messageChars=82`, `safeProviderDetails=[]`를 확인했다. 로컬 에이전트는 `LOCAL_EXECUTION_FAILED`, 중계기는 `REMOTE_FAILURE`를 반환했다. 구체적인 공급자 원인은 안전 로그에서 분류되지 않았다. 초기 `/dev/null` 주장은 잘못이었으며 로그는 세션 임시 파일에 있었다. 안전한 발췌는 `runtime/e2e/plan375-image-input-20261028-06/user-pc-agent-error.txt`에 보존했다. 지도 이미지 입력과 지도 활성화·이동은 도달하지 못했고 재전송하지 않았다. 이번 실행은 소진됐으며 자동 재시도는 없다.

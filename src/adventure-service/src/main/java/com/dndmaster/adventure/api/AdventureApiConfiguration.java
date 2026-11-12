@@ -276,10 +276,21 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.scenario.preparation.ScenarioMapImagePort scenarioMapImagePort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new com.dndmaster.adventure.infrastructure.integration.HttpScenarioMapImagePort(
+                HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper, internalToken);
+    }
+
+    @Bean
     StageArtifactPreparationApplicationService stageArtifactPreparationApplicationService(
             com.dndmaster.adventure.domain.scenario.StageArtifactRepository artifacts,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             com.dndmaster.adventure.application.scenario.preparation.InitialSituationGmPort initialSituationGmPort,
+            com.dndmaster.adventure.application.scenario.preparation.ScenarioMapImagePort scenarioMapImagePort,
             GmProviderBindingRepository providerBindings,
             AdventureSessionRepository sessions, ObjectMapper objectMapper,
             @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String ruleKnowledgeBaseUrl,
@@ -288,7 +299,7 @@ public class AdventureApiConfiguration {
         var storySource = new com.dndmaster.adventure.infrastructure.integration.HttpStorySourcePreviewPort(
                 HttpClient.newHttpClient(), URI.create(ruleKnowledgeBaseUrl), storySourceTimeout, objectMapper, internalToken);
         var adapter = new ScenarioPackageStageArtifactAdapter(packageRepository, initialSituationGmPort,
-                providerBindings, sessions, objectMapper, storySource);
+                providerBindings, sessions, objectMapper, storySource, scenarioMapImagePort);
         return new StageArtifactPreparationApplicationService(artifacts, adapter, adapter, adapter);
     }
 

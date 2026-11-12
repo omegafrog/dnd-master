@@ -1,5 +1,9 @@
 @startuml
- title 지도에서 이동과 조우 해결 (spatial-movement, #367·#368)
+ title 지도에서 이동과 조우 해결 (spatial-movement, #367·#368·#369)
+ note top
+   통합 계약은 승인 목표를 포함한다. #369 판정 선택 흐름은 일부 구현 상태다.
+   Adventure Runtime은 작업·차례와 대기 상태를 소유하고, Combat Map은 위치·이동량을 소유한다.
+ end note
  actor "플레이어" as Player
  participant "지도 화면" as UI
  participant "모험 런타임" as Runtime
@@ -177,41 +181,60 @@ group 전투 이동 중단 경로: 지도 UI와 /combat/actions
   UI -> Runtime : 서버 발급 turn UUID·operation 식별자와 이동 제출
   Runtime -> Encounter : 같은 플레이어 차례·이동 예산·작업 식별자 검증
   Encounter --> Runtime : 검증된 이동 허용량
-  Runtime -> Map : 사건 칸까지 이동 예약·진행
+  Runtime -> Runtime : 기존 operation을 영속 저장·진행 중으로 표시
+  note over Runtime
+    어느 진입 경로든 Combat Map 호출 전에 저장한다.
+    지도 커밋 전부터 복구 완료까지 새 이동·전투 행동·턴 종료를 막고,
+    같은 operation 식별자의 재시도만 허용한다.
+  end note
+  Runtime -> Map : 지도 소유 경로·기하·통행 가능 진행 예약
+  note over Map
+    예약은 지도 상태와 경로 진행만 담는다.
+    GM 판정, 플레이어 선택, 굴림, 최종 판정은 담지 않는다.
+  end note
   Map --> Runtime : 사건 사실·중단 위치·실제 이동량
-  Runtime -> Map : 사건 칸까지 실제 위치·이동량 최종 확정 요청
-  Map -> Map : 위치·공간 상태를 원자 저장
-  Map --> Runtime : 확정 위치·실제 이동량
+  Runtime -> Map : 사건 칸까지 실제 위치·공간 상태 최종 확정 요청
+  Map -> Map : 위치·공간 상태를 먼저 원자 저장
+  Map --> Runtime : 커밋된 위치·공간 상태·실제 이동량
+  Runtime -> Runtime : 이동 결과·GM 개입 대기를 같은 operation에 저장
   Runtime -> Encounter : 실제 이동량을 작업당 한 번 차감
   Encounter --> Runtime : 저장된 이동 예산·현재 참가자 유지
-  Runtime -> Runtime : 이동 결과와 operation의 GM_INTERVENTION_PENDING 상태 저장
   Runtime -> GM : 같은 서버 작업·turn 식별자로 사건 판정 요청
-  GM --> Runtime : 고정 구조 판정·서술·기존 플레이어 굴림 필요 여부·전투 시작 여부
+  GM --> Runtime : 사건 판정 후보·행동별 판정 상세·선택적 룰북 근거·서술·전투 시작 여부
   Runtime -> Runtime : 응답 구조·operation·turn 식별자 검증
-  alt 기존 플레이어 굴림이 필요함
-    Runtime -> UI : 같은 작업의 필수 굴림 요청 표시
-    Player -> UI : 필수 굴림 결과 제출
-    UI -> Runtime : 서버 operation·turn 식별자와 굴림 결과
-    Runtime -> Runtime : 같은 operation·turn 및 굴림 상태 검증·저장
-    Runtime -> GM : 저장된 굴림 결과로 최종 판정 요청
-    GM --> Runtime : 최종 고정 구조 판정·서술·전투 시작 여부
-    Runtime -> Runtime : 최종 응답 구조·operation·turn 식별자 검증
-  else 굴림이 필요 없음
-    Runtime -> Runtime : 검증된 최초 응답을 최종 판정으로 확정
-  end
+  Runtime --> UI : 플레이어가 고를 판정 선택지와 근거 표시
+  note over Runtime,GM
+    GM은 각 행동에 맞는 판정 상세를 제안하며, 확인 가능한 경우에만 룰북 근거를 붙인다.
+    장면을 보고 GM이 만든 판정에는 룰북 근거가 없어도 된다.
+    근거 부재만으로 선택지를 거부하지 않는다.
+  end note
+  Player -> UI : 판정 선택지 하나 선택
+  UI -> Runtime : 선택한 판정과 같은 operation·turn 식별자
+  Runtime -> Runtime : 현재 작업·차례의 선택지인지 검증·선택 저장
+  Runtime -> UI : 선택된 판정 하나의 굴림 요청
+  Player -> UI : 선택된 판정의 굴림 결과 제출
+  UI -> Runtime : 서버 operation·turn 식별자와 선택된 굴림 결과
+  Runtime -> Runtime : 같은 operation·turn·선택 및 굴림 상태 검증·저장
+  Runtime -> GM : 선택된 판정과 저장된 굴림 결과로 최종 판정 요청
+  GM --> Runtime : 최종 고정 구조 판정·서술·전투 시작 여부
+  Runtime -> Runtime : 최종 응답 구조·operation·turn 식별자 검증
   loop GM 실패·구조/식별자 불일치·필수 후속 변경 저장 실패
-    Runtime -> Runtime : GM_INTERVENTION_PENDING 유지·미완료 단계 기록
+    Runtime -> Runtime : 이동 결과·GM_INTERVENTION_PENDING·operation 잠금 유지
     Runtime -> GM : 같은 operation·turn으로 미완료 단계 재시도
     GM --> Runtime : 해당 단계 응답
     Runtime -> Runtime : 응답·필수 변경 재검증
   end
   Runtime -> Runtime : 최종 판정·필수 후속 변경 저장 뒤 GM_INTERVENTION_PENDING 해제
+  Runtime -> Runtime : 복구 완료 후 같은 operation 잠금 해제
   Runtime -> UI : 결과 또는 같은 차례 재개 상태 반환
   note over Runtime,GM
     재시도는 같은 작업·차례와 저장된 결과를 사용한다.
     중복 이동·예산 차감·서술 적용을 막는다.
+    지도 커밋 뒤 실패해도 확정 위치와 operation 잠금을 유지한다.
     GM 서술은 위치·이동량·플레이어 차례를 변경하지 않는다.
     중단된 경로를 자동 실행하지 않으며 다음 플레이어 입력을 기다린다.
+    #369 목표: GM이 제안한 행동별 판정 중 플레이어가 고른 하나만 굴린다.
+    선택·굴림 절차는 아직 부분 구현이며 이 그림은 승인 목표를 나타낸다.
   end note
 end
 @enduml

@@ -351,8 +351,10 @@ public final class TypedAgentContractController {
                         throw new IllegalArgumentException("initial situation response is invalid JSON", invalid);
                     }
                 };
-        if (!request.useSubagents()) return adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(), request.prompt(),
-                parser, requested, resolution, null, request.outputSchema()).response();
+        if (!request.useSubagents()) return adapter.completeWithImageAndResolution(request.soloPlayerId(),
+                request.operationKey(), new com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt(
+                        request.prompt(), request.imageDataUri()), parser, requested, resolution,
+                request.outputSchema()).response();
         List<com.dndmaster.aigamemaster.application.ai.AiExecutionRequest.Subtask> subtasks = request.stageTasks().stream()
                 .map(task -> new com.dndmaster.aigamemaster.application.ai.AiExecutionRequest.Subtask(task.stageId(), task.prompt(), task.outputSchema())).toList();
         return adapter.completeWithResolutionAndSubtasks(request.soloPlayerId(), request.operationKey(), request.prompt(),
@@ -2108,15 +2110,23 @@ public final class TypedAgentContractController {
 
     public record InitialSituationRequest(java.util.UUID soloPlayerId, java.util.UUID endpointId,
             String provider, String model, String reasoning, String operationKey, String prompt, JsonNode outputSchema,
-            boolean useSubagents, List<InitialSituationStageTask> stageTasks) {
+            boolean useSubagents, List<InitialSituationStageTask> stageTasks, String imageDataUri) {
+        public InitialSituationRequest(java.util.UUID soloPlayerId, java.util.UUID endpointId,
+                String provider, String model, String reasoning, String operationKey, String prompt, JsonNode outputSchema,
+                boolean useSubagents, List<InitialSituationStageTask> stageTasks) {
+            this(soloPlayerId, endpointId, provider, model, reasoning, operationKey, prompt, outputSchema,
+                    useSubagents, stageTasks, "");
+        }
         public InitialSituationRequest(java.util.UUID soloPlayerId, java.util.UUID endpointId,
                 String provider, String model, String reasoning, String operationKey, String prompt, JsonNode outputSchema) {
-            this(soloPlayerId, endpointId, provider, model, reasoning, operationKey, prompt, outputSchema, false, List.of());
+            this(soloPlayerId, endpointId, provider, model, reasoning, operationKey, prompt, outputSchema,
+                    false, List.of(), "");
         }
         public InitialSituationRequest(java.util.UUID soloPlayerId, java.util.UUID endpointId,
                 String provider, String model, String reasoning, String operationKey, String prompt, JsonNode outputSchema,
                 boolean useSubagents) {
-            this(soloPlayerId, endpointId, provider, model, reasoning, operationKey, prompt, outputSchema, useSubagents, List.of());
+            this(soloPlayerId, endpointId, provider, model, reasoning, operationKey, prompt, outputSchema,
+                    useSubagents, List.of(), "");
         }
         public InitialSituationRequest {
             soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
@@ -2126,6 +2136,11 @@ public final class TypedAgentContractController {
             operationKey = required(operationKey, "operationKey");
             prompt = required(prompt, "prompt");
             stageTasks = stageTasks == null ? List.of() : List.copyOf(stageTasks);
+            imageDataUri = imageDataUri == null ? "" : imageDataUri.trim();
+            if (!imageDataUri.isBlank() && !imageDataUri.startsWith("data:image/"))
+                throw new IllegalArgumentException("map image must be an image data URI");
+            if (useSubagents && !imageDataUri.isBlank())
+                throw new IllegalArgumentException("image input is not supported for delegated stage tasks");
             if (useSubagents && (stageTasks.isEmpty() || stageTasks.stream().map(InitialSituationStageTask::stageId).distinct().count() != stageTasks.size()))
                 throw new IllegalArgumentException("delegated stage tasks must have unique stageIds");
             if (outputSchema == null || !outputSchema.isObject() || !"object".equals(outputSchema.path("type").asText())

@@ -40,25 +40,33 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     private final AdventureSessionRepository sessions;
     private final ObjectMapper mapper;
     private final StorySourcePreviewPort storySource;
+    private final ScenarioMapImagePort mapImage;
 
     public ScenarioPackageStageArtifactAdapter(ScenarioPackageRepository packages) {
-        this(packages, null, null, null, null, null);
+        this(packages, null, null, null, null, null, null);
     }
 
     public ScenarioPackageStageArtifactAdapter(ScenarioPackageRepository packages, InitialSituationGmPort gm,
             GmProviderBindingRepository bindings, AdventureSessionRepository sessions, ObjectMapper mapper) {
-        this(packages, gm, bindings, sessions, mapper, null);
+        this(packages, gm, bindings, sessions, mapper, null, null);
     }
 
     public ScenarioPackageStageArtifactAdapter(ScenarioPackageRepository packages, InitialSituationGmPort gm,
             GmProviderBindingRepository bindings, AdventureSessionRepository sessions, ObjectMapper mapper,
             StorySourcePreviewPort storySource) {
+        this(packages, gm, bindings, sessions, mapper, storySource, null);
+    }
+
+    public ScenarioPackageStageArtifactAdapter(ScenarioPackageRepository packages, InitialSituationGmPort gm,
+            GmProviderBindingRepository bindings, AdventureSessionRepository sessions, ObjectMapper mapper,
+            StorySourcePreviewPort storySource, ScenarioMapImagePort mapImage) {
         this.packages = java.util.Objects.requireNonNull(packages, "scenario package repository must not be null");
         this.gm = gm;
         this.bindings = bindings;
         this.sessions = sessions;
         this.mapper = mapper;
         this.storySource = storySource;
+        this.mapImage = mapImage;
     }
 
     @Override
@@ -143,12 +151,16 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         if (gm != null) {
             ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
             List<List<String>> rules = lookupRules(scenarioPackage, request.sessionId(), request.requiredSituations());
-            Set<UUID> allowedMapIds = scenarioPackage.mapDefinitions().stream()
+            List<com.dndmaster.adventure.domain.scenario.MapDefinition> usableMaps = scenarioPackage.mapDefinitions().stream()
                     .filter(com.dndmaster.adventure.domain.scenario.MapDefinition::autoActivatable)
-                    .map(com.dndmaster.adventure.domain.scenario.MapDefinition::id)
+                    .toList();
+            Set<UUID> allowedMapIds = usableMaps.stream().map(com.dndmaster.adventure.domain.scenario.MapDefinition::id)
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
+            var imageMap = usableMaps.stream().findFirst().orElse(null);
+            String imageDataUri = imageMap == null || mapImage == null ? "" : mapImage.load(imageMap);
+            UUID attachedMapImageId = imageDataUri.isBlank() || imageMap == null ? null : imageMap.id();
             String prompt = detailedPrompt(scenarioPackage, request.stageId(), request.evidence(), request.requiredSituations(),
-                    request.alreadyAssignedRequiredSituationIds(), rules);
+                    request.alreadyAssignedRequiredSituationIds(), rules, attachedMapImageId);
             devLog("dev_initial_situation_input task=detailed adventureId={} sessionId={} packageId={} stageId={} openingSituationRequired={} requiredSituationCount={} requiredSituationSchemaItemCount={} requiredSituationSchemaSourceRefCounts={} requiredSituations={} alreadyAssignedRequiredSituationIds={} ruleEvidence={} sourceRefCount={} sourceRefs={} mapDefinitionCount={} usableMapDefinitionCount={} excludedMapDefinitions={} allowedMapIds={} scenarioContextChars={} promptChars={} promptFingerprint={} retrievedPassageTextIncluded=false backboneStageSummaryIncluded=false",
                     request.adventureId().value(), request.sessionId().value(), request.scenarioPackageId(), request.stageId(),
                     request.openingSituationRequired(), request.requiredSituations().size(), request.requiredSituations().size(),
@@ -163,7 +175,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
             String task = "stage:" + request.stageId();
             JsonNode generated = generate(request.sessionId(), request.adventureId().value(),
                     request.scenarioPackageId(), task, prompt, request.evidence(), request.openingSituationRequired(),
-                    allowedMapIds, false, null, request.requiredSituations());
+                    allowedMapIds, false, null, request.requiredSituations(), imageDataUri);
             return materializeDetailedStage(request, generated, allowedMapIds);
         }
         ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
@@ -268,31 +280,39 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     private JsonNode generate(SessionId sessionId, UUID adventureId, UUID packageId, String task, String taskPrompt,
             List<ScenarioSourceReference> allowedRefs) {
         return generate(sessionId, adventureId, packageId, task, taskPrompt, allowedRefs, false, Set.of(),
-                false, null, List.of());
+                false, null, List.of(), "");
     }
 
     private JsonNode generate(SessionId sessionId, UUID adventureId, UUID packageId, String task, String taskPrompt,
             List<ScenarioSourceReference> allowedRefs, boolean openingSituationRequired, Set<UUID> allowedMapIds,
             boolean useSubagents, JsonNode schemaOverride, List<RequiredSituation> requiredSituations) {
+        return generate(sessionId, adventureId, packageId, task, taskPrompt, allowedRefs, openingSituationRequired,
+                allowedMapIds, useSubagents, schemaOverride, requiredSituations, "");
+    }
+
+    private JsonNode generate(SessionId sessionId, UUID adventureId, UUID packageId, String task, String taskPrompt,
+            List<ScenarioSourceReference> allowedRefs, boolean openingSituationRequired, Set<UUID> allowedMapIds,
+            boolean useSubagents, JsonNode schemaOverride, List<RequiredSituation> requiredSituations,
+            String imageDataUri) {
         var session = sessions.findById(sessionId).orElseThrow(() -> new IllegalStateException("adventure session not found"));
         var binding = bindings.current(sessionId.value()).orElseThrow(() -> new IllegalStateException("GM provider selection not found"));
         String prompt = "ROLE=INITIAL_SITUATION_PREPARATION\nTASK=" + task + "\n" + taskPrompt
                 + "\nOUTPUT_CONTRACT=Return exactly one JSON object matching the requested fields. No markdown.";
         JsonNode schema = schemaOverride == null
                 ? outputSchema(task, allowedRefs, openingSituationRequired, allowedMapIds, requiredSituations) : schemaOverride;
-        devLog("dev_initial_situation_agent_request task={} requestId={} provider={} model={} useSubagents={} promptChars={} promptFingerprint={} schemaChars={} allowedSourceRefCount={} openingSituationRequired={} allowedMapCount={} allowedMapNeededValues={}",
+        devLog("dev_initial_situation_agent_request task={} requestId={} provider={} model={} useSubagents={} promptChars={} promptFingerprint={} schemaChars={} allowedSourceRefCount={} openingSituationRequired={} allowedMapCount={} allowedMapNeededValues={} imageAttached={} imageDataUriChars={}",
                 task, "initial-situation:" + adventureId + ":" + packageId + ":" + task, binding.selection().provider(),
                 binding.selection().model(), useSubagents, prompt.length(),
                 com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(prompt),
                 schema.toString().length(), allowedRefs.size(), openingSituationRequired, allowedMapIds.size(),
-                allowedMapIds.isEmpty() ? List.of(false) : List.of(false, true));
+                allowedMapIds.isEmpty() ? List.of(false) : List.of(false, true), !imageDataUri.isBlank(), imageDataUri.length());
         String requestId = "initial-situation:" + adventureId + ":" + packageId + ":" + task;
         long startedAt = System.nanoTime();
         try {
             JsonNode response = gm.generate(new InitialSituationGmPort.Request(session.ownerPlayerId().value(), sessionId.value(),
                     binding.selection().endpointId(), binding.selection().provider(), binding.selection().model(),
                     binding.selection().reasoning(), requestId, prompt, schema, useSubagents, List.of(),
-                    openingSituationRequired, requiredSituations.size()));
+                    openingSituationRequired, requiredSituations.size(), imageDataUri));
             devLog("dev_initial_situation_agent_response outcome=completed task={} requestId={} responseType={} topLevelFields={} responseChars={} responseFingerprint={} elapsedMs={}",
                     task, requestId, response.getNodeType(), jsonFields(response), response.toString().length(),
                     com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(response.toString()),
@@ -486,7 +506,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     }
 
     private String detailedPrompt(ScenarioPackage scenarioPackage, String stageId, List<ScenarioSourceReference> evidence,
-            List<RequiredSituation> required, List<String> alreadyAssigned, List<List<String>> rules) {
+            List<RequiredSituation> required, List<String> alreadyAssigned, List<List<String>> rules,
+            UUID attachedMapImageId) {
         return "Prepare the situation definitions and supporting details for stage " + stageId + " from the extracted required story situations and retrieved rule evidence. "
                 + "Include every required situation assigned to this stage. Add optional intermediate situations only where the story supports a distinct choice or route; zero, one, or several are valid. "
                 + "Give every situation a specific event name, such as 'A goblin scout is on patrol', and a short scene description that names relevant place, actor, current action, motive or likely response, and an opening for player involvement when supported. Do not name a situation after an abstract purpose, and do not prescribe the ending, player action, or solution. "
@@ -509,6 +530,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                         .filter(com.dndmaster.adventure.domain.scenario.MapDefinition::autoActivatable)
                         .map(map -> Map.of("mapDefinitionId", map.id(), "assetId", map.assetId(),
                                 "assetLocator", map.assetLocator(), "source", map.source())).toList())
+                + "\nATTACHED_MAP_IMAGE_MAP_DEFINITION_ID=" + (attachedMapImageId == null ? "none" : attachedMapImageId)
+                + (attachedMapImageId == null ? "" : "\nUse the attached map image when evaluating spatial movement and positioning. The image belongs to this mapDefinitionId.")
                 + "\nREQUIRED_STORY_SITUATIONS (summary, explicit ending marker, prerequisite count): "
                 + json(required.stream().map(item -> Map.of("summary", item.summary(), "isEnding", item.isEnding(),
                         "prerequisiteCount", item.prerequisiteSituationIds().size())).toList())

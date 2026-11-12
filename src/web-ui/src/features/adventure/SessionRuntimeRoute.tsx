@@ -117,6 +117,7 @@ export function SessionRuntimeRoute({ sessionId, sessionApi, adventureApi, playA
     if (!completionEntries) return <section className="workspace-page workspace-state" aria-busy="true"><p className="eyebrow">ADVENTURE COMPLETE</p><h1>모험 크레딧을 준비하고 있습니다</h1><p role="status">저장된 여정을 불러오는 중입니다.</p></section>
     return <AdventureCredits entries={completionEntries} party={partyCharacters} adventureId={session.adventureId} />
   }
+  if (session.status === 'STARTING') return <section className="workspace-page workspace-state" aria-busy="true"><p className="eyebrow">SESSION</p><h1>세션 시작을 완료하는 중입니다</h1><p role="status">맵 검수를 마치고 ‘맵 준비 완료, 모험 시작’을 눌러주세요.</p><a className="text-link" href={`#/sessions/${encodeURIComponent(sessionId)}`}>세션 준비 화면으로 돌아가기</a></section>
   if (combatSnapshot && combatSnapshot.status !== 'ENDED') return <>
     <SpatialTurnRuntime adventureId={session.adventureId} playApi={playApi} combatSnapshot={combatSnapshot} />
     <CombatScreen

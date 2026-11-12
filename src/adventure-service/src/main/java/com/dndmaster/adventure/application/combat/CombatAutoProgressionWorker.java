@@ -17,6 +17,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 /** Claims durable AI work and advances it only through the combat action boundary. */
 public final class CombatAutoProgressionWorker {
     private static final Duration LEASE = Duration.ofSeconds(30);
+    private static final int MAX_ATTEMPTS = 5;
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(CombatAutoProgressionWorker.class);
 
     private final String workerId;
@@ -113,6 +114,7 @@ public final class CombatAutoProgressionWorker {
     public boolean processOnce(Instant now) {
         Optional<CombatWorkItem> claimed = workItems.claim(workerId, LEASE, now);
         if (claimed.isEmpty()) return false;
+        long startedAt = System.nanoTime();
         CombatWorkItem item = claimed.orElseThrow();
         CombatEncounter encounter = encounters.findByEncounterId(item.encounterId()).orElse(null);
         if (encounter == null) {
@@ -204,6 +206,15 @@ public final class CombatAutoProgressionWorker {
                     item.aiRequestId(), item.operationId(), item.encounterId(), failure.code(), failure.violations());
             releaseInitialRequest(failed, failure.code());
         } catch (RuntimeException failure) {
+            if (item.attemptCount() >= MAX_ATTEMPTS) {
+                CombatWorkItem failed = item.failed(item.leaseToken(), "AI_RETRY_LIMIT_REACHED");
+                workItems.save(failed);
+                devLog("dev_combat_ai_follow_up_failed requestId={} operationId={} encounterId={} attempt={} maxAttempts={} failureCode={} exceptionClass={} elapsedMs={} recoveryAction=release_ai_request",
+                        item.aiRequestId(), item.operationId(), item.encounterId(), item.attemptCount(), MAX_ATTEMPTS,
+                        failed.failure(), failure.getClass().getName(), (System.nanoTime() - startedAt) / 1_000_000);
+                releaseInitialRequest(failed, failed.failure());
+                return true;
+            }
             int delaySeconds = Math.min(60, 1 << Math.min(item.attemptCount(), 6));
             CombatWorkItem retry = item.retry(item.leaseToken(), now.plusSeconds(delaySeconds), failureReason(failure));
             workItems.save(retry);

@@ -4,6 +4,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { AdventureSessionPanel } from './AdventureSessionPanel'
 import type { AdventureSessionApi, AdventureSessionView } from './AdventureSessionApi'
 import type { AdventurePlayApi } from '../saved-adventures/AdventurePlayApi'
+import { SessionRuntimeRoute } from '../adventure/SessionRuntimeRoute'
+import type { AdventureApi } from '../adventure/AdventureApi'
+import type { SetupApi } from '../rulebooks/SetupApi'
+import type { CombatApi } from '../combat/CombatApi'
 
 describe('AdventureSessionPanel lifecycle', () => {
   it('allows a direct character to start before the party reaches its maximum size', async () => {
@@ -117,5 +121,27 @@ describe('AdventureSessionPanel lifecycle', () => {
     expect(api.prepareMap).toHaveBeenCalledTimes(1)
     expect(api.prepareMap).toHaveBeenCalledWith('s', 2, 'a')
     await waitFor(() => expect(getCombatMapPreparation).toHaveBeenCalledTimes(2))
+  })
+
+  it('keeps the turn input closed until the starting session finishes map preparation', async () => {
+    const session: AdventureSessionView = {
+      sessionId: 's', characterLimit: 1, version: 2, status: 'STARTING', adventureId: 'a',
+      runtimeConfiguration: null, storyLength: 'NORMAL', party: [],
+    }
+    const sessionApi = { read: vi.fn().mockResolvedValue(session) } as unknown as AdventureSessionApi
+    const combatApi = { readSnapshot: vi.fn().mockRejectedValue(new Error('no combat yet')) } as unknown as CombatApi
+
+    render(<SessionRuntimeRoute
+      sessionId="s"
+      sessionApi={sessionApi}
+      adventureApi={{} as AdventureApi}
+      playApi={{} as AdventurePlayApi}
+      setupApi={{} as SetupApi}
+      combatApi={combatApi}
+    />)
+
+    expect(await screen.findByRole('heading', { name: '세션 시작을 완료하는 중입니다' })).toBeTruthy()
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(screen.getByRole('link', { name: '세션 준비 화면으로 돌아가기' }).getAttribute('href')).toBe('#/sessions/s')
   })
 })

@@ -864,9 +864,9 @@ public final class CodexAppServerClient implements AutoCloseable, CodexAccountCl
         String messageClass = classifyProviderMessage(message);
         String category = !Set.of("OTHER", "EMPTY").contains(messageClass) ? messageClass : categorizeTurnFailure(code);
         if (runtimeDiagnosticsEnabled()) {
-            LOGGER.warn("dev_codex_turn_failure expectedOutcome=completed actualOutcome=failed operationId={} stage={} turnId={} method={} errorCode={} errorCategory={} messageClass={} messageChars={} errorFields={} detailFields={} codexErrorInfoFields={} additionalDetailsFields={} misalignmentFields={} safeProviderDetails={} outputLimitKind={} requestedOutputTokenLimit={} allowedOutputTokenLimit={} actualOutputTokens={} usageOutputTokens={} usageReasoningTokens={} recoveryAction=propagate_failure",
+            LOGGER.warn("dev_codex_turn_failure expectedOutcome=completed actualOutcome=failed operationId={} stage={} turnId={} method={} errorCode={} errorCategory={} messageClass={} messageChars={} providerMessage={} errorFields={} detailFields={} codexErrorInfoFields={} additionalDetailsFields={} misalignmentFields={} safeProviderDetails={} outputLimitKind={} requestedOutputTokenLimit={} allowedOutputTokenLimit={} actualOutputTokens={} usageOutputTokens={} usageReasoningTokens={} recoveryAction=propagate_failure",
                     safe(operationId), stage(operationId), safe(turnId), safe(method), code, category,
-                    messageClass, message.length(), nodeFields(error),
+                    messageClass, message.length(), safeProviderMessage(message), nodeFields(error),
                     nodeFields(detail), nodeFields(error.path("codexErrorInfo")),
                     nodeFields(error.path("additionalDetails")), nodeFields(error.path("misalignment")),
                     safeProviderDetails(error), category.equals("OUTPUT_LIMIT") ? outputLimitKind(message, error) : "NOT_APPLICABLE",
@@ -946,6 +946,18 @@ public final class CodexAppServerClient implements AutoCloseable, CodexAccountCl
         if (lower.contains("temporar") || lower.contains("unavailable") || lower.contains("overloaded")) return "UPSTREAM_UNAVAILABLE";
         if (lower.contains("refus")) return "REFUSAL";
         return message.isBlank() ? "EMPTY" : "OTHER";
+    }
+
+    private static String safeProviderMessage(String message) {
+        if (message == null || message.isBlank()) return "<empty>";
+        String safeMessage = message.replaceAll("[\\r\\n\\t]+", " ")
+                .replaceAll("(?i)bearer\\s+[^\\s,;]+", "Bearer [REDACTED]")
+                .replaceAll("(?i)(api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)(\\s*[=:]\\s*)[^\\s,;]+", "$1$2[REDACTED]")
+                .replaceAll("https?://[^\\s,;]+", "[URL]")
+                .replaceAll("(?i)private\\s+(?:prompt|provider|user|player)\\s+(?:text|content)", "[REDACTED]")
+                .replaceAll("(?i)(?:private\\s+)?prompt(?:\\s+content)?", "[REDACTED]")
+                .replaceAll("(?i)(?:player|user) input(?:\\s+content)?", "[REDACTED]");
+        return safeMessage.substring(0, Math.min(safeMessage.length(), 500));
     }
 
     private static List<String> safeProviderDetails(JsonNode error) {

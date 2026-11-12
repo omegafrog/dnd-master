@@ -72,7 +72,7 @@
 - **Combat Auto-Progression (Adventure Runtime)**: Human Player의 선택이 필요하지 않은 AI Party Member와 Enemy/NPC의 Combat Turn을 서버의 durable state machine이 단계별로 확정하며 연속 실행하는 방식. 다음 Human Player Turn, Reaction 선택 대기, Combat End에서 멈추고 장애나 재접속 후 마지막 확정 단계부터 재개한다.
 - **Reaction Interrupt (Adventure Runtime)**: Game Engine이 확정한 Trigger와 사용 가능한 Reaction 선택지로 진행 중 Combat Turn을 중단하는 상태 전이. `CombatEncounter`는 중단 지점과 pending 선택을 보존하고 `REACTION_PENDING`에서 Human Player의 명시적 사용/넘김을 시간 제한 없이 기다리며, AI 소유 Reaction은 Combat Auto-Progression이 자동 결정한다.
 - **Combat Event (Adventure Runtime)**: `CombatEncounter`의 전투 전이와 판정 결과를 순서대로 보존하는 불변 기록. 현재 상태를 재구성하는 전체 event sourcing 정본은 아니며, Combat Log와 Combat UI SSE 갱신의 원천으로 사용한다. 플레이어 projection은 적 비공개 정보가 제거된 Event만 노출한다.
-- **GM 개입 대기**: 전투 이동 중단 사건을 AI Game Master가 판정하는 동안 같은 이동 작업과 전투 차례를 보존하는 상태. 기존 플레이어 굴림이 요구되면 제출 뒤에도 대기를 유지하며, 굴림 결과를 받은 AI Game Master의 최종 구조화 판정이 검증·저장된 뒤에만 해제한다. 대기 중 다른 전투 행동과 턴 종료를 막고, 판정 실패·재시도에도 유지한다.
+- **GM 개입 대기**: 전투 이동 중단 사건을 AI Game Master가 판정하는 동안 같은 이동 작업과 전투 차례를 보존하는 상태. GM이 장면에 맞는 판정 기준과 행동 선택지별 굴림 정보를 제시하면 선택과 굴림을 같은 작업에 연결하며, 플레이어가 선택하고 굴려도 대기를 유지한다. 굴림 결과를 받은 AI Game Master의 최종 구조화 판정이 검증·저장된 뒤에만 해제한다. 대기 중 선택·해당 굴림 외의 전투 행동과 턴 종료를 막고, 판정 실패·재시도에도 유지한다.
 - **Narrative Combat Position (Adventure Runtime)**: Tactical Map이 없는 `CombatEncounter`에서 참가자 간 거리와 엄폐 관계를 구조화해 보존하는 위치 정본. AI Game Master가 서술 맥락에서 관계 변경을 제안하고 Game Engine이 Runtime Rule과 남은 Movement로 검증한다.
 - **Roll Ownership**: 플레이어 행동 요청에서 선택된 판정은 Solo Player가 굴림을 제출한다. 세계/이벤트 트리거 판정은 시스템이 해결한다. 판정 소유권이 애매하면 Solo Player가 굴림을 제출한다.
 - **Player-visible Outcome**: 플레이어에게는 제출한 주사위 값과 세계에서 관찰 가능한 행동 결과만 보인다. 내부 성공/실패 판정, DC, 비교값, 미발견 정보는 보이지 않는다.

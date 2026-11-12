@@ -34,7 +34,7 @@ public final class HttpInitialSituationGmPort implements InitialSituationGmPort 
         try {
             body = mapper.writeValueAsString(new GmRequest(request.ownerPlayerId(), request.endpointId(),
                     request.provider(), request.model(), request.reasoning(), request.operationKey(), request.prompt(),
-                    request.outputSchema(), request.useSubagents(), request.stageTasks()));
+                    request.outputSchema(), request.useSubagents(), request.stageTasks(), request.imageDataUri()));
         } catch (Exception failure) {
             throw new IllegalStateException("initial situation GM request could not be encoded", failure);
         }
@@ -78,5 +78,5 @@ public final class HttpInitialSituationGmPort implements InitialSituationGmPort 
 
     private record GmRequest(java.util.UUID soloPlayerId, java.util.UUID endpointId, String provider, String model,
             String reasoning, String operationKey, String prompt, JsonNode outputSchema, boolean useSubagents,
-            java.util.List<InitialSituationGmPort.StageTask> stageTasks) {}
+            java.util.List<InitialSituationGmPort.StageTask> stageTasks, String imageDataUri) {}
 }

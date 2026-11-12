@@ -16,7 +16,7 @@ The plan-scoped Harness profile `adventure-exploration-cycle-unit` runs `MapMove
 
 실제 브라우저 실행 전 [브라우저 실행·연결 절차](BROWSER.md)를 읽는다. 수동 모험 E2E는 headed Chromium에서 실제 화면을 캡처하고 한 단계씩 조작한다. 이 절차에서는 CUA Driver를 사용하지 않는다.
 
-프런트엔드·중계기·사용자 PC 에이전트가 이미 실행 중이고 백엔드만 복구해야 할 때는 `adventure-backend-only` 프로필로 백엔드만 실행한다. 기존 백엔드를 유지하며 별도 포트로 띄우려면 `BACKEND_SERVER_PORT`를 지정한다. 새 프런트엔드도 필요하면 `adventure-frontend-only`에 `FRONTEND_DEV_PORT`와 그 백엔드 주소인 `BACKEND_E2E_URL`을 지정한다. 예: `BACKEND_SERVER_PORT=8085 node .codex/scripts/harness-exec.mjs --root "$PWD" --profile adventure-backend-only`, `FRONTEND_DEV_PORT=5177 BACKEND_E2E_URL=http://127.0.0.1:8085 node .codex/scripts/harness-exec.mjs --root "$PWD" --profile adventure-frontend-only`. 전체 `adventure-runtime-server` 프로필은 다른 서비스까지 시작하므로 이미 필요한 서비스가 실행 중인 경우 사용하지 않는다. 사용자가 서버를 유지하라고 요청한 E2E에서는 검증 후에도 백엔드·프런트엔드 프로세스를 종료하지 않는다. `adventure-frontend-only`는 시간 제한 없이 실행하며, 사용자가 중지할 때까지 프런트엔드를 유지한다.
+프런트엔드·중계기·사용자 PC 에이전트가 이미 실행 중이고 백엔드만 복구해야 할 때는 `adventure-backend-only` 프로필로 백엔드만 실행한다. 기존 실행에서 DB·Redis가 기본 포트가 아닌 곳에 있으면 그 포트를 그대로 사용해 `POSTGRES_PORT`, `REDIS_PORT`, `SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:$POSTGRES_PORT/postgres`, `SPRING_DATA_REDIS_PORT`를 함께 전달한다. 이 프로필은 `start-dev.sh`가 설정하던 연결 주소를 자동으로 가져오지 않으므로, 이를 빠뜨리면 DB 기본 포트 5432로 접속해 백엔드가 기동하지 않는다. 기존 백엔드를 유지하며 별도 포트로 띄우려면 `BACKEND_SERVER_PORT`도 지정한다. 새 프런트엔드도 필요하면 `adventure-frontend-only`에 `FRONTEND_DEV_PORT`와 그 백엔드 주소인 `BACKEND_E2E_URL`을 지정한다. 전체 `adventure-runtime-server` 프로필은 다른 서비스까지 시작하므로 이미 필요한 서비스가 실행 중인 경우 사용하지 않는다. 사용자가 서버를 유지하라고 요청한 E2E에서는 검증 후에도 백엔드·프런트엔드 프로세스를 종료하지 않는다. `adventure-frontend-only`는 시간 제한 없이 실행하며, 사용자가 중지할 때까지 프런트엔드를 유지한다.
 
 전투 이동·주문 사거리 계획(#362–#375)은 [테스트 안내](../testing/combat-movement-spell-range/README.md)에 따라 실제 앱과 사용자 PC 에이전트를 사용한다. 에이전트 응답이 없는 화면 준비·입력은 headed Chromium의 Playwright CLI로 한 단계씩 조작할 수 있다. 에이전트 응답이 필요한 단계는 요청 전후 화면을 직접 캡처해 확인하고, 실제 응답에 따라 다음 행동을 정한다. Playwright 테스트 코드, 고정 응답, 직접 API 호출, 미리 정한 화면 순서는 사용하지 않는다. 5xx나 명시적 실패가 나오면 재전송하지 말고 중단한다. 상세 원칙은 [ADR-024](../adr/ADR-024-agent-driven-runtime-e2e.md)를 따른다.
 
@@ -26,7 +26,7 @@ The plan-scoped Harness profile `adventure-exploration-cycle-unit` runs `MapMove
 
 #375의 단위·계약 검사와 현재 소스·테스트 해시에 연결된 실행 기록은 기존 `adventure-focused-unit`을 사용한다. `adventure-runtime-server`는 필요한 서버 준비 전용이며 브라우저 E2E 실행이나 통과 증거가 아니다. 이미 실행 중인 서비스는 위 재사용 절차를 따르고 테스트 후에도 유지한다. 실제 브라우저 검증은 Playwright 런타임 테스트 스크립트 없이 위 EXEC·ADR-024 원칙을 따른다. 기존 모험을 재사용하거나 데이터베이스를 초기화하지 않는다.
 
-#375는 단위·계약 검사 기록과 별개로 세션 출력 디렉터리에 실제 E2E 결과를 남긴다. 화면·다시 조회한 서버 상태·저장 결과, 네 원본 자료 연결, 사용자 격자 조정 뒤 재개, 저장된 22열×23행과 사건 후 실제 도달 칸·이동량·같은 플레이어 차례·다음 입력 대기를 확인한다. `adventure-focused-unit` 통과와 이 필수 실제 E2E 통과 증거가 모두 있어야 `tests.status=passed` 및 `required_outcome=achieved`로 완료할 수 있다. E2E 미실행·실패는 Done을 막으며 서버 준비 기록만으로 완료하지 않는다. 전체 실행은 시간 제한 없이 사용자가 중단할 때까지 진행하며 전체 시도는 2회(최초 1회+진단 후 재시도 1회)다. 실패 시 재전송하지 않고 멈춰 사용자에게 묻고 서비스를 유지한다.
+#375는 단위·계약 검사 기록과 별개로 세션 출력 디렉터리에 실제 E2E 결과를 남긴다. 화면·다시 조회한 서버 상태·저장 결과, 네 원본 자료 연결, 사용자 격자 조정 뒤 재개, 저장된 22열×23행과 사건 후 실제 도달 칸·이동량·같은 플레이어 차례·다음 입력 대기를 확인한다. `adventure-focused-unit` 통과와 이 필수 실제 E2E 통과 증거가 모두 있어야 `tests.status=passed` 및 `required_outcome=achieved`로 완료할 수 있다. E2E 미실행·실패는 Done을 막으며 서버 준비 기록만으로 완료하지 않는다. 전체 실행은 시간 제한 없이 사용자가 중단할 때까지 진행하며 기본 시도는 2회(최초 1회+진단 후 재시도 1회)다. 2026-10-28 사용자가 수정 반영 후 E2E를 다시 요청해 기존 2회와 별도로 1회만 추가 승인했다. 실패 시 재전송하지 않고 멈춰 사용자에게 묻고 서비스를 유지한다.
 
 모험 시작 전 지도 준비 복원과 격자 정렬 복구처럼 에이전트 진행을 포함하지 않는 검사는 `adventure-map-preparation-check` 프로필을 사용할 수 있다.
 

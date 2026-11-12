@@ -555,7 +555,7 @@ class CodexAppServerClientTest {
                   case "$line" in
                     *'\"method\":\"initialize\"'*) echo '{\"id\":1,\"result\":{}}';;
                     *'\"method\":\"thread/start\"'*) echo '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-1\"}}}';;
-                    *'\"method\":\"turn/start\"'*) echo '{\"id\":3,\"result\":{}}'; echo '{\"method\":\"turn/failed\",\"params\":{\"error\":{\"code\":\"unclassified\",\"message\":\"Invalid schema while processing private prompt content\",\"codexErrorInfo\":{\"kind\":\"schema_rejection\"},\"additionalDetails\":{\"property\":\"근거키\"},\"misalignment\":{\"expected\":\"object\"}}}}';;
+                    *'\"method\":\"turn/start\"'*) echo '{\"id\":3,\"result\":{}}'; echo '{\"method\":\"turn/failed\",\"params\":{\"error\":{\"code\":\"unclassified\",\"message\":\"Invalid schema while processing private prompt content; code=SCHEMA_INVALID\",\"codexErrorInfo\":{\"kind\":\"schema_rejection\"},\"additionalDetails\":{\"property\":\"근거키\"},\"misalignment\":{\"expected\":\"object\"}}}}';;
                   esac
                 done
                 """);
@@ -572,6 +572,7 @@ class CodexAppServerClientTest {
             if ("true".equalsIgnoreCase(System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED"))) {
                 assertThat(output).contains("dev_codex_turn_failure expectedOutcome=completed actualOutcome=failed")
                         .contains("errorCode=unclassified").contains("messageClass=SCHEMA_REJECTED")
+                        .contains("providerMessage=Invalid schema while processing [REDACTED]; code=SCHEMA_INVALID")
                         .contains("codexErrorInfoFields=[kind]").contains("additionalDetailsFields=[property]")
                         .contains("misalignmentFields=[expected]").contains("additionalDetails.property=근거키")
                         .doesNotContain("private prompt content");
